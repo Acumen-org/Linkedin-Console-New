@@ -1,0 +1,8 @@
+{
+  "name": "linkunify-liveview",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

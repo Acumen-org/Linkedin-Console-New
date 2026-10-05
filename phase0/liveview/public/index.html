@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live LinkedIn</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: #1b1f23; }
+  #bar { display: flex; gap: 6px; padding: 6px; background: #2b3137; align-items: center; }
+  #bar button { padding: 4px 10px; }
+  #url { flex: 1; padding: 5px 8px; border-radius: 4px; border: 1px solid #555; background: #111; color: #eee; }
+  #tabs { max-width: 260px; }
+  #status { color: #aaa; font-size: 12px; min-width: 90px; text-align: right; }
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #screen { max-width: 100%; max-height: 100%; outline: none; cursor: default; user-select: none; -webkit-user-drag: none; }
+  #screen:focus { box-shadow: 0 0 0 2px #0a66c2; }
+  #banner { display: none; padding: 8px; background: #0a66c2; color: #fff; text-align: center; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="back" title="Back">←</button>
+  <button id="reload" title="Reload">⟳</button>
+  <input id="url" spellcheck="false" />
+  <select id="tabs" title="Tabs"></select>
+  <span id="status">connecting…</span>
+</div>
+<div id="banner">The page asked for a file. <input type="file" id="file" /></div>
+<div id="stage"><img id="screen" tabindex="0" alt="Live browser" draggable="false" /></div>
+
+<script>
+const token = new URLSearchParams(location.search).get('token');
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const $ = (id) => document.getElementById(id);
+const screen = $('screen');
+let ws;
+
+function connect() {
+  ws = new WebSocket(`${proto}://${location.host}${location.pathname.replace(/\/$/, '')}/ws?token=${encodeURIComponent(token)}`);
+  ws.onopen = () => { $('status').textContent = 'live'; screen.focus(); };
+  ws.onclose = () => { $('status').textContent = 'reconnecting…'; setTimeout(connect, 1500); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'frame') screen.src = 'data:image/jpeg;base64,' + m.data;
+    else if (m.t === 'nav') $('url').value = m.url;
+    else if (m.t === 'tab' || m.t === 'tabs') {
+      if (m.url) $('url').value = m.url;
+      const sel = $('tabs'); const cur = m.id ?? sel.value;
+      sel.innerHTML = m.tabs.map(t => `<option value="${t.id}">${(t.title || t.url).slice(0, 40).replace(/</g, '&lt;')}</option>`).join('');
+      sel.value = cur;
+    }
+    else if (m.t === 'filechooser') $('banner').style.display = 'block';
+    else if (m.t === 'error') console.warn('liveview:', m.message);
+  };
+}
+const send = (o) => ws?.readyState === 1 && ws.send(JSON.stringify(o));
+
+// ---- mouse ----
+const pos = (e) => { const r = screen.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; };
+const mods = (e) => ({ alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey });
+const BTN = ['left', 'middle', 'right'];
+let lastMove = 0;
+screen.addEventListener('mousedown', (e) => { e.preventDefault(); screen.focus(); send({ t: 'mouse', type: 'mousePressed', ...pos(e), button: BTN[e.button], buttons: e.buttons, clickCount: e.detail || 1, mods: mods(e) }); });
+screen.addEventListener('mouseup',   (e) => { e.preventDefault(); send({ t: 'mouse', type: 'mouseReleased', ...pos(e), button: BTN[e.button], buttons: e.buttons, clickCount: e.detail || 1, mods: mods(e) }); });
+screen.addEventListener('mousemove', (e) => { const now = performance.now(); if (now - lastMove < 30) return; lastMove = now; send({ t: 'mouse', type: 'mouseMoved', ...pos(e), buttons: e.buttons, button: e.buttons ? 'left' : 'none', mods: mods(e) }); });
+screen.addEventListener('wheel',     (e) => { e.preventDefault(); send({ t: 'wheel', ...pos(e), dx: e.deltaX, dy: e.deltaY }); }, { passive: false });
+screen.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ---- keyboard / paste ----
+screen.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return; // handled by paste event
+  e.preventDefault();
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+  send({ t: 'key', key: e.key, code: e.code, mods: mods(e) });
+});
+document.addEventListener('paste', (e) => {
+  if (document.activeElement !== screen) return;
+  e.preventDefault();
+  send({ t: 'paste', text: e.clipboardData.getData('text') });
+});
+
+// ---- toolbar ----
+$('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { send({ t: 'navigate', url: e.target.value }); screen.focus(); } });
+$('back').onclick = () => send({ t: 'back' });
+$('reload').onclick = () => send({ t: 'reload' });
+$('tabs').onchange = (e) => send({ t: 'switch', id: e.target.value });
+
+// ---- file upload (page opened a file chooser) ----
+$('file').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = new Uint8Array(await f.arrayBuffer());
+  let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  send({ t: 'file', name: f.name, data: btoa(bin) });
+  $('banner').style.display = 'none'; e.target.value = '';
+};
+
+connect();
+</script>
+</body>
+</html>

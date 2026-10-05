@@ -1,0 +1,59 @@
+# Phase 0 spike (Proxmox VM): one real Chrome for one LinkedIn account
+# + Live View (CDP screencast) for the human login + test scripts.
+# Usage: see phase0/README.md
+
+name: linkunify-phase0
+
+services:
+  # Real headful Google Chrome on a virtual display, persistent profile.
+  browser:
+    build: ./browser
+    restart: unless-stopped
+    shm_size: 2gb
+    environment:
+      TZ: ${ACCOUNT_TIMEZONE}
+      CHROME_LANG: ${CHROME_LANG:-en-US}
+      PROXY_SERVER: ${PROXY_SERVER:-}          # empty = use the server's public IP
+      SCREEN_W: 1440
+      SCREEN_H: 900
+    ports:
+      - "127.0.0.1:8090:8090"                  # Live View (lives in this netns). SSH tunnel only in Phase 0
+    volumes:
+      - profile:/data/profile                  # the LinkedIn session lives here
+      - uploads:/data/uploads
+
+  # Streams the browser to your web browser and forwards your input.
+  liveview:
+    build: ./liveview
+    restart: unless-stopped
+    network_mode: "service:browser"            # reaches CDP at 127.0.0.1:9222, never exposed
+    environment:
+      LIVEVIEW_TOKEN: ${LIVEVIEW_TOKEN}
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - uploads:/data/uploads
+    depends_on: [browser]
+
+  # Optional: only if the account needs a proxy that requires a username/password.
+  # Then set PROXY_SERVER=http://proxy-gateway:8080
+  proxy-gateway:
+    image: gogost/gost:latest
+    restart: unless-stopped
+    command: ["-L", "http://:8080", "-F", "${UPSTREAM_PROXY_URL:-}"]
+    profiles: ["proxy"]
+
+  # Test scripts (read/record/send). Run with `docker compose run`.
+  spike:
+    build: ./spike
+    network_mode: "service:browser"
+    environment:
+      CDP_URL: http://127.0.0.1:9222
+    volumes:
+      - ./out:/app/out
+      - ./files:/app/files:ro
+    profiles: ["tools"]
+    depends_on: [browser]
+
+volumes:
+  profile: {}
+  uploads: {}

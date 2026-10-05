@@ -1,0 +1,39 @@
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+
+	handle /socket.io/* {
+		reverse_proxy api:4000
+	}
+
+	# Live View of an account pod: /live/<accountId>/...
+	# The api checks the session cookie + the user's grant before anything reaches the pod.
+	@live path_regexp live ^/live/([a-z0-9]{12})(/.*)?$
+	handle @live {
+		forward_auth api:4000 {
+			uri /api/live/auth
+			copy_headers X-LU-User X-LU-Control
+			# The auth check itself must be a plain GET, even when the original request is a WebSocket upgrade.
+			header_up -Upgrade
+			header_up -Connection
+		}
+		reverse_proxy pod-{re.live.1}:8090 {
+			header_up X-LU-Secret {$LIVE_SECRET}
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+}

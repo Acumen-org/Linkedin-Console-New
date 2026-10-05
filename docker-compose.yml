@@ -1,0 +1,128 @@
+# LinkUnify: self-hosted LinkedIn team inbox.
+# First run:  ./scripts/install.sh      (creates .env, builds images, starts everything)
+# Update:     ./scripts/update.sh
+
+name: linkunify
+
+networks:
+  default:
+    name: linkunify            # account pods join this network by name
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  caddydata: {}
+  caddyconfig: {}
+  files:
+    name: linkunify_files      # shared with account pods (uploads, media, live uploads)
+
+x-server-env: &server-env
+  DATABASE_URL: postgres://linkunify:${POSTGRES_PASSWORD}@postgres:5432/linkunify
+  REDIS_URL: redis://redis:6379
+  FILES_DIR: /data/files
+  POD_AGENT_URL: http://pod-agent:7070
+  POD_AGENT_TOKEN: ${POD_AGENT_TOKEN}
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  DEFAULT_GRANT: ${DEFAULT_GRANT:-REPLY}
+  DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-America/Chicago}
+  DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-en-US}
+  DAILY_SEND_CAP: ${DAILY_SEND_CAP:-80}
+  SMTP_URL: ${SMTP_URL:-}
+  ALERT_FROM: ${ALERT_FROM:-}
+  APP_URL: ${APP_URL:-}
+
+services:
+  init-perms:
+    image: alpine:3.22
+    command: ["sh", "-c", "mkdir -p /data/files/uploads /data/files/media /data/files/live && chown -R 1000:1000 /data/files"]
+    volumes: [files:/data/files]
+    restart: "no"
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: linkunify
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: linkunify
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkunify"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: valkey/valkey:8
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+
+  api:
+    build: ./apps/server
+    image: linkunify/server:latest
+    restart: unless-stopped
+    command: ["node", "src/api.ts"]
+    environment: *server-env
+    volumes: [files:/data/files]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      init-perms: { condition: service_completed_successfully }
+
+  worker:
+    image: linkunify/server:latest
+    restart: unless-stopped
+    command: ["node", "src/worker.ts"]
+    environment: *server-env
+    volumes: [files:/data/files]
+    depends_on:
+      api: { condition: service_started }
+
+  pod-agent:
+    build: ./apps/pod-agent
+    image: linkunify/pod-agent:latest
+    restart: unless-stopped
+    environment:
+      POD_AGENT_TOKEN: ${POD_AGENT_TOKEN}
+      POD_NETWORK: linkunify
+      FILES_VOLUME: linkunify_files
+      CHROME_IMAGE: linkunify/chrome:latest
+      SIDECAR_IMAGE: linkunify/sidecar:latest
+      REDIS_URL: redis://redis:6379
+      POD_MEMORY_MB: ${POD_MEMORY_MB:-2048}
+      SIDECAR_ENV: ${SIDECAR_ENV:-}
+      LIVE_SECRET: ${LIVE_SECRET}
+      HEAL_PROVIDER: ${HEAL_PROVIDER:-}
+      HEAL_MODEL: ${HEAL_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  caddy:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: linkunify/caddy:latest
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      LIVE_SECRET: ${LIVE_SECRET}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [api]
+
+  # Images used by account pods (built, never started by compose).
+  chrome-image:
+    build: ./apps/chrome
+    image: linkunify/chrome:latest
+    profiles: ["images"]
+
+  sidecar-image:
+    build: ./apps/sidecar
+    image: linkunify/sidecar:latest
+    profiles: ["images"]

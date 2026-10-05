@@ -1,0 +1,29 @@
+{
+  "name": "@linkunify/server",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "api": "node --watch src/api.ts",
+    "worker": "node --watch src/worker.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/multipart": "^10.1.2",
+    "@node-rs/argon2": "^2.2.1",
+    "fastify": "^5.12.5",
+    "ioredis": "^5.11.1",
+    "nodemailer": "^10.0.14",
+    "postgres": "^3.4.9",
+    "socket.io": "^4.8.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "typescript": "^5.9.3"
+  }
+}

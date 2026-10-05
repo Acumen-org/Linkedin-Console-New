@@ -1,0 +1,22 @@
+{
+  "WebRtcIPHandling": "disable_non_proxied_udp",
+  "RemoteDebuggingAllowed": true,
+  "DeveloperToolsAvailability": 1,
+
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "BrowserAddPersonEnabled": false,
+  "BrowserGuestModeEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "DefaultNotificationsSetting": 2,
+  "MetricsReportingEnabled": false,
+  "BookmarkBarEnabled": false,
+  "PromptForDownloadLocation": false,
+  "CommandLineFlagSecurityWarningsEnabled": false,
+
+  "URLBlocklist": ["file://*", "chrome://settings/passwords", "chrome://policy"],
+  "ExtensionInstallBlocklist": ["*"]
+}

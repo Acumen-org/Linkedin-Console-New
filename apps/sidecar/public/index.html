@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Live LinkedIn</title>
+<style>
+  :root { font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: #f3f2ef; }
+  #bar { display: flex; gap: 6px; padding: 6px 8px; background: #fff; border-bottom: 1px solid #ddd; align-items: center; }
+  #bar button { padding: 5px 10px; border: 1px solid #ccc; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  #bar button:hover { background: #f3f3f3; }
+  #url { flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px; }
+  #tabs { max-width: 220px; padding: 5px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px; }
+  #ctl { font-size: 12px; color: #555; white-space: nowrap; }
+  #ctl.me { color: #057642; font-weight: 600; }
+  #take { background: #0a66c2 !important; color: #fff; border-color: #0a66c2 !important; }
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  #screen { max-width: 100%; max-height: 100%; outline: none; user-select: none; -webkit-user-drag: none; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  #screen:focus { box-shadow: 0 0 0 2px #0a66c2; }
+  #banner { display: none; padding: 8px; background: #0a66c2; color: #fff; text-align: center; font-size: 14px; }
+  #toast { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px; display: none; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="back" title="Back">←</button>
+  <button id="reload" title="Reload">⟳</button>
+  <input id="url" spellcheck="false" />
+  <select id="tabs" title="Tabs"></select>
+  <button id="newtab" title="New tab">＋</button>
+  <span id="ctl">connecting…</span>
+  <button id="take">Take control</button>
+</div>
+<div id="banner">The page wants a file: <input type="file" id="file" /></div>
+<div id="stage">
+  <img id="screen" tabindex="0" alt="Live browser" draggable="false" />
+  <div id="toast"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const screen = $('screen');
+const base = location.pathname.replace(/\/$/, '');
+let ws, me = null, canControl = false, controllerId = null;
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', 2500); }
+
+function renderControl(user) {
+  const mine = controllerId && controllerId === me;
+  $('ctl').className = mine ? 'me' : '';
+  $('ctl').textContent = !canControl ? 'View only' : mine ? 'You are in control' : user ? `${user} is in control` : 'Click to control';
+  $('take').style.display = canControl && !mine ? '' : 'none';
+  $('take').textContent = user && !mine ? 'Take over' : 'Take control';
+}
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${base}/ws`);
+  ws.onclose = () => { $('ctl').textContent = 'reconnecting…'; setTimeout(connect, 1500); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === 'frame') screen.src = 'data:image/jpeg;base64,' + m.data;
+    else if (m.t === 'hello') { me = m.id; canControl = m.canControl; renderControl(null); }
+    else if (m.t === 'control') { controllerId = m.id; renderControl(m.user); }
+    else if (m.t === 'nav') $('url').value = m.url;
+    else if (m.t === 'tab' || m.t === 'tabs') {
+      if (m.url && document.activeElement !== $('url')) $('url').value = m.url;
+      const sel = $('tabs'); const cur = m.id ?? sel.value;
+      sel.innerHTML = m.tabs.map(t => `<option value="${t.id}">${(t.title || t.url).slice(0, 40).replace(/[<&]/g, c => c === '<' ? '&lt;' : '&amp;')}</option>`).join('');
+      sel.value = cur;
+    }
+    else if (m.t === 'filechooser') $('banner').style.display = 'block';
+    else if (m.t === 'error') toast(m.message);
+  };
+}
+const send = (o) => ws?.readyState === 1 && ws.send(JSON.stringify(o));
+
+const pos = (e) => { const r = screen.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }; };
+const mods = (e) => ({ alt: e.altKey, ctrl: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey });
+const BTN = ['left', 'middle', 'right'];
+let lastMove = 0;
+screen.addEventListener('mousedown', (e) => { e.preventDefault(); screen.focus(); send({ t: 'mouse', type: 'mousePressed', ...pos(e), button: BTN[e.button], buttons: e.buttons, clickCount: e.detail || 1, mods: mods(e) }); });
+screen.addEventListener('mouseup', (e) => { e.preventDefault(); send({ t: 'mouse', type: 'mouseReleased', ...pos(e), button: BTN[e.button], buttons: e.buttons, clickCount: e.detail || 1, mods: mods(e) }); });
+screen.addEventListener('mousemove', (e) => { const now = performance.now(); if (now - lastMove < 40 || controllerId !== me) return; lastMove = now; send({ t: 'mouse', type: 'mouseMoved', ...pos(e), buttons: e.buttons, button: e.buttons ? 'left' : 'none', mods: mods(e) }); });
+screen.addEventListener('wheel', (e) => { e.preventDefault(); send({ t: 'wheel', ...pos(e), dx: e.deltaX, dy: e.deltaY }); }, { passive: false });
+screen.addEventListener('contextmenu', (e) => e.preventDefault());
+screen.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') return;
+  e.preventDefault();
+  if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+  send({ t: 'key', key: e.key, code: e.code, mods: mods(e) });
+});
+document.addEventListener('paste', (e) => {
+  if (document.activeElement !== screen) return;
+  e.preventDefault();
+  send({ t: 'paste', text: e.clipboardData.getData('text') });
+});
+
+$('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { send({ t: 'navigate', url: e.target.value }); screen.focus(); } });
+$('back').onclick = () => send({ t: 'back' });
+$('reload').onclick = () => send({ t: 'reload' });
+$('newtab').onclick = () => send({ t: 'newtab' });
+$('tabs').onchange = (e) => send({ t: 'switch', id: e.target.value });
+$('take').onclick = () => { send({ t: 'take' }); screen.focus(); };
+$('file').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = new Uint8Array(await f.arrayBuffer());
+  let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  send({ t: 'file', name: f.name, data: btoa(bin) });
+  $('banner').style.display = 'none'; e.target.value = '';
+};
+
+connect();
+</script>
+</body>
+</html>
