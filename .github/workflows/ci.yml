@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint (Biome)
+        run: pnpm exec biome ci .
+      - name: Typecheck, test, build
+        run: pnpm exec turbo run typecheck test build
+
+  e2e:
+    name: End-to-end (Docker)
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure test environment
+        run: |
+          cp .env.example .env
+          sed -i "s#^SITE_ADDRESS=.*#SITE_ADDRESS=:80#; s#^COOKIE_SECURE=.*#COOKIE_SECURE=false#; s#^HTTP_PORT=.*#HTTP_PORT=8088#; s#^HTTPS_PORT=.*#HTTPS_PORT=8443#" .env
+          for key in POSTGRES_PASSWORD POD_AGENT_TOKEN LIVE_SECRET; do
+            sed -i "s#^${key}=\$#${key}=$(openssl rand -hex 24)#" .env
+          done
+      - name: Build images
+        run: docker compose --profile images build
+      - name: Start stack
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Run end-to-end test
+        run: docker compose exec -T api node src/dev/e2e.ts
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

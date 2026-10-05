@@ -1,0 +1,11 @@
+{
+  "name": "LinkUnify",
+  "short_name": "LinkUnify",
+  "description": "Your team's unified LinkedIn inbox",
+  "start_url": "/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f2ee",
+  "theme_color": "#0a66c2",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

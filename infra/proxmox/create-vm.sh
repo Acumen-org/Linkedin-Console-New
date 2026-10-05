@@ -8,7 +8,7 @@ set -euo pipefail
 VMID=${VMID:-210}
 NAME=${NAME:-linkunify}
 CORES=${CORES:-8}
-MEMORY_MB=${MEMORY_MB:-32768}      # ~1–1.5 GB per LinkedIn account + 4 GB for the app
+MEMORY_MB=${MEMORY_MB:-32768}      # ~0.5 GB per LinkedIn account + headroom (see docs/operations.md)
 DISK=${DISK:-150G}
 STORAGE=${STORAGE:-local-lvm}
 BRIDGE=${BRIDGE:-vmbr0}

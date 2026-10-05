@@ -19,6 +19,8 @@ fi
 # --remote-debugging-port binds to 127.0.0.1 only; liveview + bridge share this
 # container's network namespace, so CDP is never exposed.
 # --no-sandbox: Chrome's sandbox needs extra kernel privileges inside Docker.
+# Background services below are switched off to save memory/CPU: they are invisible to websites
+# (sync, component updates, on-device ML models, translation, media router, Google registration).
 exec google-chrome \
   --user-data-dir=/data/profile \
   --remote-debugging-port=9222 \
@@ -30,6 +32,12 @@ exec google-chrome \
   --disable-backgrounding-occluded-windows \
   --disable-renderer-backgrounding \
   --disable-background-timer-throttling \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-domain-reliability \
+  --disable-client-side-phishing-detection \
+  --disable-features=Translate,OptimizationHints,OptimizationHintsFetching,OptimizationGuideModelDownloading,OptimizationTargetPrediction,MediaRouter,DialMediaRouteProvider,GlobalMediaControls,AutofillServerCommunication \
+  --metrics-recording-only \
   --lang="${CHROME_LANG:-en-US}" \
   --window-position=0,0 \
   --window-size="${SCREEN_W},${SCREEN_H}" \

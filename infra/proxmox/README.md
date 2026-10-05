@@ -25,7 +25,7 @@ cd /root/linkunify-proxmox
 VMID=210 CORES=8 MEMORY_MB=32768 ./create-vm.sh
 ```
 
-Sizing: about 1–1.5 GB RAM per LinkedIn account plus 4 GB for the app. 32 GB is comfortable for ~20 accounts.
+Sizing: about 0.5 GB RAM per LinkedIn account plus ~1 GB for the app and OS headroom. 32 GB is comfortable for ~30 accounts (see docs/operations.md → Resource usage).
 
 ## 3. Install (inside the VM)
 

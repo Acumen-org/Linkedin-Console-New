@@ -1,19 +1,20 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError } from './api';
-import type { User } from './types';
-import { connectRealtime } from './realtime';
 import { Layout } from './components/Layout';
-import { LoginPage, SetupPage } from './pages/Auth';
-import { InboxPage } from './pages/Inbox';
-import { AccountsPage } from './pages/Accounts';
-import { ConnectPage } from './pages/Connect';
-import { LivePage } from './pages/Live';
-import { ConnectionsPage } from './pages/Connections';
-import { TeamPage } from './pages/Team';
-import { AuditPage } from './pages/Audit';
-import { ProfilePage } from './pages/Profile';
+import { LoginPage, SetupPage } from './features/AuthPages';
+import { AccountsPage } from './features/accounts/AccountsPage';
+import { ConnectPage } from './features/accounts/ConnectPage';
+import { LivePage } from './features/accounts/LivePage';
+import { InboxPage } from './features/inbox/InboxPage';
+import { ConnectionsPage } from './features/network/ConnectionsPage';
+import { AuditPage } from './features/settings/AuditPage';
+import { ProfilePage } from './features/settings/ProfilePage';
+import { SettingsPage } from './features/settings/SettingsPage';
+import { TeamPage } from './features/settings/TeamPage';
+import { ApiError, api } from './lib/api';
+import { connectRealtime } from './lib/realtime';
+import type { User } from './types';
 
 const MeContext = createContext<User | null>(null);
 export const useMe = () => useContext(MeContext)!;
@@ -24,11 +25,20 @@ export function App() {
   const setup = useQuery({ queryKey: ['setup'], queryFn: () => api.get<{ needsSetup: boolean }>('/api/setup') });
   const me = useQuery({
     queryKey: ['me'],
-    queryFn: () => api.get<{ user: User }>('/api/me').then((r) => r.user).catch((e) => { if (e instanceof ApiError && e.status === 401) return null; throw e; }),
+    queryFn: () =>
+      api
+        .get<{ user: User }>('/api/me')
+        .then((r) => r.user)
+        .catch((e) => {
+          if (e instanceof ApiError && e.status === 401) return null;
+          throw e;
+        }),
     enabled: setup.data?.needsSetup === false,
   });
 
-  useEffect(() => { if (me.data) connectRealtime(qc); }, [me.data, qc]);
+  useEffect(() => {
+    if (me.data) connectRealtime(qc);
+  }, [me.data, qc]);
 
   if (setup.isLoading || (setup.data?.needsSetup === false && me.isLoading)) {
     return <div className="flex h-full items-center justify-center text-slate-500">Loading…</div>;
@@ -52,6 +62,8 @@ export function App() {
           <Route path="/team" element={<TeamPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<Navigate to="/settings/templates" replace />} />
+          <Route path="/settings/:tab" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/inbox" replace />} />
         </Route>
       </Routes>

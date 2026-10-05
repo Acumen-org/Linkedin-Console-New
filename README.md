@@ -1,111 +1,83 @@
-# LinkUnify: self-hosted LinkedIn team inbox
+# LinkUnify
 
-Connect many LinkedIn accounts and let your whole team read and reply from **one unified inbox**. Each account runs in its own real Chrome on **your** server. Teammates log in to this app, never to LinkedIn.
+**Self-hosted LinkedIn team inbox.** Connect many LinkedIn accounts and let your whole team read and reply from one unified inbox. Each account runs in its own real Chrome on **your** server. Teammates log in to this app, never to LinkedIn.
 
-- **Connect an account in 1 minute:** the owner logs in to LinkedIn through a live browser window inside the app (2FA/captcha handled by the human, no password stored).
-- **Unified Inbox:** all accounts in one list; filters (unread, starred, assigned, other, requests, archived); search; live updates.
-- **Like LinkedIn messaging:** text, images, files, GIFs, voice notes, reactions, read receipts ("Seen"), typing indicators, group chats.
-- **Team features:** "sent by" on every message, reply lock ("Ali is replying…"), assignment, internal notes, per-account access (Read / Reply / Full), audit log.
-- **Live LinkedIn:** the real linkedin.com of any account, streamed into the app (feed, profiles, posting, everything else).
-- **Network:** each account's connections, searchable, with a "Message" button.
-- **Safety:** one browser, one IP and one session per account; human-paced sending; daily send cap; pause button.
-- **Alerts:** in-app banner + email (optional SMTP) when an account needs re-login or its browser goes offline.
-- **Self-healing (optional):** if LinkedIn changes a button, an AI model (local Ollama or Claude) finds it again from the page's accessibility tree; the fix is cached.
+> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. LinkUnify keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages, so use the access levels and tell your team.
 
-> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. This tool keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages: use the access levels and tell your team.
+## Features
 
----
-
-## How it works
-
-```
-Teammates ──HTTPS──► Caddy ──► web (React) + api (Fastify, Socket.IO) + worker
-                       │                         │            ▲
-                       │ /live/<id>  (auth-gated) │ Redis      │ events
-                       ▼                         ▼            │
-              ┌── account pod (one per LinkedIn account) ───────────────┐
-              │  chrome   real Google Chrome, persistent profile        │
-              │  sidecar  Live View (CDP screencast) + bridge           │
-              └──────────────────── egress: your public IP ─────────────┘
-```
-
-| Part | Folder | What it does |
-|---|---|---|
-| web | `apps/web` | React app (Vite, Tailwind, TanStack Query), baked into the Caddy image |
-| api + worker | `apps/server` | REST + realtime + auth/roles; worker turns bridge events into DB rows |
-| pod-agent | `apps/pod-agent` | Creates/removes account pods through the Docker API |
-| chrome | `apps/chrome` | Headful Chrome on Xvfb, profile on a volume, CDP only on 127.0.0.1 |
-| sidecar | `apps/sidecar` | **Live View** (stream + input + control lock) and the **bridge** (reads LinkedIn's own JSON/realtime stream, sends at human pace) |
-
----
-
-## Install on Proxmox
-
-Follow [`infra/proxmox/README.md`](infra/proxmox/README.md). Short version:
-
-```bash
-# on the Proxmox host
-VMID=210 ./infra/proxmox/create-vm.sh
-# inside the VM, project in /opt/linkunify
-sudo bash infra/proxmox/setup-vm.sh
-./scripts/install.sh
-```
-
-Then open `https://your-domain`, create the owner account, go to **Accounts → Connect LinkedIn account**, and log in through the live window.
-
-## Daily operations
-
-| Task | Command |
+| Area | What you get |
 |---|---|
-| Update | `./scripts/update.sh` (rebuilds and restarts everything; LinkedIn sessions are kept) |
-| Backup | `./scripts/backup.sh` (database + files + browser profiles); run it nightly from cron |
-| Logs | `docker compose logs -f api worker` · `docker logs -f pod-<accountId>-sidecar` |
-| Restart one account's browser | Accounts → ⟳, or `docker restart pod-<id> pod-<id>-sidecar` |
-| Pause sending for an account | Accounts → ⏸ |
+| **Connect accounts** | Log in to LinkedIn through a live browser window inside the app (2FA/captcha handled by a human, no password stored). One isolated Chrome + IP per account. |
+| **Unified inbox** | All accounts in one list; views for unread, **awaiting reply**, starred, assigned to me, **snoozed**, other, requests/InMail, archived; full-text search; **labels**; live updates |
+| **LinkedIn parity** | Text, images, files, GIFs, voice notes, reactions, read receipts ("Seen"), typing indicators, group chats |
+| **Team work** | "Sent by" on every message, reply lock ("Ali is replying…"), assignment, internal notes, **saved replies** with variables, per-account access (Read / Reply / Full), audit log |
+| **Live LinkedIn** | The real linkedin.com of any account, streamed into the app (feed, profiles, posting…) with a "who's in control" lock |
+| **Network** | Each account's connections, searchable, with a "Message" button |
+| **Notifications** | In-app banners, **web push** (installable app), email alerts when an account needs re-login |
+| **Integrations** | Signed **webhooks** (new message, message sent, assignment, account status) for CRMs, Slack, Zapier, n8n |
+| **AI (optional)** | **Reply drafts** and **self-healing** UI selectors, using a local model (Ollama) or Claude |
+| **Safety** | Human-paced sending, daily send caps, pause button, session-health monitoring |
 
-## Configuration (`.env`)
+## Repository layout
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `SITE_ADDRESS` | | Your domain (auto-HTTPS) or `:80` for LAN testing |
-| `DEFAULT_TIMEZONE` | `America/Chicago` | Timezone for new account browsers |
-| `DEFAULT_GRANT` | `REPLY` | Access teammates get on new accounts (`READ`/`REPLY`/`FULL`) |
-| `DAILY_SEND_CAP` | `80` | Max sends per account per 24h (whole team); editable per account |
-| `POD_MEMORY_MB` | `2048` | Memory limit per account browser |
-| `SIDECAR_ENV` | | Extra sidecar env, e.g. `CAPTURE_RAW=1` (see maintenance guide) |
-| `SMTP_URL`, `ALERT_FROM`, `APP_URL` | | Email alerts, e.g. `smtp://user:pass@smtp.host:587` |
-| `HEAL_PROVIDER` | (off) | `ollama` (fully local, set `OLLAMA_URL`) or `anthropic` (set `ANTHROPIC_API_KEY`; page text is sent to Claude when healing) |
-| `HEAL_MODEL` | `claude-opus-5-5` / `qwen2.5:7b` | Model used for self-healing |
+```
+apps/
+  server/      api + worker        Fastify, Socket.IO, Postgres, Redis (TypeScript, run natively by Node 24)
+  web/         web app             React 19, Vite, Tailwind 4, TanStack Query; PWA + push
+  sidecar/     per-account pod     Live View (CDP screencast) + LinkedIn bridge (Patchright)
+  pod-agent/   pod manager         Docker API: create/restart/recreate/delete account pods
+  chrome/      browser image       Headful Google Chrome on Xvfb, persistent profile
+packages/
+  contracts/   shared types        bridge protocol, API models, realtime events, domain constants
+  tsconfig/    shared TS configs
+infra/         Caddyfile, Proxmox VM scripts
+scripts/       install / update / backup
+docs/          architecture, development, operations, bridge maintenance, master plan
+tools/         phase0-spike (original feasibility kit)
+```
 
-## Status: what's tested and what isn't
+Tooling: **pnpm** workspaces · **Turborepo** · **Biome** (lint + format) · one multi-target **Dockerfile** · **GitHub Actions** CI (lint, typecheck, unit tests, build, Docker end-to-end test).
 
-Tested end to end in Docker on this PC:
-- install, first-run setup, login, roles, team management, access grants, audit log
-- account pods (create, restart, recreate, delete), Live View through Caddy and the auth gate showing LinkedIn's real login page, click and typing, the control lock
-- unified inbox with realtime updates, sending with "sent by", the reply lock, mark-as-read, notes, uploads, connections page
-- ingest of LinkedIn-shaped data, using a bridge simulator (`apps/server/src/dev/simulate.ts`), the automated end-to-end test (`apps/server/src/dev/e2e.ts`) and unit tests (`apps/sidecar/test`)
-- self-healing lookup in a real Chrome (stand-in model), email alerts via a test SMTP server
-
-**Not yet tested against a real logged-in LinkedIn account:**
-- the bridge's extraction of LinkedIn's live data
-- the sending selectors
-- a live Claude or Ollama call for self-healing
-
-These are the parts LinkedIn can change at any time. Confirm them with your first non-critical account using [`docs/BRIDGE_MAINTENANCE.md`](docs/BRIDGE_MAINTENANCE.md).
-
-## Local development
+## Quick start (Proxmox / any Linux server)
 
 ```bash
-cp .env.example .env    # SITE_ADDRESS=:80, COOKIE_SECURE=false, HTTP_PORT=8088, fill secrets
-docker compose --profile images build && docker compose up -d
-# open http://localhost:8088
-# demo data without LinkedIn:
-docker stop pod-<id>-sidecar && docker compose exec api node src/dev/simulate.ts <accountId>
+git clone https://github.com/Acumen-org/Linkedin-Console-New.git /opt/linkunify
+cd /opt/linkunify
+sudo bash infra/proxmox/setup-vm.sh   # Docker + firewall + auto-updates (run inside the VM)
+./scripts/install.sh                  # asks for your domain, generates secrets, builds, starts
 ```
-Tests:
-- End-to-end (api + worker + DB + Redis, fake bridge): `docker compose exec api node src/dev/e2e.ts` (15 checks)
-- Bridge extraction: `cd apps/sidecar && npm test`
-- Self-healing in a real Chrome: start Chrome with `--remote-debugging-port=9333 --headless=new`, then `HEAL_TEST_CDP=http://127.0.0.1:9333 npm test`
-- Type checks: `cd apps/server && npx tsc --noEmit`, `cd apps/web && npx tsc --noEmit`
 
-See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full design and roadmap.
+Then open `https://your-domain`, create the owner account, go to **Accounts → Connect LinkedIn account**, and log in through the live window. Full guide: [infra/proxmox/README.md](infra/proxmox/README.md) · day-2 operations: [docs/operations.md](docs/operations.md).
+
+## Development
+
+```bash
+corepack enable         # or: npm i -g pnpm@10
+pnpm install
+pnpm lint               # Biome
+pnpm typecheck          # all packages
+pnpm test               # unit + browser tests
+pnpm images && docker compose up -d && pnpm e2e   # full stack + end-to-end test
+```
+
+See [docs/development.md](docs/development.md) for local setup, the bridge simulator and conventions.
+
+## Status
+
+- **Tested end to end:**
+  - install, auth, roles, teams, account pods and Live View, the inbox with all team features
+  - labels, snooze, saved replies, signed webhooks, push subscriptions, email alerts, self-healing
+  - CI runs the same 21-check end-to-end test against the Docker stack
+- **Not yet verified against a real logged-in LinkedIn account:**
+  - the bridge's data extraction and sending selectors
+  - live AI calls
+  - [docs/bridge-maintenance.md](docs/bridge-maintenance.md) is the checklist for your first non-critical account
+
+## Documentation
+
+- [Architecture](docs/architecture.md): components, data flow, security model
+- [Development](docs/development.md): local setup, tests, conventions
+- [Operations](docs/operations.md): configuration, updates, backups, monitoring, troubleshooting
+- [Bridge maintenance](docs/bridge-maintenance.md): keeping up with LinkedIn changes
+- [Master plan](docs/master-plan.md): original design and roadmap

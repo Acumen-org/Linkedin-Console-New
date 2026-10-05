@@ -1,0 +1,49 @@
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { assertAccount } from '../../core/access.ts';
+import { audit } from '../../core/audit.ts';
+import { requireUser } from '../../core/auth.ts';
+import { sendCommand } from '../../core/bridge.ts';
+import { sql } from '../../lib/db.ts';
+import { conflict, notFound } from '../../lib/errors.ts';
+import { redis } from '../../lib/redis.ts';
+
+/** Each account's LinkedIn connections (synced daily by the bridge). */
+export default async function networkRoutes(app: FastifyInstance) {
+  app.get<{ Params: { id: string } }>('/api/accounts/:id/connections', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params;
+    await assertAccount(user, id, 'READ');
+    const q = z.object({ q: z.string().max(200).optional(), offset: z.coerce.number().int().min(0).default(0) }).parse(req.query);
+    const term = q.q?.trim();
+    const rows = await sql`
+      SELECT id, public_id, name, headline, avatar_url, profile_url, updated_at FROM contacts
+      WHERE account_id = ${id} AND is_connection
+        ${term ? sql`AND (name ILIKE ${`%${term}%`} OR headline ILIKE ${`%${term}%`})` : sql``}
+      ORDER BY name LIMIT 100 OFFSET ${q.offset}`;
+    const [{ total }] = await sql`SELECT count(*)::int AS total FROM contacts WHERE account_id = ${id} AND is_connection`;
+    return { total, items: rows };
+  });
+
+  app.post<{ Params: { id: string; contactId: string } }>('/api/accounts/:id/connections/:contactId/message', async (req) => {
+    const user = requireUser(req);
+    const { id, contactId } = req.params;
+    await assertAccount(user, id, 'REPLY');
+    const { text } = z.object({ text: z.string().min(1).max(8000) }).parse(req.body);
+    const [c] = await sql`SELECT * FROM contacts WHERE id = ${contactId} AND account_id = ${id}`;
+    if (!c?.profileUrl) throw notFound('Connection not found');
+    const [a] = await sql`SELECT status, send_paused FROM accounts WHERE id = ${id}`;
+    if (a.status !== 'CONNECTED' || a.sendPaused) throw conflict('This LinkedIn account cannot send right now');
+    // The new conversation arrives through the bridge; remember who sent it for "sent by".
+    const key = `li:pending:${id}`;
+    await redis
+      .multi()
+      .lpush(key, JSON.stringify({ text, userId: user.id, at: Date.now() }))
+      .ltrim(key, 0, 50)
+      .expire(key, 3600)
+      .exec();
+    const cmdId = await sendCommand(id, { type: 'start_chat', profileUrl: c.profileUrl, text }, user.id);
+    await audit({ userId: user.id, accountId: id, action: 'message.start_chat', meta: { contactId, chars: text.length }, ip: req.ip });
+    return { ok: true, cmdId };
+  });
+}

@@ -1,7 +1,8 @@
 // Recreates every account pod with the current images (used by scripts/update.sh).
 // The profile volume (LinkedIn session) is kept.
-import { sql } from '../db.ts';
-import { pods } from '../bridgeClient.ts';
+
+import { pods } from '../core/bridge.ts';
+import { sql } from '../lib/db.ts';
 
 const accounts = await sql`SELECT id, label, timezone, language, proxy_server FROM accounts`;
 for (const a of accounts) {

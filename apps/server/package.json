@@ -6,24 +6,31 @@
     "node": ">=24"
   },
   "scripts": {
-    "api": "node --watch src/api.ts",
-    "worker": "node --watch src/worker.ts",
-    "typecheck": "tsc --noEmit"
+    "dev": "node --watch --env-file-if-exists=../../.env src/api.ts",
+    "dev:worker": "node --watch --env-file-if-exists=../../.env src/worker.ts",
+    "typecheck": "tsc --noEmit",
+    "e2e": "node src/dev/e2e.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@fastify/cookie": "^11.1.2",
     "@fastify/multipart": "^10.1.2",
+    "@linkunify/contracts": "workspace:*",
     "@node-rs/argon2": "^2.2.1",
     "fastify": "^5.12.5",
     "ioredis": "^5.11.1",
     "nodemailer": "^10.0.14",
+    "pino": "^10.0.0",
     "postgres": "^3.4.9",
     "socket.io": "^4.8.4",
+    "web-push": "^3.6.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@linkunify/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
+    "@types/web-push": "^3.6.4",
     "typescript": "^5.9.3"
   }
 }

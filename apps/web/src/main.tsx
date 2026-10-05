@@ -1,9 +1,10 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
-import { Toaster } from './toast';
+import { registerServiceWorker } from './lib/push';
+import { Toaster } from './lib/toast';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -20,3 +21,6 @@ createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </StrictMode>,
 );
+
+// Service worker for push notifications (only on HTTPS / localhost).
+registerServiceWorker().catch(() => {});

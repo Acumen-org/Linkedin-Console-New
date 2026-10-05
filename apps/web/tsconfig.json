@@ -1,16 +1,4 @@
 {
-  "compilerOptions": {
-    "target": "es2022",
-    "lib": ["es2023", "dom", "dom.iterable"],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "verbatimModuleSyntax": true,
-    "types": ["vite/client"]
-  },
+  "extends": "@linkunify/tsconfig/react.json",
   "include": ["src", "vite.config.ts"]
 }

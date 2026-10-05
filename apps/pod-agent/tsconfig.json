@@ -1,0 +1,4 @@
+{
+  "extends": "@linkunify/tsconfig/node.json",
+  "include": ["src"]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "linkunify",
+  "private": true,
+  "description": "Self-hosted LinkedIn team inbox",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "e2e": "docker compose exec -T api node src/dev/e2e.ts",
+    "images": "docker compose --profile images build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "turbo": "2.11.7",
+    "typescript": "^5.9.3"
+  }
+}

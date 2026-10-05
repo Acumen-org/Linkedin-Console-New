@@ -2,8 +2,16 @@
   "name": "@linkunify/pod-agent",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
-    "dockerode": "^5.0.1"
+    "@linkunify/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@linkunify/tsconfig": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
   }
 }

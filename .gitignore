@@ -1,5 +1,7 @@
 node_modules/
-.env
 dist/
-phase0/out/
-phase0/files/
+.turbo/
+.env
+*.log
+tools/phase0-spike/out/
+tools/phase0-spike/files/

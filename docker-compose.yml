@@ -30,6 +30,12 @@ x-server-env: &server-env
   SMTP_URL: ${SMTP_URL:-}
   ALERT_FROM: ${ALERT_FROM:-}
   APP_URL: ${APP_URL:-}
+  AI_PROVIDER: ${AI_PROVIDER:-}
+  AI_MODEL: ${AI_MODEL:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@localhost}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:
   init-perms:
@@ -56,9 +62,13 @@ services:
     restart: unless-stopped
     command: ["valkey-server", "--appendonly", "yes"]
     volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 20
 
   api:
-    build: ./apps/server
+    build: { context: ., target: server }
     image: linkunify/server:latest
     restart: unless-stopped
     command: ["node", "src/api.ts"]
@@ -66,20 +76,24 @@ services:
     volumes: [files:/data/files]
     depends_on:
       postgres: { condition: service_healthy }
-      redis: { condition: service_started }
+      redis: { condition: service_healthy }
       init-perms: { condition: service_completed_successfully }
 
   worker:
     image: linkunify/server:latest
     restart: unless-stopped
     command: ["node", "src/worker.ts"]
-    environment: *server-env
+    environment:
+      <<: *server-env
+      SERVICE_NAME: worker
+    healthcheck:
+      disable: true
     volumes: [files:/data/files]
     depends_on:
       api: { condition: service_started }
 
   pod-agent:
-    build: ./apps/pod-agent
+    build: { context: ., target: pod-agent }
     image: linkunify/pod-agent:latest
     restart: unless-stopped
     environment:
@@ -96,13 +110,12 @@ services:
       HEAL_MODEL: ${HEAL_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
+      PARK_AFTER_MINUTES: ${PARK_AFTER_MINUTES:-10}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
+    build: { context: ., target: web }
     image: linkunify/caddy:latest
     restart: unless-stopped
     environment:
@@ -114,7 +127,8 @@ services:
     volumes:
       - caddydata:/data
       - caddyconfig:/config
-    depends_on: [api]
+    depends_on:
+      api: { condition: service_healthy }
 
   # Images used by account pods (built, never started by compose).
   chrome-image:
@@ -123,6 +137,6 @@ services:
     profiles: ["images"]
 
   sidecar-image:
-    build: ./apps/sidecar
+    build: { context: ., target: sidecar }
     image: linkunify/sidecar:latest
     profiles: ["images"]
