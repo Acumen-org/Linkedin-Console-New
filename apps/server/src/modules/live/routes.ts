@@ -32,7 +32,7 @@ export default async function liveRoutes(app: FastifyInstance) {
         accountId,
         action: 'live.opened',
         meta: { control },
-        ip: String(req.headers['x-forwarded-for'] ?? req.ip),
+        ip: req.ip,
       });
     }
     reply.header('X-LU-User', encodeURIComponent(user.name));

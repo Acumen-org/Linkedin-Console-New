@@ -1,12 +1,26 @@
+# Behind a gateway (e.g. APISIX), list its address in TRUSTED_PROXIES so the real client IP is used for
+# the login throttle and the audit log. Unset = trust nobody (only localhost).
+{
+	servers {
+		trusted_proxies static {$TRUSTED_PROXIES:127.0.0.1/32}
+		trusted_proxies_strict
+	}
+}
+
 {$SITE_ADDRESS} {
 	encode zstd gzip
 
+	# The api sees exactly one address: the client as Caddy determined it (spoofed X-Forwarded-For is ignored).
 	handle /api/* {
-		reverse_proxy api:4000
+		reverse_proxy api:4000 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	handle /socket.io/* {
-		reverse_proxy api:4000
+		reverse_proxy api:4000 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	# Live View of an account pod: /live/<accountId>/...
@@ -19,6 +33,7 @@
 			# The auth check itself must be a plain GET, even when the original request is a WebSocket upgrade.
 			header_up -Upgrade
 			header_up -Connection
+			header_up X-Forwarded-For {client_ip}
 		}
 		reverse_proxy pod-{re.live.1}:8090 {
 			header_up X-LU-Secret {$LIVE_SECRET}

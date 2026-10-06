@@ -137,7 +137,7 @@ async function cleanup() {
   await sql`DELETE FROM webhooks WHERE url = ${WEBHOOK_URL}`;
   await sql`DELETE FROM labels WHERE name LIKE ${`e2e-${tag}%`}`;
   await sql`DELETE FROM accounts WHERE id = ${accountId}`;
-  await sql`DELETE FROM users WHERE id IN ${sql([ownerId, memberId, readerId])}`;
+  await sql`DELETE FROM users WHERE id IN ${sql([ownerId, memberId, readerId])} OR email = ${`newbie-${tag}@e2e.test`}`;
   await redis.del(`li:cmd:${accountId}`, `lu:connsync:${accountId}`);
 }
 
@@ -157,6 +157,7 @@ try {
   await login(reader, 'reader');
 
   let janeId = '';
+  let janeContactId = '';
   let rajId = '';
 
   await step('session event marks account CONNECTED with profile', async () => {
@@ -223,7 +224,11 @@ try {
       'preview',
     );
     assert.equal(jane1.data.unreadCount, 1, 'unread should follow LinkedIn (1), not be inflated by older messages');
-    const msgs = await owner('GET', `/api/conversations/${janeId}/messages`);
+    const msgs = await until(
+      () => owner('GET', `/api/conversations/${janeId}/messages`),
+      (r) => r.data?.length === 2,
+      'both Jane messages',
+    );
     assert.deepEqual(
       msgs.data.map((m: any) => m.text),
       ['Old hello from Jane', 'Newest from Jane'],
@@ -290,6 +295,26 @@ try {
     assert.equal((await member('POST', '/api/users', { name: 'x', email: 'x@e2e.test', password: 'xxxxxxxxxxxx' })).status, 403);
   });
 
+  await step('new users get exactly DEFAULT_GRANT (nothing when NONE)', async () => {
+    const created = await owner('POST', '/api/users', { name: 'Newbie', email: `newbie-${tag}@e2e.test`, password, role: 'MEMBER' });
+    assert.equal(created.status, 200, JSON.stringify(created.data));
+    const grants = await sql`SELECT level FROM account_grants WHERE user_id = ${created.data.id} AND account_id = ${accountId}`;
+    if (config.defaultGrant === 'NONE') assert.equal(grants.length, 0, 'no access until an admin grants it');
+    else
+      assert.deepEqual(
+        grants.map((g) => g.level),
+        [config.defaultGrant],
+      );
+    const newbie = client();
+    await newbie('POST', '/api/auth/login', { email: `newbie-${tag}@e2e.test`, password });
+    const seen = await newbie('GET', '/api/accounts');
+    assert.equal(
+      seen.data.some((a: any) => a.id === accountId),
+      config.defaultGrant !== 'NONE',
+    );
+    assert.equal((await newbie('GET', `/api/conversations/${janeId}`)).status, config.defaultGrant === 'NONE' ? 404 : 200);
+  });
+
   await step('opening an unread conversation marks it read (also on LinkedIn)', async () => {
     await owner('POST', `/api/conversations/${janeId}/read`);
     const c = await owner('GET', `/api/conversations/${janeId}`);
@@ -338,6 +363,16 @@ try {
       'connection',
     );
     assert.equal(r.data.items[0]?.name, 'Jane E2E', JSON.stringify(r.data));
+    janeContactId = r.data.items[0].id;
+  });
+
+  await step('new chats from Network obey pause and the daily cap', async () => {
+    const start = () => member('POST', `/api/accounts/${accountId}/connections/${janeContactId}/message`, { text: 'Hello from Network' });
+    assert.equal((await start()).status, 409, 'paused (from the previous step)');
+    await sql`UPDATE accounts SET send_paused = false, daily_send_cap = 1 WHERE id = ${accountId}`;
+    assert.equal((await start()).status, 429, 'cap reached');
+    await sql`UPDATE accounts SET daily_send_cap = 80 WHERE id = ${accountId}`;
+    assert.equal((await start()).status, 200);
   });
 
   let labelId = '';

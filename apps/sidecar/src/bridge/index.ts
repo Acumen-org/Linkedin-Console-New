@@ -18,7 +18,8 @@ import type { Streams } from './streams.ts';
 import { openBridgeWindow, targetIdOf } from './window.ts';
 
 export async function startBridge(streams: Streams, shared: SharedState) {
-  const browser = await chromium.connectOverCDP(config.cdpHttp);
+  // Generous timeout: after a server reboot every account's Chrome starts at once and the first launch is slow.
+  const browser = await chromium.connectOverCDP(config.cdpHttp, { timeout: 120_000 });
   browser.on('disconnected', () => {
     logger.error('Chrome disconnected, exiting so the container restarts');
     process.exit(1);

@@ -25,6 +25,14 @@ echo "Building images (first time takes a few minutes)…"
 docker compose --profile images build
 docker compose up -d
 
+# Nightly backups (browser profiles = LinkedIn sessions). BACKUP_SCHEDULE=yes|no skips the question.
+answer=${BACKUP_SCHEDULE:-}
+if [ -z "$answer" ] && [ -t 0 ]; then read -rp "Schedule a nightly backup at 03:15? [Y/n] " answer; fi
+case "${answer:-y}" in
+  [Nn]*) echo "Skipped. Schedule later with ./scripts/schedule-backup.sh" ;;
+  *) ./scripts/schedule-backup.sh ;;
+esac
+
 site=$(grep '^SITE_ADDRESS=' .env | cut -d= -f2)
 echo
 echo "✅ LinkUnify is running."

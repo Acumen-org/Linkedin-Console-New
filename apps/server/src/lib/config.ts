@@ -14,11 +14,12 @@ const Env = z.object({
     .string()
     .default('true')
     .transform((v) => v !== 'false'),
+  // Access MEMBERs get automatically on new accounts / as new users. NONE = nothing until an admin grants it.
   DEFAULT_GRANT: z
     .string()
-    .default('REPLY')
+    .default('NONE')
     .transform((v) => v.toUpperCase())
-    .pipe(z.enum(LEVELS)),
+    .pipe(z.enum(['NONE', ...LEVELS])),
   DEFAULT_TIMEZONE: z.string().default('America/Chicago'),
   DEFAULT_LANGUAGE: z.string().default('en-US'),
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),

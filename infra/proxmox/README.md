@@ -39,9 +39,22 @@ newgrp docker
 ./scripts/install.sh
 ```
 
+**Behind a gateway** (APISIX, nginx… terminating TLS and forwarding to the VM on port 80):
+
+```bash
+sudo GATEWAY_IP=10.10.10.51 SSH_ALLOW="10.10.10.0/24" bash infra/proxmox/setup-vm.sh
+```
+
+- Only the gateway may open connections to port 80; 443 is closed. The rules go into Docker's `DOCKER-USER` chain (Docker-published ports bypass normal ufw rules) and are kept in `/etc/ufw/after.rules`, so they survive reboots. Safe to run again. Preview with `DRY_RUN=1`.
+- In `.env` set `TRUSTED_PROXIES=10.10.10.51` and `SITE_ADDRESS=:80`, so login limits and the audit log see the real client IP instead of the gateway's.
+- Check: `sudo iptables -L DOCKER-USER -n --line-numbers` (5 rules).
+
+`install.sh` offers to schedule the nightly backup; later: `./scripts/schedule-backup.sh`.
+
 ## 4. Hardening checklist
 
 - Proxmox UI (8006) and SSH reachable only from your admin IP or a VPN (WireGuard/Tailscale), never the open internet.
 - Enable the Proxmox firewall on the VM: allow 80/443 from anywhere, 22 from your admin IP only.
-- Nightly backups: Proxmox Backup Server snapshot of the VM **and** `scripts/backup.sh` (database + files + browser profiles) copied off-site.
+- Nightly backups: Proxmox Backup Server snapshot of the VM **and** `scripts/backup.sh` (database + files + browser profiles; scheduled by `scripts/schedule-backup.sh`) copied off-site.
+- New teammates get no account access by default (`DEFAULT_GRANT=NONE`); grant it per account. See [docs/rbac.md](../../docs/rbac.md).
 - UPS for the Comcast modem + Proxmox host.

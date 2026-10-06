@@ -33,8 +33,8 @@ export function TeamPage() {
         </button>
       </PageHeader>
       <p className="mb-4 text-sm text-slate-600">
-        Teammates log in to this app, never to LinkedIn. New teammates get default access to every connected account. Fine-tune it per
-        account under Accounts → Team access.
+        Teammates log in to this app, never to LinkedIn. New members see no LinkedIn accounts until you grant access per account under
+        Accounts → Team access. Admins always see everything.
       </p>
       <div className="card divide-y divide-slate-100">
         {users.data?.map((u) => (

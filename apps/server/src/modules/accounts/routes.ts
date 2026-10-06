@@ -66,10 +66,12 @@ export default async function accountRoutes(app: FastifyInstance) {
         INSERT INTO accounts (id, label, owner_user_id, status, timezone, language, proxy_server, daily_send_cap)
         VALUES (${id}, ${body.label}, ${user.id}, 'PROVISIONING', ${body.timezone}, ${body.language}, ${body.proxyServer || null}, ${config.dailySendCap})`;
       await tx`INSERT INTO account_grants (account_id, user_id, level) VALUES (${id}, ${user.id}, 'FULL')`;
-      await tx`
-        INSERT INTO account_grants (account_id, user_id, level)
-        SELECT ${id}, u.id, ${config.defaultGrant} FROM users u
-        WHERE u.id <> ${user.id} AND u.role = 'MEMBER' AND u.disabled_at IS NULL`;
+      if (config.defaultGrant !== 'NONE') {
+        await tx`
+          INSERT INTO account_grants (account_id, user_id, level)
+          SELECT ${id}, u.id, ${config.defaultGrant} FROM users u
+          WHERE u.id <> ${user.id} AND u.role = 'MEMBER' AND u.disabled_at IS NULL`;
+      }
     });
     try {
       await pods.create(id, podSpecOf({ ...body, proxyServer: body.proxyServer || null }));

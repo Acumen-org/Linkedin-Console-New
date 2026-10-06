@@ -8,7 +8,9 @@
 | `COOKIE_SECURE` | `true` | `false` only for plain-HTTP testing |
 | `POSTGRES_PASSWORD`, `POD_AGENT_TOKEN`, `LIVE_SECRET` | generated | Secrets (`scripts/install.sh` fills them in) |
 | `DEFAULT_TIMEZONE` / `DEFAULT_LANGUAGE` | `America/Chicago` / `en-US` | For new account browsers |
-| `DEFAULT_GRANT` | `REPLY` | Access teammates get on new accounts (`READ`/`REPLY`/`FULL`) |
+| `DEFAULT_GRANT` | `NONE` | Access members get automatically on new accounts / as new teammates (`NONE`/`READ`/`REPLY`/`FULL`); see [rbac.md](rbac.md) |
+| `TRUSTED_PROXIES` | | Behind a gateway (APISIX, nginx…): its IP/CIDR(s), space-separated, so the real client IP is used for login limits and the audit log. Leave empty when Caddy faces the internet directly |
+| `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | Published ports |
 | `DAILY_SEND_CAP` | `80` | Sends per account per 24h (whole team); editable per account |
 | `SMTP_URL`, `ALERT_FROM`, `APP_URL` | | Email alerts (`smtp://user:pass@host:587`) |
 | `VAPID_SUBJECT` | `mailto:admin@localhost` | Contact for web push (keys are generated automatically) |
@@ -27,7 +29,7 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 | Task | How |
 |---|---|
 | Update | `./scripts/update.sh`: pulls, rebuilds, restarts, recreates pods (LinkedIn sessions are kept) |
-| Backup | `./scripts/backup.sh`: database + files + every browser profile. Schedule it nightly (cron) and copy the result off-site; it contains private messages |
+| Backup | `./scripts/backup.sh`: database + files + every browser profile. `./scripts/schedule-backup.sh` runs it nightly at 03:15 into `/var/backups/linkunify` (`BACKUP_TIME`, `BACKUP_DIR` to change; `--remove` to stop). Copy the result off-site, encrypted; it contains private messages and LinkedIn sessions |
 | Restore | `docker compose exec -T postgres pg_restore -U linkunify -d linkunify --clean < db.dump`, then untar each volume archive into its volume |
 | Logs | `docker compose logs -f api worker` · `docker logs -f pod-<accountId>-sidecar` (JSON, filter with `jq`) |
 | Restart an account's browser | Accounts → ⟳, or `docker restart pod-<id> pod-<id>-sidecar` |
@@ -50,7 +52,8 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 | Messages don't sync | Sidecar logs; see [bridge-maintenance.md](bridge-maintenance.md) |
 | Push notifications missing | HTTPS domain required; Settings → Notifications on that device |
 | Webhook failing | Settings → Webhooks → Test; the target must answer 2xx within 10s |
-| "Too many failed login attempts" | 10 failures per IP per 15 minutes; wait, or restart api |
+| "Too many failed login attempts" | 10 failures per IP per 15 minutes (successful logins don't count); wait, or restart api. If everyone is locked out at once behind a gateway, `TRUSTED_PROXIES` is missing and all users share the gateway's IP |
+| Audit log shows the gateway's IP for everyone | Set `TRUSTED_PROXIES` to the gateway's IP and `docker compose up -d` |
 
 ## Resource usage
 

@@ -31,8 +31,10 @@ export default async function userRoutes(app: FastifyInstance) {
     if (exists) throw new HttpError(409, 'A user with this email already exists');
     await sql.begin(async (tx) => {
       await tx`INSERT INTO users (id, email, name, password_hash, role) VALUES (${id}, ${body.email.toLowerCase()}, ${body.name}, ${await hashPassword(body.password)}, ${body.role})`;
-      // New teammates get the default grant on every existing LinkedIn account.
-      await tx`INSERT INTO account_grants (account_id, user_id, level) SELECT id, ${id}, ${config.defaultGrant} FROM accounts`;
+      // New teammates get the default grant on every existing LinkedIn account (none when DEFAULT_GRANT=NONE).
+      if (config.defaultGrant !== 'NONE') {
+        await tx`INSERT INTO account_grants (account_id, user_id, level) SELECT id, ${id}, ${config.defaultGrant} FROM accounts`;
+      }
     });
     await audit({ userId: admin.id, action: 'user.created', meta: { targetUserId: id, email: body.email, role: body.role }, ip: req.ip });
     return { id };

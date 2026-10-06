@@ -5,8 +5,9 @@ import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
 import { sql } from '../../lib/db.ts';
-import { conflict, notFound } from '../../lib/errors.ts';
+import { notFound } from '../../lib/errors.ts';
 import { redis } from '../../lib/redis.ts';
+import { assertCanSend } from '../conversations/messages.ts';
 
 /** Each account's LinkedIn connections (synced daily by the bridge). */
 export default async function networkRoutes(app: FastifyInstance) {
@@ -32,8 +33,8 @@ export default async function networkRoutes(app: FastifyInstance) {
     const { text } = z.object({ text: z.string().min(1).max(8000) }).parse(req.body);
     const [c] = await sql`SELECT * FROM contacts WHERE id = ${contactId} AND account_id = ${id}`;
     if (!c?.profileUrl) throw notFound('Connection not found');
-    const [a] = await sql`SELECT status, send_paused FROM accounts WHERE id = ${id}`;
-    if (a.status !== 'CONNECTED' || a.sendPaused) throw conflict('This LinkedIn account cannot send right now');
+    // Same rules as replies: connected, not paused, within the daily cap.
+    await assertCanSend(id);
     // The new conversation arrives through the bridge; remember who sent it for "sent by".
     const key = `li:pending:${id}`;
     await redis

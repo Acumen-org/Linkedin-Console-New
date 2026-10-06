@@ -17,7 +17,7 @@ export async function openBridgeWindow(browser: Browser, context: BrowserContext
       if ((await targetIdOf(context, p).catch(() => null)) === savedId) return p;
     }
   }
-  const pagePromise = context.waitForEvent('page', { timeout: 15_000 });
+  const pagePromise = context.waitForEvent('page', { timeout: 60_000 });
   const session = await browser.newBrowserCDPSession();
   await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
   const page = await pagePromise;
