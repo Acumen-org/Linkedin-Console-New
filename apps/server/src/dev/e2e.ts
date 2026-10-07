@@ -99,7 +99,16 @@ const msg = (c: string, from: typeof jane | null, text: string, at: number, extr
   ...extra,
 });
 
-// Fake bridge: records commands; confirms sends like LinkedIn would (echo first, then result).
+// Command results travel on their own stream, like the real bridge sends them.
+const emitResult = (data: unknown) =>
+  redis.xadd('li:results', '*', 'json', JSON.stringify({ accountId, type: 'result', data, at: Date.now() }));
+
+// Fake bridge: records commands; confirms sends like LinkedIn would. The text prefix picks the scenario:
+//   (none)        LinkedIn's copy first, then the result (UI send)
+//   [fast]        result first without URN, LinkedIn's copy a moment later (direct send)
+//   [late]        "could not confirm" first, LinkedIn's copy afterwards
+//   [failafter]   LinkedIn's copy first, then a failure report
+//   [silent]      nothing at all (browser offline)
 const commands: any[] = [];
 let stopBridge = false;
 async function fakeBridge() {
@@ -110,11 +119,22 @@ async function fakeBridge() {
       last = id;
       const cmd = JSON.parse(fields[1]);
       commands.push(cmd);
-      if (cmd.type === 'send_message') {
-        const echo = msg(cmd.threadId.replace(/^2-/, '').replace(tag, ''), null, cmd.text, Date.now());
+      if (cmd.type !== 'send_message' || cmd.text.startsWith('[silent]')) continue;
+      const echo = msg(cmd.threadId.replace(/^2-/, '').replace(tag, ''), null, cmd.text, Date.now());
+      const ok = { cmdId: cmd.cmdId, type: cmd.type, ok: true };
+      const failed = { cmdId: cmd.cmdId, type: cmd.type, ok: false, error: 'Could not confirm the message was sent' };
+      if (cmd.text.startsWith('[fast]')) {
+        await emitResult(ok);
+        setTimeout(() => emit('messages', [echo]), 200);
+      } else if (cmd.text.startsWith('[late]')) {
+        await emitResult(failed);
+        setTimeout(() => emit('messages', [echo]), 500);
+      } else if (cmd.text.startsWith('[failafter]')) {
         await emit('messages', [echo]);
-        await sleep(300);
-        await emit('result', { cmdId: cmd.cmdId, type: cmd.type, ok: true, messageUrn: echo.urn });
+        setTimeout(() => emitResult(failed), 500);
+      } else {
+        await emit('messages', [echo]);
+        setTimeout(() => emitResult({ ...ok, messageUrn: echo.urn }), 300); // without holding up the next command
       }
     }
   }
@@ -264,6 +284,68 @@ try {
     assert.equal(mine[0].sentByName, 'E2E Member');
     const again = await member('POST', `/api/conversations/${janeId}/messages`, { text: 'Reply from member', clientId });
     assert.equal(again.data.id, mine[0].id, 'retry with same clientId is idempotent');
+  });
+
+  /** Sends text, waits until the message row matches; returns the rows with that text and the time taken. */
+  async function sendAndWait(text: string, done: (row: any) => boolean, timeoutMs = 10_000) {
+    const clientId = crypto.randomUUID();
+    const t0 = performance.now();
+    const sent = await member('POST', `/api/conversations/${janeId}/messages`, { text, clientId });
+    const postMs = Math.round(performance.now() - t0);
+    assert.equal(sent.status, 200, JSON.stringify(sent.data));
+    for (const end = Date.now() + timeoutMs; Date.now() < end; await sleep(10)) {
+      const [row] = await sql`SELECT status, error, message_urn FROM messages WHERE client_id = ${clientId}`;
+      if (row && done(row)) break;
+    }
+    const ms = Math.round(performance.now() - t0);
+    const rows = await sql`SELECT client_id, status, error, message_urn FROM messages WHERE conversation_id = ${janeId} AND text = ${text}`;
+    return { rows, ms, postMs, clientId };
+  }
+
+  await step('direct send: SENT within 400 ms of pressing Send, LinkedIn copy merged', async () => {
+    const { rows, ms, postMs } = await sendAndWait('[fast] quick reply', (r) => r.status === 'SENT');
+    console.log(`    POST /messages answered in ${postMs} ms`);
+    console.log(`    app → bridge → SENT in ${ms} ms (plus LinkedIn's own round trip in production)`);
+    assert.ok(ms < 400, `took ${ms} ms`);
+    await until(
+      async () => sql`SELECT message_urn FROM messages WHERE conversation_id = ${janeId} AND text = '[fast] quick reply'`,
+      (r) => r.length === 1 && !!r[0].messageUrn,
+      'LinkedIn copy merged into the sent message',
+    );
+    assert.equal(rows.length, 1);
+  });
+
+  await step('late LinkedIn copy turns a "could not confirm" failure into SENT (no duplicate)', async () => {
+    await sendAndWait('[late] slow confirm', (r) => r.status === 'FAILED');
+    const r = await until(
+      async () => sql`SELECT status, error, message_urn FROM messages WHERE conversation_id = ${janeId} AND text = '[late] slow confirm'`,
+      (x) => x.some((m) => m.status === 'SENT'),
+      'SENT after the late copy',
+    );
+    assert.equal(r.length, 1, 'exactly one copy');
+    assert.equal(r[0].error, null);
+  });
+
+  await step('a failure report never overrides a message LinkedIn already shows', async () => {
+    await sendAndWait('[failafter] already there', (r) => !!r.message_urn);
+    await sleep(1500); // the failure report arrives 500 ms after the copy
+    const r = await sql`SELECT status FROM messages WHERE conversation_id = ${janeId} AND text = '[failafter] already there'`;
+    assert.deepEqual(
+      r.map((m) => m.status),
+      ['SENT'],
+    );
+  });
+
+  await step('sends that never report back fail after 10 minutes', async () => {
+    const { clientId } = await sendAndWait('[silent] browser offline', () => true, 0);
+    await sql`UPDATE messages SET created_at = now() - interval '11 minutes' WHERE client_id = ${clientId}`;
+    const [m] = await until(
+      async () => sql`SELECT status, error FROM messages WHERE client_id = ${clientId}`,
+      (r) => r[0]?.status === 'FAILED',
+      'FAILED by the worker',
+      75_000,
+    );
+    assert.match(m.error, /did not respond/);
   });
 
   await step('seen receipt marks the outbound message as seen', async () => {

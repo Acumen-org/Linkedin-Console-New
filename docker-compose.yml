@@ -111,6 +111,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
       PARK_AFTER_MINUTES: ${PARK_AFTER_MINUTES:-10}
+      SEND_MODE: ${SEND_MODE:-fast}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 

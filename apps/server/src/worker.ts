@@ -1,6 +1,6 @@
 // Worker process: applies bridge events, delivers webhooks, runs scheduled jobs.
 import os from 'node:os';
-import { type BridgeEvent, EVENTS_STREAM } from '@linkunify/contracts';
+import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkunify/contracts';
 import { migrate, sql } from './lib/db.ts';
 import { logger } from './lib/logger.ts';
 import { newRedis, redis } from './lib/redis.ts';
@@ -34,11 +34,10 @@ await migrate();
 startScheduler();
 runWebhookDelivery();
 logger.info('worker started');
-await consumeStream<BridgeEvent>({
-  redis,
-  blocking: newRedis(),
-  stream: EVENTS_STREAM,
-  group: 'worker',
-  consumer: `${os.hostname()}-${process.pid}`,
-  handle: handleBridgeEvent,
-});
+const consumer = `${os.hostname()}-${process.pid}`;
+// Command results (e.g. "sent") have their own stream, so a burst of synced messages never delays them.
+await Promise.all(
+  [EVENTS_STREAM, RESULTS_STREAM].map((stream) =>
+    consumeStream<BridgeEvent>({ redis, blocking: newRedis(), stream, group: 'worker', consumer, handle: handleBridgeEvent }),
+  ),
+);

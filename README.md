@@ -17,7 +17,7 @@
 | **Notifications** | In-app banners, **web push** (installable app), email alerts when an account needs re-login |
 | **Integrations** | Signed **webhooks** (new message, message sent, assignment, account status) for CRMs, Slack, Zapier, n8n |
 | **AI (optional)** | **Reply drafts** and **self-healing** UI selectors, using a local model (Ollama) or Claude |
-| **Safety** | Human-paced sending, daily send caps, pause button, session-health monitoring |
+| **Safety** | Daily send caps, pause button, no double sends, optional human-paced sending, session-health monitoring |
 
 ## Repository layout
 

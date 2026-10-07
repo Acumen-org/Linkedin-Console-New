@@ -4,7 +4,7 @@ import { emitWebhook } from '../core/webhooks.ts';
 import { sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
-import { loadConversation } from '../modules/conversations/queries.ts';
+import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
 
 /** Mark pods that stopped reporting as OFFLINE (the bridge heartbeats every ~60s). */
@@ -40,8 +40,24 @@ async function wakeSnoozed() {
   for (const c of woken) await publish(accountRoom(c.accountId), 'conversation.updated', await loadConversation(c.id));
 }
 
+/**
+ * Sends that never reported back (browser offline, sidecar restarted) fail after 10 minutes instead of
+ * showing "sending" forever. The bridge itself skips sends older than 5 minutes, so none goes out later;
+ * if one did go out, LinkedIn's copy still turns it into SENT.
+ */
+async function expireStuckSends() {
+  const stuck = await sql`
+    UPDATE messages SET status = 'FAILED', error = 'Not sent: the LinkedIn account did not respond in time'
+    WHERE status IN ('QUEUED', 'SENDING') AND message_urn IS NULL AND created_at < now() - interval '10 minutes'
+    RETURNING id, account_id`;
+  for (const m of stuck) {
+    const msg = await loadMessage(m.id);
+    if (msg) await publish(accountRoom(m.accountId), 'message.updated', msg);
+  }
+}
+
 export function startScheduler() {
-  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed];
+  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));
   }, 60_000);

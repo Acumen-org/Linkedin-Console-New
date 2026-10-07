@@ -6,6 +6,7 @@ import type { Request } from 'patchright';
 import { logger } from '../logger.ts';
 import { type BridgeContext, createDedupe } from './context.ts';
 import { extract, parseSse } from './extract.ts';
+import { isCreateMessageRequest, scrubSendBody } from './send-template.ts';
 
 const LINKEDIN_DATA = /^https:\/\/www\.linkedin\.com\/(voyager\/api|realtime)/;
 
@@ -87,19 +88,31 @@ export function createReader(ctx: BridgeContext) {
     }
   }
 
+  const saveTemplates = () => ctx.streams.redis.set(`li:tpl:${ctx.accountId}`, JSON.stringify(ctx.state.templates)).catch(() => {});
+  const replayableHeaders = (req: Request) =>
+    Object.fromEntries(Object.entries(req.headers()).filter(([k]) => !/^(cookie|content-length|host|user-agent|referer|:)/i.test(k)));
+
+  /** LinkedIn's own send request (a successful one), for fast sending. See send-template.ts. */
+  function rememberSendTemplate(req: Request) {
+    if (ctx.state.templates.send?.url === req.url()) return;
+    const body = scrubSendBody(req.postData() ?? '');
+    if (!body) return;
+    ctx.state.templates.send = { url: req.url(), headers: replayableHeaders(req), body };
+    saveTemplates();
+    logger.info('learned the send request: next text messages go out directly');
+  }
+
   /** Remember LinkedIn's own messaging GraphQL requests so we can replay them without opening threads. */
   function rememberTemplate(req: Request) {
     const url = req.url();
     if (!url.includes('voyagerMessagingGraphQL/graphql')) return;
-    const headers = Object.fromEntries(
-      Object.entries(req.headers()).filter(([k]) => !/^(cookie|content-length|host|user-agent|referer|:)/i.test(k)),
-    );
+    const headers = replayableHeaders(req);
     let key: 'messages' | 'conversations' | null = null;
     if (/queryId=messengerMessages\./.test(url) && /conversationUrn/.test(url) && !/deliveredAt/.test(url)) key = 'messages';
     else if (/queryId=messengerConversations\./.test(url) && !/syncToken|lastUpdatedBefore/.test(url)) key = 'conversations';
     if (key && ctx.state.templates[key]?.url !== url) {
       ctx.state.templates[key] = { url, headers };
-      ctx.streams.redis.set(`li:tpl:${ctx.accountId}`, JSON.stringify(ctx.state.templates)).catch(() => {});
+      saveTemplates();
     }
   }
 
@@ -107,6 +120,7 @@ export function createReader(ctx: BridgeContext) {
     ctx.context.on('response', async (res) => {
       const url = res.url();
       if (!LINKEDIN_DATA.test(url)) return;
+      if (res.ok() && isCreateMessageRequest(res.request().method(), url)) rememberSendTemplate(res.request());
       if (!(res.headers()['content-type'] ?? '').includes('json')) return;
       try {
         rememberTemplate(res.request());
@@ -147,7 +161,13 @@ export function createReader(ctx: BridgeContext) {
     });
   }
 
-  return { start, waitForOutbound };
+  /** Forget the send template (LinkedIn rejected a replay). */
+  function dropSendTemplate() {
+    delete ctx.state.templates.send;
+    saveTemplates();
+  }
+
+  return { start, waitForOutbound, dropSendTemplate };
 }
 
 export type Reader = ReturnType<typeof createReader>;

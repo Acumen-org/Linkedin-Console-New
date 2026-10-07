@@ -6,13 +6,17 @@ import {
   commandStream,
   EVENTS_STREAM,
   type FetchMediaReply,
+  RESULTS_STREAM,
   replyKey,
 } from '@linkunify/contracts';
 import { Redis } from 'ioredis';
 import { logger } from '../logger.ts';
 
 export type Emit = <K extends BridgeEventType>(type: K, data: BridgeEventMap[K]) => Promise<void>;
-export type Command = BridgeCommand & { cmdId: string };
+/** queuedAt: when the app queued it (from the stream entry id), to skip sends that waited too long. */
+export type Command = BridgeCommand & { cmdId: string; queuedAt: number };
+
+const isSend = (cmd: Command) => cmd.type === 'send_message' || cmd.type === 'start_chat';
 
 export interface Streams {
   redis: Redis;
@@ -28,7 +32,8 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
   const consumer = `bridge-${process.pid}`;
 
   const emit: Emit = async (type, data) => {
-    await redis.xadd(EVENTS_STREAM, 'MAXLEN', '~', '50000', '*', 'json', JSON.stringify({ accountId, type, data, at: Date.now() }));
+    const target = type === 'result' ? RESULTS_STREAM : EVENTS_STREAM;
+    await redis.xadd(target, 'MAXLEN', '~', '50000', '*', 'json', JSON.stringify({ accountId, type, data, at: Date.now() }));
   };
 
   async function reply(cmdId: string, payload: FetchMediaReply) {
@@ -36,7 +41,27 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
     await redis.multi().lpush(key, JSON.stringify(payload)).expire(key, 120).exec();
   }
 
-  /** Runs handler for each command, one at a time, forever (re-delivers unacked ones after a crash). */
+  async function run(handler: (cmd: Command) => Promise<unknown>, id: string, fields: string[]) {
+    let cmd: Command | null = null;
+    try {
+      cmd = { ...JSON.parse(fields[fields.indexOf('json') + 1]), queuedAt: Number(id.split('-')[0]) };
+    } catch {}
+    // Sends are acknowledged before they run: after a crash they are never replayed (no double sends).
+    // The app marks a send that never reports back as failed; LinkedIn's copy corrects it if it went out.
+    if (!cmd || isSend(cmd)) await redis.xack(stream, 'bridge', id);
+    if (!cmd) return;
+    try {
+      await handler(cmd);
+    } catch (err) {
+      logger.error({ err, cmd: cmd.type }, 'command failed');
+    }
+    if (!isSend(cmd)) await redis.xack(stream, 'bridge', id);
+  }
+
+  /**
+   * Hands every command to the handler as soon as it arrives (the handler orders and paces them), forever.
+   * Unacked commands from before a crash are replayed first, one at a time.
+   */
   async function consume(handler: (cmd: Command) => Promise<unknown>): Promise<never> {
     try {
       await redis.xgroup('CREATE', stream, 'bridge', '$', 'MKSTREAM');
@@ -55,18 +80,8 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
           continue;
         }
         for (const [id, fields] of entries) {
-          let cmd: Command | null = null;
-          try {
-            cmd = JSON.parse(fields[fields.indexOf('json') + 1]);
-          } catch {}
-          if (cmd) {
-            try {
-              await handler(cmd);
-            } catch (err) {
-              logger.error({ err, cmd: cmd.type }, 'command failed');
-            }
-          }
-          await redis.xack(stream, 'bridge', id);
+          const done = run(handler, id, fields).catch((err) => logger.error({ err }, 'command ack failed'));
+          if (cursor === '0') await done;
         }
       } catch (err) {
         logger.error({ err }, 'command stream error');

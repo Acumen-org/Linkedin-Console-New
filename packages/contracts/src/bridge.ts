@@ -2,12 +2,14 @@
  * Bridge protocol: how the app talks to the per-account bridge (sidecar) over Redis.
  *
  *   li:events                bridge → worker   one stream for all accounts (BridgeEvent)
+ *   li:results               bridge → worker   command results only, so send confirmations never wait behind syncs
  *   li:cmd:<accountId>       app → bridge      one stream per account (BridgeCommand)
  *   li:reply:<cmdId>         bridge → app      list, for request/response commands
  */
 import type { BridgeSessionStatus, Folder } from './domain.js';
 
 export const EVENTS_STREAM = 'li:events';
+export const RESULTS_STREAM = 'li:results';
 export const commandStream = (accountId: string) => `li:cmd:${accountId}`;
 export const replyKey = (cmdId: string) => `li:reply:${cmdId}`;
 

@@ -6,8 +6,8 @@ function required(name: string) {
   return v;
 }
 
-/** Settings forwarded to every sidecar (self-healing, tab parking, logging). */
-const FORWARDED_KEYS = ['HEAL_PROVIDER', 'HEAL_MODEL', 'ANTHROPIC_API_KEY', 'OLLAMA_URL', 'LOG_LEVEL', 'PARK_AFTER_MINUTES'];
+/** Settings forwarded to every sidecar (self-healing, tab parking, send speed, logging). */
+const FORWARDED_KEYS = ['HEAL_PROVIDER', 'HEAL_MODEL', 'ANTHROPIC_API_KEY', 'OLLAMA_URL', 'LOG_LEVEL', 'PARK_AFTER_MINUTES', 'SEND_MODE'];
 
 export const config = {
   port: Number(env.PORT ?? 7070),

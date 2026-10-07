@@ -15,5 +15,7 @@ export const config = {
   jpegQuality: Number(process.env.JPEG_QUALITY ?? 70),
   upstreamProxy: process.env.UPSTREAM_PROXY ?? '',
   captureRaw: process.env.CAPTURE_RAW === '1',
+  // fast (default): sends go out within about a second. human: typed with human pauses (several seconds).
+  sendMode: process.env.SEND_MODE === 'human' ? 'human' : 'fast',
   logLevel: process.env.LOG_LEVEL ?? 'info',
 };

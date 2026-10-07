@@ -18,11 +18,12 @@
 | `HEAL_PROVIDER`, `HEAL_MODEL` | off | Self-healing selectors: `ollama` or `anthropic` |
 | `ANTHROPIC_API_KEY`, `OLLAMA_URL` | | Shared by AI drafts and self-healing |
 | `POD_MEMORY_MB` | `2048` | Memory limit per account browser |
+| `SEND_MODE` | `fast` | `fast`: text replies reach LinkedIn in about half a second. `human`: typed with human pauses (10-20 s) |
 | `PARK_AFTER_MINUTES` | `10` | Unload human-facing tabs of connected accounts after this long without Live View viewers (restored on open) |
 | `SIDECAR_ENV` | | Extra sidecar env, e.g. `CAPTURE_RAW=1` |
 | `LOG_LEVEL` | `info` | `debug` for troubleshooting |
 
-After changing `.env`, run `docker compose up -d`. For pod-related settings (`HEAL_*`, `PARK_AFTER_MINUTES`, `SIDECAR_ENV`, `POD_MEMORY_MB`) also run `docker compose exec api node src/dev/recreate-pods.ts`.
+After changing `.env`, run `docker compose up -d`. For pod-related settings (`HEAL_*`, `PARK_AFTER_MINUTES`, `SEND_MODE`, `SIDECAR_ENV`, `POD_MEMORY_MB`) also run `docker compose exec api node src/dev/recreate-pods.ts`.
 
 ## Day-2 tasks
 

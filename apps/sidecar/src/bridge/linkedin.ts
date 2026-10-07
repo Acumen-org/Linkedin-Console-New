@@ -2,6 +2,7 @@
 import { IDLE_URL } from './actions.ts';
 import type { BridgeContext } from './context.ts';
 import { extract, profileUrnFrom } from './extract.ts';
+import { fillSendBody } from './send-template.ts';
 
 const LINKEDIN = 'https://www.linkedin.com';
 
@@ -10,20 +11,41 @@ async function csrfToken(ctx: BridgeContext) {
   return c?.value?.replace(/"/g, '') ?? '';
 }
 
-export async function ensureOnLinkedIn(ctx: BridgeContext) {
+async function goToLinkedIn(ctx: BridgeContext) {
   if (!ctx.page.url().startsWith(`${LINKEDIN}/`)) await ctx.page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' });
 }
 
-export async function inPageFetch(ctx: BridgeContext, url: string, headers: Record<string, string> = {}) {
-  await ensureOnLinkedIn(ctx);
+export const ensureOnLinkedIn = (ctx: BridgeContext) => ctx.pageLock(() => goToLinkedIn(ctx));
+
+/** A request from inside the bridge page (LinkedIn's cookies, headers and network stack). */
+export async function inPageFetch(
+  ctx: BridgeContext,
+  url: string,
+  headers: Record<string, string> = {},
+  init: { method?: string; body?: string } = {},
+) {
   const token = await csrfToken(ctx);
-  return ctx.page.evaluate(
-    async ({ url, headers }) => {
-      const r = await fetch(url, { headers, credentials: 'include' });
-      return { status: r.status, text: r.status === 200 ? await r.text() : '' };
-    },
-    { url, headers: { ...headers, 'csrf-token': token } },
-  );
+  return ctx.pageLock(async () => {
+    await goToLinkedIn(ctx);
+    return ctx.page.evaluate(
+      async ({ url, headers, init }) => {
+        const r = await fetch(url, { ...init, headers, credentials: 'include' });
+        return { status: r.status, text: r.ok ? await r.text() : '' };
+      },
+      { url, headers: { ...headers, 'csrf-token': token }, init },
+    );
+  });
+}
+
+/**
+ * Sends a text message with LinkedIn's own create-message request (learned template), ~one round trip.
+ * Null when there is no usable template yet (the caller sends through the UI instead).
+ */
+export async function sendViaApi(ctx: BridgeContext, conversationUrn: string, text: string) {
+  const tpl = ctx.state.templates.send;
+  const body = tpl?.body ? fillSendBody(tpl.body, conversationUrn, text) : null;
+  if (!tpl || !body) return null;
+  return inPageFetch(ctx, tpl.url, tpl.headers, { method: 'POST', body });
 }
 
 async function voyager(ctx: BridgeContext, pathAndQuery: string) {

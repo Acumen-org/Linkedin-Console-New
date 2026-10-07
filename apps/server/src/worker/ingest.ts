@@ -80,13 +80,16 @@ export async function onConversations(accountId: string, items: LiConversation[]
   }
 }
 
-/** A message we sent from the app shows up from LinkedIn: attach the LinkedIn URN to our row. */
+/**
+ * A message we sent from the app shows up from LinkedIn: attach the LinkedIn URN to our row.
+ * FAILED rows count too: LinkedIn showing the message proves it was sent (e.g. confirmation came late).
+ */
 async function matchPendingOutbound(conversationId: string, m: LiMessage) {
   const candidates = await sql`
     SELECT id, text, attachments FROM messages
     WHERE conversation_id = ${conversationId} AND direction = 'OUTBOUND' AND message_urn IS NULL
-      AND status IN ('QUEUED', 'SENDING', 'SENT') AND created_at > now() - interval '30 minutes'
-    ORDER BY created_at`;
+      AND status IN ('QUEUED', 'SENDING', 'SENT', 'FAILED') AND created_at > now() - interval '30 minutes'
+    ORDER BY status = 'FAILED', created_at`;
   const match = candidates.find((r) => norm(r.text) === norm(m.text) && (norm(m.text) || m.attachments.length));
   if (!match) return null;
   await sql`
@@ -248,6 +251,7 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
 
 export async function onResult(accountId: string, r: BridgeEventMap['result']) {
   const owner = await redis.get(`li:cmdowner:${r.cmdId}`);
+  let sentAnyway = false;
   if (r.type === 'send_message') {
     const [row] = await sql`SELECT id, message_urn FROM messages WHERE cmd_id = ${r.cmdId}`;
     if (row) {
@@ -258,11 +262,15 @@ export async function onResult(accountId: string, r: BridgeEventMap['result']) {
           await tx`UPDATE messages SET message_urn = ${r.messageUrn!} WHERE id = ${row.id}`;
         });
       }
-      await sql`UPDATE messages SET status = ${r.ok ? 'SENT' : 'FAILED'}, error = ${r.ok ? null : (r.error ?? 'Failed')} WHERE id = ${row.id}`;
+      // A failure report never overrides LinkedIn's own copy: if it already showed up, the message was sent.
+      sentAnyway = !r.ok && !!row.messageUrn;
+      if (!sentAnyway) {
+        await sql`UPDATE messages SET status = ${r.ok ? 'SENT' : 'FAILED'}, error = ${r.ok ? null : (r.error ?? 'Failed')} WHERE id = ${row.id}`;
+      }
       const saved = await emitMessage(accountId, row.id, 'message.updated');
       if (r.ok && saved) await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
     }
   }
-  if (owner && !r.ok) await publish(userRoom(owner), 'command.failed', { type: r.type, error: r.error, accountId });
+  if (owner && !r.ok && !sentAnyway) await publish(userRoom(owner), 'command.failed', { type: r.type, error: r.error, accountId });
   if (owner && r.ok && r.type === 'start_chat') await publish(userRoom(owner), 'command.ok', { type: r.type, accountId });
 }

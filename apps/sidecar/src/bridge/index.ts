@@ -2,7 +2,7 @@
 //  - attaches to the pod's Chrome over CDP (Patchright, which hides the usual automation leaks)
 //  - works in its own background window so it never disturbs what humans see in Live View
 //  - READ (reader.ts): LinkedIn's own JSON + realtime stream → normalized events → Redis
-//  - WRITE (commands.ts): app commands, one at a time, at human pace
+//  - WRITE (commands.ts): app commands; sends first and fast, background syncs one at a time at human pace
 //  - HEALTH (session.ts): CONNECTED / AWAITING_LOGIN / NEEDS_ATTENTION heartbeat
 import { chromium } from 'patchright';
 import { config } from '../config.ts';
@@ -34,6 +34,9 @@ export async function startBridge(streams: Streams, shared: SharedState) {
     log: { info: (m) => logger.info(m), error: (m) => logger.error(m) },
   });
 
+  const pageLock = createExclusiveRunner('page action');
+  const navigate = (p: typeof page, url: string) => pageLock(() => p.goto(url, { waitUntil: 'domcontentloaded' }));
+
   const ctx: BridgeContext = {
     accountId: config.accountId,
     filesDir: config.filesDir,
@@ -43,7 +46,7 @@ export async function startBridge(streams: Streams, shared: SharedState) {
     page,
     streams,
     shared,
-    actions: createActions(healer),
+    actions: createActions(healer, { fastSend: config.sendMode === 'fast', navigate }),
     state: {
       status: 'AWAITING_LOGIN',
       self: null,
@@ -52,6 +55,7 @@ export async function startBridge(streams: Streams, shared: SharedState) {
       templates: JSON.parse((await streams.redis.get(`li:tpl:${config.accountId}`)) ?? '{}'),
     },
     exclusive: createExclusiveRunner(),
+    pageLock,
   };
 
   const reader = createReader(ctx);

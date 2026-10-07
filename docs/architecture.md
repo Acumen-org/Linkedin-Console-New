@@ -47,13 +47,22 @@ Defined once in `packages/contracts/src/bridge.ts` and used by both sides.
 
 | Redis key | Direction | Content |
 |---|---|---|
-| `li:events` (stream) | bridge → worker | `session`, `conversations`, `messages`, `seen`, `typing`, `contacts`, `result` |
+| `li:events` (stream) | bridge → worker | `session`, `conversations`, `messages`, `seen`, `typing`, `contacts` |
+| `li:results` (stream) | bridge → worker | command `result`s ("sent"/"failed"), on their own stream so a sync burst never delays them |
 | `li:cmd:<accountId>` (stream) | api/worker → bridge | `send_message`, `start_chat`, `sync_inbox`, `sync_thread`, `sync_connections`, `mark_read`, `fetch_media`, `check_session` |
 | `li:reply:<cmdId>` (list) | bridge → api | direct replies (media downloads) |
 | `lu:webhooks` (stream) | api/worker → worker | outgoing webhook events |
 | `lu:emit` (pub/sub) | api/worker → api | realtime events for Socket.IO rooms |
 
-Streams use consumer groups, so events survive restarts and are processed exactly once per group.
+Streams use consumer groups, so events survive restarts and are processed exactly once per group. Exception: the bridge acknowledges a send before running it, so a crash never sends a message twice; a send that never reports back is marked failed after 10 minutes (and corrected to sent if LinkedIn's copy shows up).
+
+### Sending
+
+1. The api stores the message as `QUEUED` and adds `send_message` to the account's command stream (~10 ms).
+2. The bridge picks it up immediately; sends jump ahead of background syncs. With `SEND_MODE=fast` (default) a text reply goes out as LinkedIn's own create-message request from inside the page: one round trip to LinkedIn, typically 0.2-0.6 s. The request is learned from a real send (the first UI send, or a teammate's send in Live View), stored without its text, and dropped if LinkedIn ever rejects it.
+3. Attachments, new chats, the first send of an account and `SEND_MODE=human` go through the page UI (fast mode pastes the text: ~2-4 s including the page load; human mode types with pauses: ~10-20 s).
+4. The result goes to `li:results`; the worker marks the message `SENT` and LinkedIn's own copy (realtime) is merged into it.
+5. Sends older than 5 minutes are not sent any more (account was offline or busy).
 
 ## Sidecar (per account)
 
@@ -66,7 +75,8 @@ apps/sidecar/src/
   bridge/reader.ts        READ: intercept LinkedIn JSON + realtime SSE → extract → events; outbound confirmations
   bridge/extract.ts       LinkedIn payloads → normalized contracts (entity-based, endpoint-agnostic)
   bridge/session.ts       HEALTH: login state heartbeat; quiet reconcile loop
-  bridge/commands.ts      WRITE: command handlers (human-paced, one at a time)
+  bridge/commands.ts      WRITE: sends first (direct or via UI), then background syncs one at a time, paced
+  bridge/send-template.ts fast sending: LinkedIn's own create-message request, learned and replayed
   bridge/actions.ts       UI actions (selectors) with self-healing lookup
   bridge/heal.ts          accessibility snapshot → LLM → cached role+name
   bridge/linkedin.ts      in-page requests (CSRF, Voyager, /me)

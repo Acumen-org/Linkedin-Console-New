@@ -1,4 +1,5 @@
-// UI actions performed in the bridge's own window, at human pace.
+// UI actions performed in the bridge's own window. Background work (inbox, connections) runs at human
+// pace. Sending runs at human pace with SEND_MODE=human, otherwise as fast as the page allows.
 // Selectors are role/label-first with LinkedIn class fallbacks. If LinkedIn changes its UI,
 // this is the file to update (see docs/bridge-maintenance.md). Self-healing covers the gap.
 import type { FileRef } from '@linkunify/contracts';
@@ -36,12 +37,21 @@ async function waitEnabled(locator: Locator, timeoutMs: number) {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     if ((await locator.isVisible().catch(() => false)) && (await locator.isEnabled().catch(() => false))) return true;
-    await sleep(400);
+    await sleep(100);
   }
   return false;
 }
 
-export function createActions(healer: Healer | null) {
+export interface ActionOptions {
+  /** Send without human pauses and typing (paste the text, click Send). */
+  fastSend: boolean;
+  /** Page navigation (goes through the bridge's page lock). */
+  navigate: (page: Page, url: string) => Promise<unknown>;
+}
+
+export function createActions(healer: Healer | null, { fastSend, navigate }: ActionOptions) {
+  /** A human pause while sending; skipped in fast mode. */
+  const sendPause = (min: number, max: number) => (fastSend ? Promise.resolve() : jitter(min, max));
   /** Primary locator, or the self-healed one when LinkedIn changed its UI. */
   async function find(page: Page, key: string, intent: string, primary: Locator, timeout = 20_000) {
     if (healer) return healer.find(page, key, intent, primary, timeout);
@@ -58,18 +68,18 @@ export function createActions(healer: Healer | null) {
       const anyInput = page.locator('input[type="file"]').last();
       const target = isImage && (await imageInput.count()) ? imageInput : (await fileInput.count()) ? fileInput : anyInput;
       await target.setInputFiles(f.path);
-      await jitter(2000, 3500);
+      await sendPause(2000, 3500); // the upload itself is awaited by waiting for an enabled Send button
     }
   }
 
   async function typeMessage(page: Page, box: Locator, text: string) {
     await box.click();
-    await jitter(400, 900);
+    await sendPause(400, 900);
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
-      // Type the start naturally, paste the rest of long lines (keeps long messages fast).
-      const head = lines[i].slice(0, 60);
-      const tail = lines[i].slice(60);
+      // Human mode types the start naturally and pastes the rest of long lines; fast mode pastes it all.
+      const head = fastSend ? '' : lines[i].slice(0, 60);
+      const tail = fastSend ? lines[i] : lines[i].slice(60);
       if (head) await page.keyboard.type(head, { delay: rand(25, 70) });
       if (tail) await page.keyboard.insertText(tail);
       if (i < lines.length - 1) await page.keyboard.press('Shift+Enter');
@@ -78,10 +88,10 @@ export function createActions(healer: Healer | null) {
 
   async function composeAndSend(page: Page, text: string, files: FileRef[]) {
     const box = await find(page, 'composer', 'the text box of the message composer where you type a reply', composer(page), 25_000);
-    await jitter(800, 2000);
+    await sendPause(800, 2000);
     if (files.length) await attachFiles(page, files);
     if (text) await typeMessage(page, box, text);
-    await jitter(600, 1500);
+    await sendPause(600, 1500);
     const btn = await find(page, 'send', 'the Send button of the message composer', sendButton(page), 10_000);
     if (!(await waitEnabled(btn, 60_000))) throw new Error('Send button never became enabled (upload stuck or UI changed)');
     await btn.click();
@@ -89,13 +99,13 @@ export function createActions(healer: Healer | null) {
 
   return {
     async sendInThread(page: Page, { threadId, text, files }: { threadId: string; text: string; files: FileRef[] }) {
-      await page.goto(threadUrl(threadId), { waitUntil: 'domcontentloaded' });
+      await navigate(page, threadUrl(threadId));
       await composeAndSend(page, text, files);
     },
 
     async startChat(page: Page, { profileUrl, text, files }: { profileUrl: string; text: string; files: FileRef[] }) {
-      await page.goto(profileUrl, { waitUntil: 'domcontentloaded' });
-      await jitter(2000, 4000);
+      await navigate(page, profileUrl);
+      await sendPause(2000, 4000);
       const primary = page
         .locator('main')
         .getByRole('button', { name: /^message\b/i })
@@ -108,18 +118,18 @@ export function createActions(healer: Healer | null) {
         primary,
       );
       await btn.click();
-      await jitter(1500, 3000);
+      await sendPause(1500, 3000);
       await composeAndSend(page, text, files);
     },
 
     async openThread(page: Page, threadId: string) {
-      await page.goto(threadUrl(threadId), { waitUntil: 'domcontentloaded' });
+      await navigate(page, threadUrl(threadId));
       await jitter(3000, 5000);
     },
 
     /** Load the conversation list (without opening any thread) and scroll it to load more. */
     async loadInbox(page: Page, scrolls = 4) {
-      await page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' });
+      await navigate(page, IDLE_URL);
       await jitter(4000, 6000);
       const list = page.locator('.msg-conversations-container__conversations-list').first();
       const box = await list.boundingBox().catch(() => null);
@@ -133,7 +143,7 @@ export function createActions(healer: Healer | null) {
 
     /** Scroll the connections page; returns profiles found in the DOM (fallback if no JSON is intercepted). */
     async loadConnections(page: Page, maxScrolls = 25): Promise<DomProfile[]> {
-      await page.goto(CONNECTIONS_URL, { waitUntil: 'domcontentloaded' });
+      await navigate(page, CONNECTIONS_URL);
       await jitter(4000, 6000);
       let lastCount = 0;
       let stable = 0;

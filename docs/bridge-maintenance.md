@@ -5,7 +5,8 @@ The bridge (`apps/sidecar/src/bridge/`) is the only part that depends on LinkedI
 | File | Responsibility | Changes when LinkedIn… |
 |---|---|---|
 | `extract.ts` | Recognizes conversations/messages/profiles in any JSON LinkedIn loads | renames entity fields/types |
-| `reader.ts` | Interception of LinkedIn's JSON, realtime stream, history templates, outbound confirmation | changes realtime transport or GraphQL query names |
+| `reader.ts` | Interception of LinkedIn's JSON, realtime stream, history and send templates, outbound confirmation | changes realtime transport or GraphQL query names |
+| `send-template.ts` | Fast sending: refills LinkedIn's learned create-message request | changes the send request (handled automatically, see below) |
 | `session.ts` | Login-state heartbeat, quiet reconcile | changes cookies or login/checkpoint URLs |
 | `commands.ts` | Command handlers (send, start chat, syncs, media) | changes how threads/history load |
 | `actions.ts` | UI actions: send, attach, start chat, scroll lists | redesigns the composer / buttons |
@@ -39,10 +40,11 @@ With `HEAL_PROVIDER` set, a broken composer, Send or profile-Message selector do
 | Sends fail with "Send button never became enabled" / composer timeout | Composer markup changed | `composer()` / `sendButton()` in `actions.ts` |
 | Sent message stays "sending" then fails "Could not confirm" | Outbound echo not recognized | `waitForOutbound` in `reader.ts`, `fromSelf` in `extract.ts` |
 | "Fetch older history" does nothing | GraphQL query name changed | `rememberTemplate()` in `reader.ts` |
+| Text replies take a few seconds instead of under a second | No send template (first send of the account, or LinkedIn rejected the old one; the log says `learned the send request` once it's back) | Usually nothing: the next UI send re-learns it. If it never comes back, check `isCreateMessageRequest` in `send-template.ts` |
 | Connections page empty | Connections page now server-rendered | DOM fallback in `loadConnections()` |
 
 ## Rules of thumb
 
-- Never add bulk or automated sending. Keep one queue per account (already enforced), human jitter, and caps.
+- Never add bulk or automated sending. Every send is a teammate's message; keep one queue per account (already enforced) and the daily caps. `SEND_MODE=human` brings back typing with human pauses if an account needs extra caution.
 - Opening a thread marks it read on LinkedIn. The bridge avoids opening unread threads, except for an explicit "mark read" or a reply.
 - If LinkedIn shows a checkpoint, the account becomes **Needs attention** and sending stops. Let a human solve it in Live View, then leave the account alone for a day.

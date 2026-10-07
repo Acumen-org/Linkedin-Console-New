@@ -5,3 +5,6 @@ dist/
 *.log
 tools/phase0-spike/out/
 tools/phase0-spike/files/
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.map
