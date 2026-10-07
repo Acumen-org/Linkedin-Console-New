@@ -25,6 +25,7 @@ const SPECIAL: Record<string, number> = {
   Tab: 9,
   Escape: 27,
   Delete: 46,
+  Insert: 45,
   Home: 36,
   End: 35,
   PageUp: 33,
@@ -33,7 +34,45 @@ const SPECIAL: Record<string, number> = {
   ArrowUp: 38,
   ArrowRight: 39,
   ArrowDown: 40,
+  CapsLock: 20,
+  ContextMenu: 93,
 };
+
+// Windows virtual key code of the *physical* key (KeyboardEvent.code). Chrome reads windowsVirtualKeyCode as the
+// key that was pressed, so punctuation must not reuse its ASCII value ('.' = 46 would be VK_DELETE).
+const CODE_VK: Record<string, number> = {
+  Space: 32,
+  Semicolon: 186,
+  Equal: 187,
+  Comma: 188,
+  Minus: 189,
+  Period: 190,
+  Slash: 191,
+  Backquote: 192,
+  BracketLeft: 219,
+  Backslash: 220,
+  BracketRight: 221,
+  Quote: 222,
+  IntlBackslash: 226,
+  NumpadMultiply: 106,
+  NumpadAdd: 107,
+  NumpadSubtract: 109,
+  NumpadDecimal: 110,
+  NumpadDivide: 111,
+  NumpadEnter: 13,
+};
+function codeToVk(code: string): number | undefined {
+  if (code in CODE_VK) return CODE_VK[code];
+  let m = /^Key([A-Z])$/.exec(code);
+  if (m) return m[1].charCodeAt(0); // 65-90
+  m = /^Digit([0-9])$/.exec(code);
+  if (m) return 48 + Number(m[1]);
+  m = /^Numpad([0-9])$/.exec(code);
+  if (m) return 96 + Number(m[1]);
+  m = /^F([1-9]|1[0-9]|2[0-4])$/.exec(code);
+  if (m) return 111 + Number(m[1]); // F1 = 112
+  return undefined;
+}
 
 const modifiers = (m: Mods = {}) => (Object.entries(MOD) as [keyof Mods, number][]).reduce((acc, [k, v]) => acc | (m[k] ? v : 0), 0);
 
@@ -61,10 +100,15 @@ export async function dispatchInput(cdp: Cdp, msg: InputMessage, meta: ScreenMet
       });
     case 'key': {
       const key = String(msg.key);
-      const m = modifiers(msg.mods);
-      const printable = key.length === 1 && !(m & (MOD.ctrl | MOD.meta));
+      const mods = msg.mods ?? {};
+      // AltGr arrives as Ctrl+Alt (Windows): it types a character (e.g. @ or € on non-US layouts), it is no shortcut.
+      const altGr = !!(mods.ctrl && mods.alt);
+      const shortcut = !!mods.meta || (!!mods.ctrl && !altGr);
+      const printable = [...key].length === 1 && !shortcut; // one character, incl. accented letters and emoji
+      const m = printable && altGr ? modifiers({ ...mods, ctrl: false, alt: false }) : modifiers(mods);
       const text = printable ? key : key === 'Enter' ? '\r' : undefined;
-      const vk = SPECIAL[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+      const ascii = /^[a-z0-9]$/i.test(key) ? key.toUpperCase().charCodeAt(0) : 0; // letters/digits only
+      const vk = SPECIAL[key] ?? codeToVk(String(msg.code ?? '')) ?? ascii;
       await cdp.send('Input.dispatchKeyEvent', {
         type: text ? 'keyDown' : 'rawKeyDown',
         key,
