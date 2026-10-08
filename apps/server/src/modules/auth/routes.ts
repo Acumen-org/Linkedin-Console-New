@@ -37,7 +37,7 @@ export default async function authRoutes(app: FastifyInstance) {
     });
     if (!created) throw new HttpError(409, 'Setup already done');
     await createSession(reply, req, id);
-    await audit({ userId: id, action: 'setup.owner_created', ip: req.ip });
+    await audit({ userId: id, action: 'setup.owner_created', ip: req.ip, req });
     return { ok: true };
   });
 
@@ -47,15 +47,24 @@ export default async function authRoutes(app: FastifyInstance) {
     const [u] = await sql`SELECT id, password_hash, disabled_at FROM users WHERE email = ${body.email.toLowerCase().trim()}`;
     if (!u || u.disabledAt || !(await verifyPassword(u.passwordHash, body.password))) {
       recordLoginFailure(req.ip);
+      const reason = !u ? 'unknown email' : u.disabledAt ? 'account disabled' : 'wrong password';
+      await audit({
+        userId: u?.id ?? null,
+        action: 'auth.login_failed',
+        meta: { email: body.email.slice(0, 200), reason },
+        ip: req.ip,
+        req,
+      });
       throw new HttpError(401, 'Wrong email or password');
     }
     clearLoginFailures(req.ip);
     await createSession(reply, req, u.id);
-    await audit({ userId: u.id, action: 'auth.login', ip: req.ip });
+    await audit({ userId: u.id, action: 'auth.login', ip: req.ip, req });
     return { ok: true };
   });
 
   app.post('/api/auth/logout', async (req, reply) => {
+    if (req.user) await audit({ userId: req.user.id, action: 'auth.logout', ip: req.ip, req });
     await destroySession(reply, req.cookies[SESSION_COOKIE]);
     return { ok: true };
   });
@@ -70,7 +79,7 @@ export default async function authRoutes(app: FastifyInstance) {
     await sql`UPDATE users SET password_hash = ${await hashPassword(body.next)} WHERE id = ${user.id}`;
     await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;
     await createSession(reply, req, user.id);
-    await audit({ userId: user.id, action: 'auth.password_changed', ip: req.ip });
+    await audit({ userId: user.id, action: 'auth.password_changed', ip: req.ip, req });
     return { ok: true };
   });
 }

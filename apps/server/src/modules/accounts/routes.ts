@@ -129,13 +129,13 @@ export default async function accountRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const { id } = req.params as { id: string };
     await assertAccount(user, id, 'FULL');
-    const [a] = await sql`SELECT owner_user_id FROM accounts WHERE id = ${id}`;
+    const [a] = await sql`SELECT owner_user_id, label FROM accounts WHERE id = ${id}`;
     if (user.role === 'MEMBER' && a.ownerUserId !== user.id)
       throw new HttpError(403, 'Only the account owner or an admin can disconnect it');
     await pods.remove(id, true).catch((e) => console.error('[accounts] pod remove', e.message));
     await sql`DELETE FROM accounts WHERE id = ${id}`;
     await redis.del(`li:cmd:${id}`, `li:tpl:${id}`, `li:ever:${id}`, `li:bridge-target:${id}`);
-    await audit({ userId: user.id, action: 'account.deleted', meta: { accountId: id }, ip: req.ip });
+    await audit({ userId: user.id, action: 'account.deleted', accountLabel: a.label, meta: { accountId: id }, ip: req.ip, req });
     await publish(`acc:${id}`, 'account.deleted', { id });
     return { ok: true };
   });

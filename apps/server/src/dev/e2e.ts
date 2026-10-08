@@ -48,8 +48,10 @@ function client() {
     });
     const set = res.headers.get('set-cookie');
     if (set) cookie = set.split(';')[0];
-    const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
-    return { status: res.status, data: data as any };
+    const json = res.headers.get('content-type')?.includes('json');
+    const text = json ? '' : await res.text();
+    const data = json ? await res.json() : null;
+    return { status: res.status, data: data as any, text, headers: res.headers };
   };
 }
 
@@ -410,6 +412,63 @@ try {
   await step('members cannot see audit log or manage users', async () => {
     assert.equal((await member('GET', '/api/audit')).status, 403);
     assert.equal((await member('POST', '/api/users', { name: 'x', email: 'x@e2e.test', password: 'xxxxxxxxxxxx' })).status, 403);
+  });
+
+  await step('failed sign-ins are recorded with the reason, never the password', async () => {
+    const stranger = client();
+    const wrong = `not-${password}`;
+    assert.equal((await stranger('POST', '/api/auth/login', { email: `member-${tag}@e2e.test`, password: wrong })).status, 401);
+    const [e] = await sql`SELECT user_id, meta, actor_name FROM audit_log WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1`;
+    assert.equal(e.userId, memberId);
+    assert.equal(e.actorName, 'E2E Member');
+    assert.equal(e.meta.reason, 'wrong password');
+    assert.ok(!JSON.stringify(e.meta).includes(wrong), 'password not stored');
+  });
+
+  await step('audit log filters by person, event category and date', async () => {
+    const mine = await owner('GET', `/api/audit?userId=${memberId}&action=message`);
+    assert.equal(mine.status, 200);
+    assert.ok(mine.data.length > 0);
+    assert.ok(mine.data.every((e: any) => e.userId === memberId && e.action.startsWith('message.')));
+    const future = await owner('GET', `/api/audit?from=${encodeURIComponent(new Date(Date.now() + 86_400_000).toISOString())}`);
+    assert.equal(future.data.length, 0);
+    const bad = await owner('GET', '/api/audit?from=yesterday');
+    assert.equal(bad.status, 400);
+  });
+
+  await step('audit export: CSV for Excel, formula-safe, JSON, admins only, and itself recorded', async () => {
+    // A name that a spreadsheet would run as a formula must come out as text.
+    await sql`UPDATE users SET name = '=HYPERLINK("http://evil")' WHERE id = ${memberId}`;
+    await member('POST', '/api/conversations/' + janeId + '/read');
+    await member('POST', '/api/auth/logout');
+    await sql`UPDATE users SET name = 'E2E Member' WHERE id = ${memberId}`;
+    await member('POST', '/api/auth/login', { email: `member-${tag}@e2e.test`, password });
+
+    const csv = await owner('GET', `/api/audit/export?format=csv&userId=${memberId}`);
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get('content-type') ?? '', /text\/csv/);
+    assert.match(csv.headers.get('content-disposition') ?? '', /attachment; filename="audit-log-\d{8}-\d{4}\.csv"/);
+    assert.ok(csv.text.startsWith('Time (UTC),Person,Email,Event'), csv.text.slice(0, 80)); // fetch's text() drops the BOM
+    const lines = csv.text.trim().split('\r\n');
+    assert.ok(lines.some((l) => l.includes(',Sent a message,message.send,')));
+    assert.ok(lines.some((l) => l.includes(`"'=HYPERLINK(""http://evil"")"`)), 'formula escaped');
+    assert.ok(!lines.some((l) => /(^|,)"?=HYPERLINK/.test(l)), 'no raw formula');
+
+    const [exported] = await sql`SELECT user_id, meta FROM audit_log WHERE action = 'audit.exported' ORDER BY id DESC LIMIT 1`;
+    assert.equal(exported.userId, ownerId);
+    assert.equal(exported.meta.rows, lines.length - 1);
+    assert.equal(exported.meta.filters.userId, memberId);
+
+    const json = await owner('GET', `/api/audit/export?format=json&action=auth`);
+    assert.ok(Array.isArray(json.data) && json.data.length > 0);
+    assert.ok(json.data.every((e: any) => e.action.startsWith('auth.') && e.event));
+    assert.equal((await member('GET', '/api/audit/export')).status, 403);
+  });
+
+  await step('audit entries cannot be edited or deleted', async () => {
+    const [e] = await sql`SELECT id FROM audit_log ORDER BY id DESC LIMIT 1`;
+    await assert.rejects(sql`UPDATE audit_log SET action = 'auth.login' WHERE id = ${e.id}`, /append-only/);
+    await assert.rejects(sql`DELETE FROM audit_log WHERE id = ${e.id}`, /append-only/);
   });
 
   await step('new users get exactly DEFAULT_GRANT (nothing when NONE)', async () => {

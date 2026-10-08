@@ -1,0 +1,71 @@
+/** Audit trail: every recorded action, its readable name and its category (used by the page, filters and exports). */
+
+export const AUDIT_CATEGORIES = {
+  auth: 'Sign-in & security',
+  message: 'Messaging',
+  conversation: 'Conversations',
+  live: 'Live LinkedIn',
+  account: 'LinkedIn accounts',
+  user: 'Team',
+  settings: 'Settings',
+  audit: 'Audit log',
+} as const;
+export type AuditCategory = keyof typeof AUDIT_CATEGORIES;
+
+export const AUDIT_ACTIONS = {
+  'setup.owner_created': { label: 'Created the owner account', category: 'auth' },
+  'auth.login': { label: 'Signed in', category: 'auth' },
+  'auth.login_failed': { label: 'Failed sign-in', category: 'auth' },
+  'auth.logout': { label: 'Signed out', category: 'auth' },
+  'auth.password_changed': { label: 'Changed own password', category: 'auth' },
+  'message.send': { label: 'Sent a message', category: 'message' },
+  'message.start_chat': { label: 'Started a new chat', category: 'message' },
+  'ai.draft': { label: 'Generated an AI draft', category: 'message' },
+  'conversation.assigned': { label: 'Assigned a conversation', category: 'conversation' },
+  'live.opened': { label: 'Opened Live LinkedIn', category: 'live' },
+  'account.created': { label: 'Connected a LinkedIn account', category: 'account' },
+  'account.deleted': { label: 'Disconnected a LinkedIn account', category: 'account' },
+  'account.updated': { label: 'Changed account settings', category: 'account' },
+  'account.status': { label: 'Account status changed', category: 'account' },
+  'account.restarted': { label: 'Restarted an account browser', category: 'account' },
+  'account.grants_changed': { label: 'Changed who can access an account', category: 'account' },
+  'user.created': { label: 'Added a teammate', category: 'user' },
+  'user.updated': { label: 'Changed a teammate', category: 'user' },
+  'label.created': { label: 'Created a label', category: 'settings' },
+  'label.deleted': { label: 'Deleted a label', category: 'settings' },
+  'webhook.created': { label: 'Added a webhook', category: 'settings' },
+  'webhook.updated': { label: 'Changed a webhook', category: 'settings' },
+  'webhook.deleted': { label: 'Deleted a webhook', category: 'settings' },
+  'audit.exported': { label: 'Exported the audit log', category: 'audit' },
+} as const satisfies Record<string, { label: string; category: AuditCategory }>;
+export type AuditAction = keyof typeof AUDIT_ACTIONS;
+
+export const auditLabel = (action: string) => (AUDIT_ACTIONS as Record<string, { label: string }>)[action]?.label ?? action;
+
+/** One entry as the API returns it. Names are as they were when it happened. */
+export interface AuditEntry {
+  id: number;
+  createdAt: string;
+  action: string;
+  userId: string | null;
+  actorName: string | null;
+  actorEmail: string | null;
+  accountId: string | null;
+  accountLabel: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  meta: Record<string, unknown>;
+}
+
+/** Filters shared by the list and the export (all optional; dates are ISO 8601, `to` is exclusive). */
+export interface AuditFilters {
+  userId?: string;
+  accountId?: string;
+  /** An action ('auth.login') or a whole category ('auth'). */
+  action?: string;
+  from?: string;
+  to?: string;
+}
+
+export const AUDIT_EXPORT_FORMATS = ['csv', 'json'] as const;
+export type AuditExportFormat = (typeof AUDIT_EXPORT_FORMATS)[number];
