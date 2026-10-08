@@ -3,7 +3,17 @@ import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkedin-conso
 import { migrate, sql } from './lib/db.ts';
 import { logger } from './lib/logger.ts';
 import { newRedis, redis } from './lib/redis.ts';
-import { onContacts, onConversations, onMessages, onResult, onSeen, onSession, onTyping } from './worker/ingest.ts';
+import { onProgress, onSyncResult } from './worker/first-sync.ts';
+import {
+  onContacts,
+  onConversations,
+  onConversationsProgress,
+  onMessages,
+  onResult,
+  onSeen,
+  onSession,
+  onTyping,
+} from './worker/ingest.ts';
 import { startScheduler } from './worker/scheduler.ts';
 import { consumeStream } from './worker/stream.ts';
 import { runWebhookDelivery } from './worker/webhooks.ts';
@@ -15,7 +25,8 @@ async function handleBridgeEvent(ev: BridgeEvent) {
     case 'session':
       return onSession(ev.accountId, ev.data);
     case 'conversations':
-      return onConversations(ev.accountId, ev.data);
+      await onConversations(ev.accountId, ev.data);
+      return onConversationsProgress(ev.accountId);
     case 'messages':
       return onMessages(ev.accountId, ev.data);
     case 'seen':
@@ -25,7 +36,10 @@ async function handleBridgeEvent(ev: BridgeEvent) {
     case 'contacts':
       return onContacts(ev.accountId, ev.data);
     case 'result':
+      if (ev.data.type.startsWith('sync_')) return onSyncResult(ev.accountId, ev.data);
       return onResult(ev.accountId, ev.data);
+    case 'progress':
+      return onProgress(ev.accountId, ev.data);
   }
 }
 

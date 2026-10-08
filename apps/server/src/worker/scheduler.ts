@@ -58,6 +58,31 @@ async function expireStuckSends() {
   }
 }
 
+/**
+ * History that was requested but never confirmed (bridge restarted, command lost, or no history request
+ * learned yet for unread threads) is requested again, newest conversations first.
+ */
+async function retryPendingHistory() {
+  const pending = await sql`
+    UPDATE conversations c SET history_requested_at = now()
+    FROM (
+      SELECT c2.id FROM conversations c2 JOIN accounts a ON a.id = c2.account_id AND a.status = 'CONNECTED'
+      WHERE c2.history_requested_at < now() - interval '10 minutes' AND c2.history_synced_at IS NULL AND c2.thread_id IS NOT NULL
+        AND c2.last_message_at > now() - interval '90 days'
+      ORDER BY c2.last_message_at DESC NULLS LAST LIMIT 50
+    ) due
+    WHERE c.id = due.id
+    RETURNING c.account_id, c.thread_urn, c.thread_id, c.unread_count`;
+  for (const c of pending) {
+    await sendCommand(c.accountId, {
+      type: 'sync_thread',
+      conversationUrn: c.threadUrn,
+      threadId: c.threadId,
+      allowOpen: c.unreadCount === 0,
+    });
+  }
+}
+
 /** Follow the Twilio console staff list every STAFF_SYNC_MINUTES (one worker at a time). */
 async function staffSync() {
   if (config.staffSync.mode === 'off') return;
@@ -66,7 +91,7 @@ async function staffSync() {
 }
 
 export function startScheduler() {
-  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends, staffSync];
+  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends, staffSync, retryPendingHistory];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));
   }, 60_000);

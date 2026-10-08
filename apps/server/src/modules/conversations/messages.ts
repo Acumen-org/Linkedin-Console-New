@@ -9,10 +9,12 @@ import { sendCommand } from '../../core/bridge.ts';
 import { sql } from '../../lib/db.ts';
 import { badRequest, conflict, HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
-import { publish } from '../../lib/redis.ts';
+import { publish, redis } from '../../lib/redis.ts';
 import { loadMessage, MESSAGE_COLUMNS } from './queries.ts';
 
 type Params = { id: string };
+/** Paging back (`before`) is no first look at a conversation. */
+const q0 = (query: unknown) => !!(query as { before?: string })?.before;
 
 const SendBody = z.object({
   text: z.string().max(8000).default(''),
@@ -41,7 +43,20 @@ async function uploadsFor(user: SessionUser, ids: string[]) {
 export default async function messageRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>('/api/conversations/:id/messages', async (req) => {
     const user = requireUser(req);
-    await conversationForUser(user, req.params.id, 'READ');
+    const { conversation } = await conversationForUser(user, req.params.id, 'READ');
+    // Opened before its history arrived (e.g. during the first sync): fetch it next, ahead of other background work.
+    if (!q0(req.query) && !conversation.historySyncedAt && conversation.threadId) {
+      if (await redis.set(`lu:prioritysync:${conversation.id}`, '1', 'EX', 60, 'NX')) {
+        await sql`UPDATE conversations SET history_requested_at = coalesce(history_requested_at, now()) WHERE id = ${conversation.id}`;
+        await sendCommand(conversation.accountId, {
+          type: 'sync_thread',
+          conversationUrn: conversation.threadUrn,
+          threadId: conversation.threadId,
+          allowOpen: conversation.unreadCount === 0,
+          priority: true,
+        });
+      }
+    }
     const q = z
       .object({ before: z.iso.datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(200).default(60) })
       .parse(req.query);

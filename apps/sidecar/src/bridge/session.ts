@@ -35,7 +35,7 @@ export function createSessionMonitor(ctx: BridgeContext) {
     if (becameConnected) {
       await streams.redis.set(everKey, '1');
       logger.info({ as: state.self?.name ?? state.selfUrn }, 'connected to LinkedIn');
-      ctx.exclusive(() => ctx.actions.loadInbox(page, 6)).catch(() => {});
+      ctx.exclusive(() => ctx.actions.loadInbox(page, { scrolls: 2 })).catch(() => {}); // the app runs the full first sync
     }
     return next;
   }
@@ -64,7 +64,7 @@ export function createSessionMonitor(ctx: BridgeContext) {
               const r = await inPageFetch(ctx, tpl.url, tpl.headers);
               if (isFormatRejection(r.status)) forgetTemplate(ctx, 'conversations');
             } else {
-              await ctx.actions.loadInbox(ctx.page, 1);
+              await ctx.actions.loadInbox(ctx.page, { scrolls: 1 });
             }
           })
           .catch(() => {});

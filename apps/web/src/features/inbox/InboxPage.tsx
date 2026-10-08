@@ -22,6 +22,7 @@ import { api, qs } from '../../lib/api';
 import { conversationTitle, timeAgo } from '../../lib/format';
 import { useLabels } from '../../lib/queries';
 import type { Account, Conversation } from '../../types';
+import { isSyncing, SyncProgress } from '../accounts/SyncProgress';
 import { Thread } from './Thread';
 
 const VIEWS = [
@@ -103,7 +104,10 @@ export function InboxPage() {
               className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${accountId === a.id ? 'bg-blue-50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'}`}
             >
               <Avatar name={a.displayName ?? a.label} src={a.avatarUrl} size={22} />
-              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {a.label}
+                {isSyncing(a.sync) && <SyncProgress sync={a.sync} compact />}
+              </span>
               <StatusDot status={a.status} />
               {!!a.unread && <span className="text-xs text-slate-500">{a.unread}</span>}
             </button>

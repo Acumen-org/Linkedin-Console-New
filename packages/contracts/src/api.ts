@@ -18,6 +18,15 @@ export interface User {
   lastSignInAt?: string | null;
 }
 
+/** First sync of a newly connected account (shown until done). */
+export interface AccountSync {
+  startedAt: string;
+  finishedAt: string | null;
+  conversations: { loaded: number; target: number; done: boolean };
+  history: { done: number; total: number };
+  connections: { loaded: number; total: number | null; done: boolean; etaMinutes: number | null };
+}
+
 /** Why a sign-in was refused (sent to the login page as ?error=<code>). */
 export const LOGIN_ERRORS = {
   cancelled: 'Sign-in was cancelled.',
@@ -70,6 +79,8 @@ export interface Account {
   createdAt: string;
   unread?: number;
   level: Level;
+  /** Progress of the first sync after connecting (null once it is long done). */
+  sync?: AccountSync | null;
 }
 
 export interface Label {

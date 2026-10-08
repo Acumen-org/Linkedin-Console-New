@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { TIMEZONES, timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import type { Account, Level } from '../../types';
+import { isSyncing, SyncProgress } from './SyncProgress';
 
 export function AccountsPage() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api.get<Account[]>('/api/accounts') });
@@ -85,6 +86,7 @@ function AccountCard({ a, onEdit, onGrants }: { a: Account; onEdit: () => void; 
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
         </div>
         {a.lastError && <div className="mt-1 text-xs text-red-600">{a.lastError}</div>}
+        {isSyncing(a.sync) && <SyncProgress sync={a.sync} />}
       </div>
       <div className="flex flex-wrap gap-2">
         {needsLogin && canLogin && (

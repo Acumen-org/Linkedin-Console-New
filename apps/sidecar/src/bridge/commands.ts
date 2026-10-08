@@ -151,7 +151,8 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     await result(cmd, direct ?? (await sendViaUi(cmd, since)));
   }
 
-  async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>) {
+  /** A conversation's recent history, quietly (LinkedIn's own request) or by opening it when allowed. */
+  async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>): Promise<Outcome> {
     const tpl = ctx.state.templates.messages;
     if (tpl) {
       const url = tpl.url.replace(
@@ -160,21 +161,27 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
         `conversationUrn:${encodeUrn(cmd.conversationUrn)}`,
       );
       const r = await inPageFetch(ctx, url, tpl.headers);
-      if (r.status === 200) return;
-      if (!isFormatRejection(r.status)) return; // temporary (rate limit, server error): keep the request
+      if (r.status === 200) return { ok: true, conversationUrn: cmd.conversationUrn };
+      if (!isFormatRejection(r.status)) return { ok: false, error: `LinkedIn ${r.status}`, conversationUrn: cmd.conversationUrn };
       forgetTemplate(ctx, 'messages');
     }
-    // Without a template, opening the thread is the only way (it marks it read), so only when allowed.
+    // Without a template, opening the thread is the only way (it marks it read), so only when allowed. Opening
+    // one also teaches the template, so the rest go quietly.
     if (cmd.allowOpen && cmd.threadId) {
       await ctx.actions.openThread(page, cmd.threadId);
       await backToIdle();
+      return { ok: true, conversationUrn: cmd.conversationUrn };
     }
+    return { ok: false, error: 'waiting for a read conversation to learn the history request', conversationUrn: cmd.conversationUrn };
   }
 
   async function syncConnections(cmd: Extract<Command, { type: 'sync_connections' }>) {
     ctx.state.collectingConnections = true;
     try {
-      const fromDom = await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25);
+      const onProgress = cmd.progress
+        ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'connections', loaded, total, done: false })
+        : undefined;
+      const fromDom = await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25, { onProgress });
       if (fromDom.length) {
         await ctx.streams.emit('contacts', {
           connections: true,
@@ -187,26 +194,54 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     }
   }
 
+  async function syncInbox(cmd: Extract<Command, { type: 'sync_inbox' }>) {
+    const onProgress = cmd.target
+      ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'conversations', loaded, total, done: false })
+      : undefined;
+    await ctx.actions.loadInbox(page, { scrolls: cmd.scrolls ?? 6, target: cmd.target ?? 0, onProgress });
+  }
+
+  /** Background syncs report when they're done (the app tracks first-sync progress and retries). */
+  const done = (cmd: Command, outcome: Outcome) => result(cmd, outcome);
+  const attempt = async (cmd: Command, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await done(cmd, { ok: true });
+    } catch (e) {
+      await done(cmd, { ok: false, error: (e as Error).message.split('\n')[0] });
+    }
+  };
+
   return async function handle(cmd: Command): Promise<unknown> {
     if (cmd.type === 'check_session') return checkSession();
     if (cmd.type === 'fetch_media') return downloads(() => fetchMedia(cmd));
     if (cmd.type === 'send_message' || cmd.type === 'start_chat') return sends(() => send(cmd));
+    // Someone opened this conversation: its history goes before the rest of the background work.
+    const priority = cmd.type === 'sync_thread' && cmd.priority ? 'high' : 'normal';
     return background(async () => {
       if (ctx.state.status !== 'CONNECTED') return;
       switch (cmd.type) {
         case 'sync_inbox':
-          return ctx.exclusive(() => ctx.actions.loadInbox(page, cmd.scrolls ?? 6));
-        case 'sync_thread':
-          await ctx.exclusive(() => syncThread(cmd));
+          return attempt(cmd, () => ctx.exclusive(() => syncInbox(cmd)));
+        case 'sync_thread': {
+          const outcome = await ctx
+            .exclusive(() => syncThread(cmd), priority)
+            .catch((e: Error) => ({
+              ok: false,
+              error: e.message.split('\n')[0],
+              conversationUrn: cmd.conversationUrn,
+            }));
+          await done(cmd, outcome);
           return jitter(2000, 5000); // pause between history syncs, without holding the window
+        }
         case 'mark_read':
           return ctx.exclusive(async () => {
             await ctx.actions.openThread(page, cmd.threadId);
             await backToIdle();
           });
         case 'sync_connections':
-          return ctx.exclusive(() => syncConnections(cmd));
+          return attempt(cmd, () => ctx.exclusive(() => syncConnections(cmd)));
       }
-    });
+    }, priority);
   };
 }

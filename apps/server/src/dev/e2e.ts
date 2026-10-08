@@ -147,6 +147,9 @@ async function fakeBridge() {
       last = id;
       const cmd = JSON.parse(fields[1]);
       commands.push(cmd);
+      // History syncs are confirmed like the real bridge does (the conversation's history is then "in").
+      if (cmd.type === 'sync_thread')
+        await emitResult({ cmdId: cmd.cmdId, type: cmd.type, ok: true, conversationUrn: cmd.conversationUrn });
       if (cmd.type !== 'send_message' || cmd.text.startsWith('[silent]')) continue;
       const echo = msg(cmd.threadId.replace(/^2-/, '').replace(tag, ''), null, cmd.text, Date.now());
       const ok = { cmdId: cmd.cmdId, type: cmd.type, ok: true };
@@ -292,6 +295,61 @@ try {
       async () => commands.filter((c) => c.type === 'sync_thread').length,
       (n) => n >= 2,
       'sync_thread commands',
+    );
+  });
+
+  await step('first sync: 100 recent chats, their history, then all connections, with progress', async () => {
+    const accountSync = async () => (await owner('GET', `/api/accounts/${accountId}`)).data.sync;
+    // Started when the account connected: the conversation list (target 100) and a quick pass of connections.
+    assert.ok(commands.some((c) => c.type === 'sync_inbox' && c.target === 100));
+    assert.ok(commands.some((c) => c.type === 'sync_connections' && c.progress && c.maxScrolls <= 10));
+    assert.equal((await accountSync()).conversations.target, 100);
+
+    // The bridge loaded the list: progress, then done.
+    await emit('progress', { kind: 'conversations', loaded: 2, total: 100, done: false });
+    const inbox = commands.find((c) => c.type === 'sync_inbox' && c.target);
+    await emitResult({ cmdId: inbox.cmdId, type: 'sync_inbox', ok: true });
+    // Each requested history was confirmed by the (fake) bridge: chats are complete, so the full list starts.
+    const chats = await until(
+      accountSync,
+      (sync) => sync?.conversations.done && sync.history.total >= 2 && sync.history.done === sync.history.total,
+      'chats done',
+    );
+    assert.equal(chats.connections.done, false);
+    const full = await until(
+      async () => commands.find((c) => c.type === 'sync_connections' && c.maxScrolls > 100),
+      (c) => !!c,
+      'full connection sync requested after the chats',
+    );
+
+    // Connections arrive with LinkedIn's total: an estimate appears, then the list completes.
+    await emit('progress', { kind: 'connections', loaded: 40, total: 400, done: false });
+    const quick = commands.find((c) => c.type === 'sync_connections' && c.maxScrolls <= 10);
+    await emitResult({ cmdId: quick.cmdId, type: 'sync_connections', ok: true });
+    const midway = await until(accountSync, (sync) => sync?.connections.loaded === 40, 'connections progress');
+    assert.equal(midway.connections.total, 400);
+    assert.equal(midway.finishedAt, null);
+    await emit('progress', { kind: 'connections', loaded: 400, total: 400, done: false });
+    await emitResult({ cmdId: full.cmdId, type: 'sync_connections', ok: true });
+    const finished = await until(accountSync, (sync) => !!sync?.finishedAt, 'first sync finished');
+    assert.equal(finished.connections.done, true);
+  });
+
+  await step('opening a conversation whose history is not in yet fetches it first', async () => {
+    await sql`UPDATE conversations SET history_synced_at = NULL WHERE id = ${rajId}`;
+    await redis.del(`lu:prioritysync:${rajId}`);
+    const before = commands.length;
+    await owner('GET', `/api/conversations/${rajId}/messages`);
+    const cmd = await until(
+      async () => commands.slice(before).find((c) => c.type === 'sync_thread' && c.priority),
+      (c) => !!c,
+      'priority history request',
+    );
+    assert.equal(cmd.conversationUrn, conv('RAJ'));
+    await until(
+      async () => (await sql`SELECT history_synced_at FROM conversations WHERE id = ${rajId}`)[0].historySyncedAt,
+      (t) => !!t,
+      'history confirmed',
     );
   });
 
@@ -665,7 +723,16 @@ try {
     const [before] = await sql`SELECT folder, unread_count, is_group FROM conversations WHERE id = ${rajId}`;
     // As a message's conversation stub or a partial realtime update would arrive: only the URN and a time.
     await emit('conversations', [
-      { urn: conv('RAJ'), threadId: `2-RAJ${tag}`, title: null, isGroup: null, unreadCount: null, folder: null, lastActivityAt: null, participants: [] },
+      {
+        urn: conv('RAJ'),
+        threadId: `2-RAJ${tag}`,
+        title: null,
+        isGroup: null,
+        unreadCount: null,
+        folder: null,
+        lastActivityAt: null,
+        participants: [],
+      },
     ]);
     await sleep(1000);
     const [after] = await sql`SELECT folder, unread_count, is_group, participants FROM conversations WHERE id = ${rajId}`;

@@ -121,6 +121,8 @@ export type BridgeEventMap = {
   typing: LiTyping[];
   contacts: { connections: boolean; items: LiProfile[] };
   result: CommandResult;
+  /** While a list is being loaded: how far it got (total = LinkedIn's own count, when shown). */
+  progress: { kind: 'conversations' | 'connections'; loaded: number; total: number | null; done: boolean };
 };
 export type BridgeEventType = keyof BridgeEventMap;
 export type BridgeEvent = { [K in BridgeEventType]: { accountId: string; type: K; data: BridgeEventMap[K]; at: number } }[BridgeEventType];
@@ -145,9 +147,12 @@ export interface FileRef {
 export type BridgeCommand = { cmdId?: string } & (
   | { type: 'send_message'; threadId: string; conversationUrn: string; text: string; files: FileRef[] }
   | { type: 'start_chat'; profileUrl: string; text: string; files?: FileRef[] }
-  | { type: 'sync_inbox'; scrolls?: number }
-  | { type: 'sync_thread'; conversationUrn: string; threadId: string | null; allowOpen: boolean }
-  | { type: 'sync_connections'; maxScrolls?: number }
+  /** target: keep loading the conversation list until this many conversations were seen (first sync). */
+  | { type: 'sync_inbox'; scrolls?: number; target?: number }
+  /** priority: someone opened this conversation, so it goes before other background work. */
+  | { type: 'sync_thread'; conversationUrn: string; threadId: string | null; allowOpen: boolean; priority?: boolean }
+  /** progress: report loaded/total while scrolling (the first full sync). */
+  | { type: 'sync_connections'; maxScrolls?: number; progress?: boolean }
   | { type: 'mark_read'; threadId: string }
   | { type: 'fetch_media'; url: string }
   | { type: 'check_session' }

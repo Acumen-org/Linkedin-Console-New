@@ -23,7 +23,7 @@ const ProxyUrl = z
 export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
-  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy`;
+  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;

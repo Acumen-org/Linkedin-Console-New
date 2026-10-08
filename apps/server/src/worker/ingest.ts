@@ -18,6 +18,7 @@ import { newId } from '../lib/ids.ts';
 import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
+import { refreshFirstSync, startFirstSync } from './first-sync.ts';
 import { notifyNewMessage } from './push.ts';
 
 const norm = (s: string | null | undefined) =>
@@ -35,6 +36,7 @@ interface UpsertedConversation {
   id: string;
   inserted: boolean;
   historySyncedAt: Date | null;
+  historyRequestedAt: Date | null;
   unreadCount: number;
 }
 
@@ -59,10 +61,10 @@ async function upsertConversation(accountId: string, c: LiConversation): Promise
            conversations.last_message_at, conversations.unread_count)
       IS DISTINCT FROM (${next.threadId}, ${next.title}, ${next.isGroup}, ${next.folder}, ${next.participants},
            ${next.lastMessageAt}, ${next.unreadCount})
-    RETURNING id, (xmax = 0) AS inserted, history_synced_at, unread_count`;
+    RETURNING id, (xmax = 0) AS inserted, history_synced_at, history_requested_at, unread_count`;
   if (row) return { ...row, changed: true };
   const [same] = await sql<UpsertedConversation[]>`
-    SELECT id, false AS inserted, history_synced_at, unread_count FROM conversations WHERE account_id = ${accountId} AND thread_urn = ${c.urn}`;
+    SELECT id, false AS inserted, history_synced_at, history_requested_at, unread_count FROM conversations WHERE account_id = ${accountId} AND thread_urn = ${c.urn}`;
   return { ...same, changed: false };
 }
 
@@ -88,7 +90,8 @@ async function ensureConversation(accountId: string, m: LiMessage) {
 }
 
 async function requestHistory(accountId: string, conversationId: string, c: LiConversation, unread: number) {
-  await sql`UPDATE conversations SET history_synced_at = now() WHERE id = ${conversationId}`;
+  // Requested now; history_synced_at is set when the bridge reports it done (retried if it never does).
+  await sql`UPDATE conversations SET history_requested_at = now() WHERE id = ${conversationId}`;
   // Opening a thread marks it read on LinkedIn, so the bridge only opens already-read threads.
   await sendCommand(accountId, { type: 'sync_thread', conversationUrn: c.urn, threadId: c.threadId, allowOpen: unread === 0 });
 }
@@ -97,7 +100,7 @@ export async function onConversations(accountId: string, items: LiConversation[]
   for (const c of items) {
     if (!c.urn) continue;
     const row = await upsertConversation(accountId, c);
-    if (!row.historySyncedAt && c.threadId) await requestHistory(accountId, row.id, c, row.unreadCount);
+    if (!row.historyRequestedAt && !row.historySyncedAt && c.threadId) await requestHistory(accountId, row.id, c, row.unreadCount);
     if (row.changed) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(row.id));
   }
 }
@@ -223,6 +226,11 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
   for (const id of touched) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(id));
 }
 
+/** First-sync progress follows the conversations as they arrive. */
+export async function onConversationsProgress(accountId: string) {
+  await refreshFirstSync(accountId);
+}
+
 export async function onSeen(accountId: string, items: BridgeEventMap['seen']) {
   for (const s of items) {
     if (!s.messageUrn) continue;
@@ -282,8 +290,11 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
     await publish([accountRoom(accountId), ADMINS_ROOM], 'account.updated', a);
     await alertAccountStatus(accountId, data.status);
     await emitWebhook('account.status', { accountId, from: before.status, to: data.status });
-    // First connection: schedule the first connections sync a few minutes later.
-    if (data.status === 'CONNECTED') await redis.set(`lu:connsync:${accountId}`, '1', 'EX', 600, 'NX');
+    if (data.status === 'CONNECTED') {
+      // First connection: the first sync loads recent chats and connections; daily connection syncs start a day later.
+      await redis.set(`lu:connsync:${accountId}`, '1', 'EX', 24 * 3600, 'NX');
+      await startFirstSync(accountId);
+    }
   }
 }
 

@@ -42,6 +42,11 @@ async function waitEnabled(locator: Locator, timeoutMs: number) {
   return false;
 }
 
+/** Progress while a list loads: loaded so far, and the total when known. */
+interface LoadOptions {
+  onProgress?: (loaded: number, total: number | null) => Promise<void> | void;
+}
+
 export interface ActionOptions {
   /** Send without human pauses and typing (paste the text, click Send). */
   fastSend: boolean;
@@ -127,24 +132,52 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
       await jitter(3000, 5000);
     },
 
-    /** Load the conversation list (without opening any thread) and scroll it to load more. */
-    async loadInbox(page: Page, scrolls = 4) {
+    /**
+     * Load the conversation list (without opening any thread) and scroll it to load more: a fixed number of
+     * scrolls, or with `target` until that many conversations are listed (or the list stops growing).
+     */
+    async loadInbox(page: Page, { scrolls = 4, target = 0, onProgress }: LoadOptions & { scrolls?: number; target?: number } = {}) {
       await navigate(page, IDLE_URL);
       await jitter(4000, 6000);
       const list = page.locator('.msg-conversations-container__conversations-list').first();
       const box = await list.boundingBox().catch(() => null);
       if (!box) return;
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 300));
-      for (let i = 0; i < scrolls; i++) {
+      const listed = () =>
+        page.locator('a[href*="/messaging/thread/"]').evaluateAll((as) => new Set(as.map((a) => (a as HTMLAnchorElement).pathname)).size);
+      const maxScrolls = target ? 40 : scrolls;
+      let last = 0;
+      let stable = 0;
+      for (let i = 0; i < maxScrolls && stable < 3; i++) {
         await page.mouse.wheel(0, rand(700, 1100));
         await jitter(1500, 3000);
+        if (!target) continue;
+        const count = await listed().catch(() => last);
+        await onProgress?.(Math.min(count, target), target);
+        if (count >= target) break;
+        stable = count === last ? stable + 1 : 0;
+        last = count;
       }
     },
 
-    /** Scroll the connections page; returns profiles found in the DOM (fallback if no JSON is intercepted). */
-    async loadConnections(page: Page, maxScrolls = 25): Promise<DomProfile[]> {
+    /**
+     * Scroll the connections page (newest first) until the list stops growing or maxScrolls; reports
+     * loaded/total (LinkedIn's own "N connections"). Returns the profiles in the DOM (fallback if no JSON
+     * is intercepted).
+     */
+    async loadConnections(page: Page, maxScrolls = 25, { onProgress }: LoadOptions = {}): Promise<DomProfile[]> {
       await navigate(page, CONNECTIONS_URL);
       await jitter(4000, 6000);
+      const total = await page
+        .locator('main')
+        .first()
+        .evaluate((m) => {
+          const match = (m as HTMLElement).innerText.slice(0, 4000).match(/(\d[\d.,\s]*)\s+connections?\b/i);
+          return match ? Number(match[1].replace(/[^\d]/g, '')) || null : null;
+        })
+        .catch(() => null);
+      const listed = () =>
+        page.locator('main a[href*="/in/"]').evaluateAll((as) => new Set(as.map((a) => (a as HTMLAnchorElement).pathname)).size);
       let lastCount = 0;
       let stable = 0;
       for (let i = 0; i < maxScrolls && stable < 3; i++) {
@@ -155,7 +188,9 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
           await more.click().catch(() => {});
           await jitter(2000, 3000);
         }
-        const count = await page.locator('main a[href*="/in/"]').count();
+        const count = await listed().catch(() => lastCount);
+        await onProgress?.(count, total);
+        if (total && count >= total) break;
         stable = count === lastCount ? stable + 1 : 0;
         lastCount = count;
       }
