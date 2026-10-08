@@ -18,6 +18,9 @@ const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 const MEDIA_HOSTS = /(^|\.)linkedin\.com$|(^|\.)licdn\.com$/;
 /** A send that waited longer than this is not sent any more (the app marks it failed after 10 minutes). */
 const MAX_SEND_AGE_MS = 5 * 60_000;
+/** LinkedIn's wording when an account hits a limit or is restricted (pauses sending on the account). */
+const LIMIT_NOTICE =
+  /reached the (weekly |monthly |daily )?limit|exceeded the limit|unusual activity|temporarily restricted|account (has been |is )?restricted|too many requests/i;
 
 type SendCommand = Extract<Command, { type: 'send_message' | 'start_chat' }>;
 type Outcome = Omit<CommandResult, 'cmdId' | 'type'>;
@@ -94,7 +97,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     if (!res) return null;
     if (res.status >= 200 && res.status < 300) return { ok: true }; // LinkedIn's copy arrives in a moment and gets matched
     if (res.status === 401) return { ok: false, error: 'LinkedIn session expired' };
-    if (res.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now; try again later' };
+    if (res.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now', warning: 'limited' };
     if (!isFormatRejection(res.status) && res.status < 500) {
       // Refused for this message or recipient (e.g. they can't be messaged): the request format is fine.
       return { ok: false, error: `LinkedIn refused the message (${res.status})` };
@@ -110,6 +113,18 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     return null;
   }
 
+  /** A LinkedIn notice about limits or restrictions on the page after a send (its text), or null. */
+  async function limitNotice(): Promise<string | null> {
+    const notice = page.getByText(LIMIT_NOTICE).first();
+    if (!(await notice.isVisible().catch(() => false))) return null;
+    return ((await notice.innerText().catch(() => '')) || 'limit reached').trim().slice(0, 160);
+  }
+  const limitOutcome = (notice: string): Outcome => ({
+    ok: false,
+    error: `LinkedIn: ${notice}`,
+    warning: /restrict/i.test(notice) ? 'restricted' : 'limited',
+  });
+
   /** Through the bridge window's UI (jumps ahead of background work). */
   function sendViaUi(cmd: SendCommand, since: number): Promise<Outcome> {
     return ctx.exclusive(async () => {
@@ -121,6 +136,8 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
         const threadId = cmd.type === 'send_message' ? cmd.threadId : undefined;
         const confirmed = await reader.waitForOutbound({ text: cmd.text, threadId, since });
         if (confirmed) return { ok: true, messageUrn: confirmed.urn, conversationUrn: confirmed.conversationUrn };
+        const notice = await limitNotice();
+        if (notice) return limitOutcome(notice);
         const firstLine = cmd.text.split('\n').find((l) => l.trim()) ?? '';
         const visible = firstLine
           ? await page
@@ -131,6 +148,9 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
           : false;
         return visible ? { ok: true } : { ok: false, error: 'Could not confirm the message was sent' };
       } catch (e) {
+        // A send that failed because LinkedIn put up a limit notice: report that, so sending gets paused.
+        const notice = await limitNotice();
+        if (notice) return limitOutcome(notice);
         return { ok: false, error: (e as Error).message.split('\n')[0] };
       } finally {
         await sendPause(1500, 3000);

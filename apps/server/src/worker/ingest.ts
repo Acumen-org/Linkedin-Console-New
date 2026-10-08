@@ -13,6 +13,7 @@ import {
 import { audit } from '../core/audit.ts';
 import { sendCommand } from '../core/bridge.ts';
 import { emitWebhook } from '../core/webhooks.ts';
+import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newId } from '../lib/ids.ts';
 import { publish, redis } from '../lib/redis.ts';
@@ -298,7 +299,25 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
   }
 }
 
+/**
+ * LinkedIn warned about a limit or restriction: stop sending from this account, restart its ramp-up, and
+ * tell the people responsible. Only the first warning acts (later ones while paused are ignored).
+ */
+async function autoPause(accountId: string, warning: string, detail?: string) {
+  const reason = detail ?? (warning === 'restricted' ? 'LinkedIn restricted the account' : 'LinkedIn limit warning');
+  const [a] = await sql`
+    UPDATE accounts SET send_paused = true, paused_reason = ${reason},
+      ramp_started_at = ${config.sendRamp.on ? sql`now()` : sql`ramp_started_at`}
+    WHERE id = ${accountId} AND NOT send_paused
+    RETURNING id, send_paused, paused_reason`;
+  if (!a) return;
+  await audit({ accountId, action: 'account.auto_paused', meta: { warning, reason } });
+  await publish([accountRoom(accountId), ADMINS_ROOM], 'account.updated', a as never);
+  await alertAccountStatus(accountId, 'SEND_PAUSED');
+}
+
 export async function onResult(accountId: string, r: BridgeEventMap['result']) {
+  if (r.warning) await autoPause(accountId, r.warning, r.error);
   const owner = await redis.get(`li:cmdowner:${r.cmdId}`);
   let sentAnyway = false;
   let savedId: string | null = null;

@@ -134,6 +134,8 @@ export interface CommandResult {
   error?: string;
   messageUrn?: string;
   conversationUrn?: string;
+  /** LinkedIn signalled a limit or restriction: the app pauses sending on this account. */
+  warning?: 'limited' | 'restricted';
 }
 
 // ---------- commands (app → bridge) ----------

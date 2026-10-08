@@ -12,6 +12,8 @@
 | `TRUSTED_PROXIES` | | Behind a gateway (APISIX, nginx…): its IP/CIDR(s), space-separated, so the real client IP is used for login limits and the audit log. Leave empty when Caddy faces the internet directly |
 | `HTTP_PORT` / `HTTPS_PORT` | `80` / `443` | Published ports |
 | `DAILY_SEND_CAP` | `80` | Sends per account per 24h (whole team); editable per account |
+| `NEW_CHAT_CAP` | `20` | Of those, new chats (cold outreach) per account per 24h; editable per account |
+| `SEND_RAMP`, `SEND_RAMP_START`, `SEND_RAMP_STEP` | `on`, `20`, `10` | Newly connected accounts start at 20/day and add 10 per day up to their cap ("skip ramp-up" per account for established ones). A LinkedIn limit or restriction warning pauses sending on the account, restarts its ramp and emails the admins |
 | `SMTP_URL`, `ALERT_FROM`, `APP_URL` | | Email alerts (`smtp://user:pass@host:587`) |
 | `VAPID_SUBJECT` | `mailto:admin@localhost` | Contact for web push (keys are generated automatically) |
 | `AI_PROVIDER`, `AI_MODEL` | off | Reply drafts: `ollama` (local) or `anthropic` (Claude, default model `claude-opus-5-5`) |

@@ -72,7 +72,14 @@ export interface Account {
   timezone: string;
   language: string;
   sendPaused: boolean;
+  /** Set when sending was paused automatically after a LinkedIn warning. */
+  pausedReason?: string | null;
   dailySendCap: number;
+  /** Today's cap: lower than dailySendCap while a newly connected account ramps up. */
+  effectiveSendCap?: number;
+  rampDaysLeft?: number | null;
+  /** New chats (cold outreach) per day, within the daily cap. */
+  newChatCap?: number;
   hasProxy: boolean;
   lastSeenAt: string | null;
   lastError: string | null;

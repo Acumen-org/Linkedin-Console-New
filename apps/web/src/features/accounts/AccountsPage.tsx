@@ -75,17 +75,28 @@ function AccountCard({ a, onEdit, onGrants }: { a: Account; onEdit: () => void; 
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{a.label}</span>
           <StatusBadge status={a.status} />
-          {a.sendPaused && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">Sending paused</span>}
+          {a.sendPaused && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800" title={a.pausedReason ?? undefined}>
+              {a.pausedReason ? 'Sending paused automatically' : 'Sending paused'}
+            </span>
+          )}
         </div>
         <div className="truncate text-sm text-slate-600">
           {a.displayName ? `${a.displayName}${a.headline ? ` · ${a.headline}` : ''}` : 'Not logged in yet'}
         </div>
         <div className="text-xs text-slate-500">
           Connected by {a.ownerName} · {a.timezone}
-          {a.hasProxy ? ' · via proxy' : ''} · limit {a.dailySendCap}/day
+          {a.hasProxy ? ' · via proxy' : ''} · limit {a.effectiveSendCap ?? a.dailySendCap}/day
+          {a.rampDaysLeft ? ` (ramping up to ${a.dailySendCap} in ${a.rampDaysLeft} day${a.rampDaysLeft === 1 ? '' : 's'})` : ''}
+          {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
         </div>
         {a.lastError && <div className="mt-1 text-xs text-red-600">{a.lastError}</div>}
+        {a.pausedReason && (
+          <div className="mt-1 text-xs text-amber-700">
+            {a.pausedReason}. Check the account in Live View, then resume sending (⏵) when it looks normal.
+          </div>
+        )}
         {isSyncing(a.sync) && <SyncProgress sync={a.sync} />}
       </div>
       <div className="flex flex-wrap gap-2">
@@ -211,11 +222,14 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
   const qc = useQueryClient();
   const [label, setLabel] = useState(a.label);
   const [cap, setCap] = useState(a.dailySendCap);
+  const [newChatCap, setNewChatCap] = useState(a.newChatCap ?? 20);
+  const [skipRamp, setSkipRamp] = useState(false);
   const [timezone, setTimezone] = useState(a.timezone);
   const [proxyServer, setProxy] = useState<string | undefined>(undefined);
   const save = async () => {
     try {
-      const body: Record<string, unknown> = { label, dailySendCap: cap };
+      const body: Record<string, unknown> = { label, dailySendCap: cap, newChatCap };
+      if (skipRamp) body.skipRamp = true;
       if (timezone !== a.timezone) body.timezone = timezone;
       if (proxyServer !== undefined) body.proxyServer = proxyServer;
       await api.patch(`/api/accounts/${a.id}`, body);
@@ -237,6 +251,24 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
           <label className="label">Max messages per 24h (whole team)</label>
           <input className="input" type="number" min={1} max={500} value={cap} onChange={(e) => setCap(Number(e.target.value))} />
         </div>
+        <div>
+          <label className="label">Of which new chats (people you haven't messaged before)</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={200}
+            value={newChatCap}
+            onChange={(e) => setNewChatCap(Number(e.target.value))}
+          />
+          <p className="mt-1 text-xs text-slate-500">Cold outreach is what LinkedIn watches most; replies in existing chats are safer.</p>
+        </div>
+        {!!a.rampDaysLeft && (
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={skipRamp} onChange={(e) => setSkipRamp(e.target.checked)} />
+            <span>Use the full limit now (skip the ramp-up). Only for an established LinkedIn account that already sends this much.</span>
+          </label>
+        )}
         <div>
           <label className="label">Timezone</label>
           <select className="input" value={timezone} onChange={(e) => setTimezone(e.target.value)}>

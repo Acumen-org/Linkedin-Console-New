@@ -6,8 +6,9 @@ import { conversationForUser } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser, type SessionUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
+import { assertCanSend } from '../../core/send-limits.ts';
 import { sql } from '../../lib/db.ts';
-import { badRequest, conflict, HttpError } from '../../lib/errors.ts';
+import { badRequest, conflict } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
 import { loadMessage, MESSAGE_COLUMNS } from './queries.ts';
@@ -21,17 +22,6 @@ const SendBody = z.object({
   uploadIds: z.array(z.string()).max(5).default([]),
   clientId: z.string().min(1).max(64),
 });
-
-/** Sends are capped per LinkedIn account per rolling 24h (all teammates combined). */
-export async function assertCanSend(accountId: string) {
-  const [a] = await sql`SELECT status, send_paused, daily_send_cap FROM accounts WHERE id = ${accountId}`;
-  if (a.status !== 'CONNECTED') throw conflict('This LinkedIn account is not connected right now');
-  if (a.sendPaused) throw conflict('Sending is paused for this account');
-  const [{ n }] = await sql`
-    SELECT count(*)::int AS n FROM messages
-    WHERE account_id = ${accountId} AND sent_by_user_id IS NOT NULL AND created_at > now() - interval '24 hours' AND status <> 'FAILED'`;
-  if (n >= a.dailySendCap) throw new HttpError(429, `Daily send limit reached for this account (${a.dailySendCap}/24h)`);
-}
 
 async function uploadsFor(user: SessionUser, ids: string[]) {
   if (!ids.length) return [];

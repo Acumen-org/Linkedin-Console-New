@@ -13,6 +13,10 @@ const MESSAGES: Record<string, { subject: string; body: string }> = {
     subject: 'needs you to log in again',
     body: 'LinkedIn logged this account out or asked for a security check. Sending is paused until someone with full access logs in again through Live View.',
   },
+  SEND_PAUSED: {
+    subject: 'sending paused after a LinkedIn warning',
+    body: 'LinkedIn showed a limit or restriction warning while sending, so sending from this account was paused automatically and its daily limit starts low again. Check the account in Live View, then resume sending under Accounts when it looks normal.',
+  },
   OFFLINE: {
     subject: 'browser is offline',
     body: "This account's browser stopped reporting. Messages won't sync until it's back. Try Accounts → Restart browser, or check the server.",
@@ -33,7 +37,7 @@ export async function alertAccountStatus(accountId: string, status: string) {
     WHERE u.disabled_at IS NULL AND (u.role <> 'MEMBER' OR u.id = ${account.ownerUserId} OR g.level = 'FULL')`;
   if (!recipients.length) return;
 
-  const link = config.appUrl ? `${config.appUrl}/accounts/${accountId}/connect` : '';
+  const link = config.appUrl ? `${config.appUrl}/accounts${status === 'SEND_PAUSED' ? '' : `/${accountId}/connect`}` : '';
   try {
     await transport.sendMail({
       from: config.alertFrom,

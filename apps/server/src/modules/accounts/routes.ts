@@ -5,6 +5,7 @@ import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
+import { effectiveCapSql, rampDaysLeftSql } from '../../core/send-limits.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
@@ -23,7 +24,8 @@ const ProxyUrl = z
 export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
-  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync`;
+  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync,
+  a.new_chat_cap, a.paused_reason, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;
@@ -68,8 +70,9 @@ export default async function accountRoutes(app: FastifyInstance) {
     const id = newAccountId();
     await sql.begin(async (tx) => {
       await tx`
-        INSERT INTO accounts (id, label, owner_user_id, status, timezone, language, proxy_server, daily_send_cap)
-        VALUES (${id}, ${body.label}, ${user.id}, 'PROVISIONING', ${body.timezone}, ${body.language}, ${body.proxyServer || null}, ${config.dailySendCap})`;
+        INSERT INTO accounts (id, label, owner_user_id, status, timezone, language, proxy_server, daily_send_cap, new_chat_cap, ramp_started_at)
+        VALUES (${id}, ${body.label}, ${user.id}, 'PROVISIONING', ${body.timezone}, ${body.language}, ${body.proxyServer || null},
+                ${config.dailySendCap}, ${config.newChatCap}, ${config.sendRamp.on ? sql`now()` : null})`;
       await tx`INSERT INTO account_grants (account_id, user_id, level) VALUES (${id}, ${user.id}, 'FULL')`;
       if (config.defaultGrant !== 'NONE') {
         await tx`
@@ -97,6 +100,9 @@ export default async function accountRoutes(app: FastifyInstance) {
         label: z.string().min(1).max(80).optional(),
         sendPaused: z.boolean().optional(),
         dailySendCap: z.number().int().min(1).max(500).optional(),
+        newChatCap: z.number().int().min(0).max(200).optional(),
+        /** An established LinkedIn account: use the full cap from day one. */
+        skipRamp: z.literal(true).optional(),
         timezone: Timezone.optional(),
         language: Language.optional(),
         proxyServer: ProxyUrl.optional().or(z.literal('')),
@@ -107,7 +113,10 @@ export default async function accountRoutes(app: FastifyInstance) {
       UPDATE accounts SET
         label = ${body.label ?? before.label},
         send_paused = ${body.sendPaused ?? before.sendPaused},
+        paused_reason = ${body.sendPaused === false ? null : before.pausedReason},
         daily_send_cap = ${body.dailySendCap ?? before.dailySendCap},
+        new_chat_cap = ${body.newChatCap ?? before.newChatCap},
+        ramp_started_at = ${body.skipRamp ? null : before.rampStartedAt},
         timezone = ${body.timezone ?? before.timezone},
         language = ${body.language ?? before.language},
         proxy_server = ${body.proxyServer === undefined ? before.proxyServer : body.proxyServer || null}

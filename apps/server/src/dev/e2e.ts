@@ -137,6 +137,7 @@ const emitResult = (data: unknown) =>
 //   [failafter]   LinkedIn's copy first, then a failure report
 //   [anon]        direct send whose only copy names no sender (looks incoming)
 //   [silent]      nothing at all (browser offline)
+//   [limited]     LinkedIn shows a limit warning: failure with warning 'limited'
 const commands: any[] = [];
 let stopBridge = false;
 async function fakeBridge() {
@@ -157,6 +158,8 @@ async function fakeBridge() {
       if (cmd.text.startsWith('[fast]')) {
         await emitResult(ok);
         setTimeout(() => emit('messages', [echo]), 200);
+      } else if (cmd.text.startsWith('[limited]')) {
+        await emitResult({ ...failed, error: "LinkedIn: You've reached the weekly limit", warning: 'limited' });
       } else if (cmd.text.startsWith('[late]')) {
         await emitResult(failed);
         setTimeout(() => emit('messages', [echo]), 500);
@@ -634,6 +637,43 @@ try {
   });
 
   let labelId = '';
+  await step('safe volume: new-chat cap, ramp-up for new accounts, automatic pause on a LinkedIn warning', async () => {
+    // New chats have their own, lower cap.
+    await sql`UPDATE accounts SET send_paused = false, daily_send_cap = 80, new_chat_cap = 0 WHERE id = ${accountId}`;
+    const capped = await owner('POST', `/api/accounts/${accountId}/connections/${janeContactId}/message`, { text: 'hi' });
+    assert.equal(capped.status, 429);
+    assert.match(capped.data.error, /new chats/);
+    await sql`UPDATE accounts SET new_chat_cap = 20 WHERE id = ${accountId}`;
+
+    // A newly connected account ramps up: 20 today, +10 per day, up to its cap.
+    await sql`UPDATE accounts SET ramp_started_at = now() - interval '2 days 1 hour' WHERE id = ${accountId}`;
+    const ramping = (await owner('GET', `/api/accounts/${accountId}`)).data;
+    assert.equal(ramping.effectiveSendCap, 40);
+    assert.equal(ramping.rampDaysLeft, 4);
+    assert.equal((await owner('PATCH', `/api/accounts/${accountId}`, { skipRamp: true })).status, 200);
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.effectiveSendCap, 80);
+
+    // LinkedIn shows a limit warning while sending: the account pauses itself and its ramp restarts.
+    const r = await member('POST', `/api/conversations/${janeId}/messages`, { text: '[limited] hello', clientId: crypto.randomUUID() });
+    assert.equal(r.status, 200);
+    const paused = await until(
+      async () => (await owner('GET', `/api/accounts/${accountId}`)).data,
+      (a) => a.sendPaused,
+      'paused automatically',
+    );
+    assert.match(paused.pausedReason, /limit/);
+    assert.equal(paused.effectiveSendCap, 20, 'ramp restarted');
+    assert.equal((await sql`SELECT 1 FROM audit_log WHERE account_id = ${accountId} AND action = 'account.auto_paused'`).length, 1);
+    const blocked = await member('POST', `/api/conversations/${janeId}/messages`, { text: 'more', clientId: crypto.randomUUID() });
+    assert.equal(blocked.status, 409);
+    assert.match(blocked.data.error, /paused: LinkedIn/);
+    // An admin resumes after checking: the reason is cleared.
+    await owner('PATCH', `/api/accounts/${accountId}`, { sendPaused: false, skipRamp: true });
+    const resumed = (await owner('GET', `/api/accounts/${accountId}`)).data;
+    assert.equal(resumed.sendPaused, false);
+    assert.equal(resumed.pausedReason, null);
+  });
+
   await step('labels: create, tag a conversation, filter by label', async () => {
     const l = await member('POST', '/api/labels', { name: `e2e-${tag}-hot`, color: '#ff0000' });
     assert.equal(l.status, 200, JSON.stringify(l.data));

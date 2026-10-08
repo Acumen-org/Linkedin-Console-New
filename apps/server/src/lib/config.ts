@@ -23,6 +23,12 @@ const Env = z.object({
   DEFAULT_TIMEZONE: z.string().default('America/Chicago'),
   DEFAULT_LANGUAGE: z.string().default('en-US'),
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),
+  // New chats (cold outreach) per account per day, within DAILY_SEND_CAP.
+  NEW_CHAT_CAP: z.coerce.number().int().min(0).default(20),
+  // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
+  SEND_RAMP: z.enum(['on', 'off']).default('on'),
+  SEND_RAMP_START: z.coerce.number().int().positive().default(20),
+  SEND_RAMP_STEP: z.coerce.number().int().positive().default(10),
   SMTP_URL: z.string().default(''),
   ALERT_FROM: z.string().default('LinkedIn Console <alerts@localhost>'),
   APP_URL: z
@@ -92,6 +98,8 @@ export const config = {
   defaultTimezone: e.DEFAULT_TIMEZONE,
   defaultLanguage: e.DEFAULT_LANGUAGE,
   dailySendCap: e.DAILY_SEND_CAP,
+  newChatCap: e.NEW_CHAT_CAP,
+  sendRamp: { on: e.SEND_RAMP === 'on', start: e.SEND_RAMP_START, step: e.SEND_RAMP_STEP },
   smtpUrl: e.SMTP_URL,
   alertFrom: e.ALERT_FROM,
   appUrl: e.APP_URL,
