@@ -1,3 +1,4 @@
+import { LOGIN_ERRORS, type LoginError } from '@linkedin-console/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { api } from '../lib/api';
@@ -59,7 +60,9 @@ export function LoginPage() {
   });
   // With company sign-in and owner-only passwords, the password form is the owner's emergency access.
   const [showPassword, setShowPassword] = useState(false);
-  const redirectError = new URLSearchParams(location.search).get('error');
+  // Only known codes are shown (with our own wording): the URL can't put arbitrary text on this page.
+  const code = new URLSearchParams(location.search).get('error') ?? '';
+  const redirectError = Object.hasOwn(LOGIN_ERRORS, code) ? LOGIN_ERRORS[code as LoginError] : null;
   const { submit, error, busy } = useSubmit(() => api.post('/api/auth/login', { email, password }));
   const microsoft = !!methods.data?.microsoft;
   const passwordForm = !microsoft || methods.data?.password === 'on' || showPassword;

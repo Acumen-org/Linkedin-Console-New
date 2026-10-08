@@ -56,13 +56,9 @@ export default async function fileRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const [u] = await sql`SELECT * FROM uploads WHERE id = ${id}`;
     if (!u) throw new HttpError(404, 'Not found');
-    if (u.userId !== user.id) {
-      const ids = await accessibleAccountIds(user);
-      const [m] = ids.length
-        ? await sql`
-        SELECT 1 FROM messages WHERE account_id IN ${sql(ids)} AND attachments @> ${sql.json([{ uploadId: id }] as never)} LIMIT 1`
-        : [];
-      if (!m) throw new HttpError(404, 'Not found');
+    // Others may see it once it was sent through an account they can read.
+    if (u.userId !== user.id && !(u.accountId && (await accessibleAccountIds(user)).includes(u.accountId))) {
+      throw new HttpError(404, 'Not found');
     }
     return sendFile(reply, u.path, u.mime, u.name);
   });

@@ -15,7 +15,12 @@ if docker volume inspect linkunify_pgdata >/dev/null 2>&1 && ! docker volume ins
   echo "This server has an install from before the rename (LinkUnify). Run ./scripts/migrate-from-linkunify.sh instead." >&2
   exit 1
 fi
-docker compose --profile images build
+# Secrets added by newer versions (e.g. REDIS_PASSWORD) are generated on the way.
+. scripts/ensure-secrets.sh
+ensure_secrets
+# Fresh base images (security fixes) and, once a week, a fresh Chrome.
+docker compose pull --quiet postgres redis
+CHROME_REFRESH=$(date +%G-W%V) docker compose --profile images build --pull
 docker compose up -d
 echo "Recreating account pods with the new images…"
 docker compose exec -T api node src/dev/recreate-pods.ts

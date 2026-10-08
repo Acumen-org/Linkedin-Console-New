@@ -16,7 +16,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const rows = await sql`
       SELECT u.id, u.name, u.email, u.role, u.disabled_at, u.disabled_reason, u.created_at, u.source,
              u.password_hash IS NOT NULL AS has_password, u.microsoft_oid IS NOT NULL AS microsoft_linked,
-             (SELECT max(s.created_at) FROM sessions s WHERE s.user_id = u.id) AS last_sign_in_at
+             (SELECT max(l.created_at) FROM audit_log l WHERE l.user_id = u.id AND l.action = 'auth.login') AS last_sign_in_at
       FROM users u ORDER BY u.created_at`;
     // Members see names only (for assignment and "sent by"); admins see the security details.
     return me.role === 'MEMBER' ? rows.map(({ id, name, role, disabledAt }) => ({ id, name, role, disabledAt })) : rows;
@@ -94,7 +94,8 @@ export default async function userRoutes(app: FastifyInstance) {
         WHERE id = ${id}`;
       if (body.disabled) await sql`DELETE FROM sessions WHERE user_id = ${id}`;
     }
-    if (body.role || body.disabled) await publish(`user:${id}`, 'grants.changed', {});
+    // Role, access or sessions changed: their open sockets reconnect (or are refused) with the new state.
+    if (body.role || body.disabled || body.password) await publish(`user:${id}`, 'grants.changed', {});
     await audit({
       userId: admin.id,
       action: 'user.updated',

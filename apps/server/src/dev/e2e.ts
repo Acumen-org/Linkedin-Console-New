@@ -39,7 +39,7 @@ function fakeTwilio(req: http.IncomingMessage, res: http.ServerResponse) {
 }
 
 // Webhook receiver inside this process; the worker container reaches it by this container's hostname.
-const received: { event: string; signature: string; body: string }[] = [];
+const received: { event: string; signature: string; legacySignature: string; body: string }[] = [];
 const receiver = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/staff')) return fakeTwilio(req, res);
   let body = '';
@@ -48,6 +48,7 @@ const receiver = http.createServer((req, res) => {
     received.push({
       event: String(req.headers['x-linkedin-console-event']),
       signature: String(req.headers['x-linkedin-console-signature']),
+      legacySignature: String(req.headers['x-linkunify-signature']),
       body,
     });
     res.end('ok');
@@ -636,6 +637,7 @@ try {
     const hit = await until_(async () => received.find((r) => r.event === 'message.received'), Boolean, 'webhook delivery', 15_000);
     const expected = `sha256=${crypto.createHmac('sha256', secret).update(hit!.body).digest('hex')}`;
     assert.equal(hit!.signature, expected, 'valid HMAC signature');
+    assert.equal(hit!.legacySignature, expected, 'also under the former header name (receivers set up before the rename)');
     assert.equal(JSON.parse(hit!.body).data.message.text, 'Webhook me');
   });
 
@@ -659,6 +661,20 @@ try {
     const r = await owner('POST', `/api/conversations/${rajId}/messages`, { text: 'x', clientId: crypto.randomUUID() });
     assert.equal(r.status, 409, 'cannot send while account needs attention');
   });
+  await step('a conversation payload without folder/unread/group keeps the stored values', async () => {
+    const [before] = await sql`SELECT folder, unread_count, is_group FROM conversations WHERE id = ${rajId}`;
+    // As a message's conversation stub or a partial realtime update would arrive: only the URN and a time.
+    await emit('conversations', [
+      { urn: conv('RAJ'), threadId: `2-RAJ${tag}`, title: null, isGroup: null, unreadCount: null, folder: null, lastActivityAt: null, participants: [] },
+    ]);
+    await sleep(1000);
+    const [after] = await sql`SELECT folder, unread_count, is_group, participants FROM conversations WHERE id = ${rajId}`;
+    assert.equal(after.folder, before.folder);
+    assert.equal(after.unreadCount, before.unreadCount);
+    assert.equal(after.isGroup, before.isGroup);
+    assert.equal(after.participants[0]?.name, 'Raj E2E', 'participants kept too');
+  });
+
   await step('audit category filters follow the event catalog (labels are under Settings, with IP)', async () => {
     const r = await owner('GET', '/api/audit?action=settings');
     const label = r.data.find((e: any) => e.action === 'label.created' && e.meta.name === `e2e-${tag}-hot`);
@@ -753,8 +769,10 @@ try {
       assert.equal(listed.source, 'staff_sync');
       assert.equal(listed.hasPassword, false);
       const pw = await client()('POST', '/api/auth/login', { email: `sam-${tag}@e2e.test`, password: 'whatever-123' });
-      assert.equal(pw.status, 403);
+      assert.equal(pw.status, 401, 'same answer as a wrong password (no account enumeration)');
       assert.match(pw.data.error, /Microsoft/);
+      const unknown = await client()('POST', '/api/auth/login', { email: `nobody-${tag}@e2e.test`, password: 'whatever-123' });
+      assert.equal(unknown.data.error, pw.data.error);
       assert.equal((await sql`SELECT 1 FROM audit_log WHERE action = 'user.provisioned' AND meta->>'targetUserId' = ${sam.id}`).length, 1);
       assert.equal((await owner('POST', '/api/users/directory/sync')).status, 200);
       assert.equal((await member('POST', '/api/users/directory/sync')).status, 403);
@@ -808,7 +826,10 @@ try {
       const mass = await syncNow();
       assert.equal(mass.ok, false);
       assert.match(mass.error, /would disable/);
-      assert.equal((await sql`SELECT count(*)::int AS n FROM users WHERE disabled_by = 'staff_sync' AND email LIKE ${`%${tag}@e2e.test`}`)[0].n, 0);
+      assert.equal(
+        (await sql`SELECT count(*)::int AS n FROM users WHERE disabled_by = 'staff_sync' AND email LIKE ${`%${tag}@e2e.test`}`)[0].n,
+        0,
+      );
       staffList = saved;
     });
   } else {

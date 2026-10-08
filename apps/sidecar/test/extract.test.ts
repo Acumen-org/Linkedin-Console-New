@@ -210,3 +210,30 @@ test('SSE parsing with partial chunks', () => {
   const [p2] = parseSse(`${rest}:2}\n\n`);
   assert.deepEqual(p2, [{ b: 2 }]);
 });
+
+test('a message carrying a stub of its conversation does not reset that conversation', () => {
+  const x = extract(
+    {
+      data: {
+        _type: 'com.linkedin.messenger.Message',
+        entityUrn: 'urn:li:msg_message:(urn:li:fsd_profile:ACoAASELF,2-MSG9)',
+        body: { text: 'new reply in an archived thread' },
+        deliveredAt: 1759500300000,
+        sender: participant(JANE, 'Jane', 'Doe'),
+        conversation: { _type: 'com.linkedin.messenger.Conversation', entityUrn: CONV },
+      },
+    },
+    SELF,
+  );
+  assert.equal(x.messages.length, 1);
+  assert.equal(x.conversations.length, 0, 'the stub is not a conversation update');
+});
+
+test('fields missing from a conversation payload are unknown (null), not defaults', () => {
+  const x = extract({ data: { $type: 'com.linkedin.messenger.Conversation', entityUrn: CONV, lastActivityAt: 1759500400000 } }, SELF);
+  assert.equal(x.conversations.length, 1);
+  const c = x.conversations[0];
+  assert.equal(c.folder, null);
+  assert.equal(c.unreadCount, null);
+  assert.equal(c.isGroup, null);
+});

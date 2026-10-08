@@ -17,6 +17,18 @@ async function goToLinkedIn(ctx: BridgeContext) {
 
 export const ensureOnLinkedIn = (ctx: BridgeContext) => ctx.pageLock(() => goToLinkedIn(ctx));
 
+/** A URN as LinkedIn writes it inside a Rest.li variables tuple: parentheses percent-encoded too. */
+export const encodeUrn = (urn: string) => encodeURIComponent(urn).replace(/\(/g, '%28').replace(/\)/g, '%29');
+
+/** LinkedIn rejected the request's format (it changed): only then is a learned request worth forgetting. */
+export const isFormatRejection = (status: number) => status === 400 || status === 404 || status === 410;
+
+/** Forget a learned request, also in Redis (so a restart doesn't bring it back). */
+export function forgetTemplate(ctx: BridgeContext, key: keyof BridgeContext['state']['templates']) {
+  delete ctx.state.templates[key];
+  ctx.streams.redis.set(`li:tpl:${ctx.accountId}`, JSON.stringify(ctx.state.templates)).catch(() => {});
+}
+
 /** A request from inside the bridge page (LinkedIn's cookies, headers and network stack). */
 export async function inPageFetch(
   ctx: BridgeContext,
@@ -27,14 +39,26 @@ export async function inPageFetch(
   const token = await csrfToken(ctx);
   return ctx.pageLock(async () => {
     await goToLinkedIn(ctx);
-    return ctx.page.evaluate(
-      async ({ url, headers, init }) => {
-        const r = await fetch(url, { ...init, headers, credentials: 'include' });
+    // A stalled request must not hold the page lock (and with it every send and sync) forever.
+    const request = ctx.page.evaluate(
+      async ({ url, headers, init, timeoutMs }) => {
+        const r = await fetch(url, { ...init, headers, credentials: 'include', signal: AbortSignal.timeout(timeoutMs) });
         return { status: r.status, text: r.ok ? await r.text() : '' };
       },
-      { url, headers: { ...headers, 'csrf-token': token }, init },
+      { url, headers: { ...headers, 'csrf-token': token }, init, timeoutMs: FETCH_TIMEOUT_MS },
     );
+    return withTimeout(request, FETCH_TIMEOUT_MS + 5_000, 'in-page request timed out');
   });
+}
+
+const FETCH_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
 }
 
 /**

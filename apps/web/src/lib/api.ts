@@ -6,6 +6,12 @@ export class ApiError extends Error {
   }
 }
 
+/** Called when the session is gone (401 outside sign-in): the app shows the sign-in page. */
+let onSignedOut: (() => void) | null = null;
+export const setSignedOutHandler = (fn: () => void) => {
+  onSignedOut = fn;
+};
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -14,6 +20,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body),
   });
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+  if (res.status === 401 && !url.startsWith('/api/auth/') && url !== '/api/me') onSignedOut?.();
   if (!res.ok) throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`);
   return data as T;
 }

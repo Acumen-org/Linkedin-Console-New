@@ -26,7 +26,9 @@ export interface Streams {
 }
 
 export function createStreams(redisUrl: string, accountId: string): Streams {
-  const redis = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  // Writes give up after a few retries during a Redis outage (logged) instead of queueing without limit in
+  // this 256 MB process. The blocking reader waits for Redis to come back.
+  const redis = new Redis(redisUrl, { maxRetriesPerRequest: 5 });
   const blocking = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const stream = commandStream(accountId);
   const consumer = `bridge-${process.pid}`;
@@ -58,16 +60,26 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
     if (!isSend(cmd)) await redis.xack(stream, 'bridge', id);
   }
 
+  async function ensureGroup() {
+    for (;;) {
+      try {
+        await redis.xgroup('CREATE', stream, 'bridge', '$', 'MKSTREAM');
+        return;
+      } catch (e) {
+        if (String((e as Error).message).includes('BUSYGROUP')) return;
+        logger.error({ err: e }, 'command stream setup failed, retrying');
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
   /**
    * Hands every command to the handler as soon as it arrives (the handler orders and paces them), forever.
-   * Unacked commands from before a crash are replayed first, one at a time.
+   * Unacked commands from before a restart are handed over first (reading on from the last one seen, so
+   * nothing waits behind them).
    */
   async function consume(handler: (cmd: Command) => Promise<unknown>): Promise<never> {
-    try {
-      await redis.xgroup('CREATE', stream, 'bridge', '$', 'MKSTREAM');
-    } catch (e) {
-      if (!String((e as Error).message).includes('BUSYGROUP')) throw e;
-    }
+    await ensureGroup();
     let cursor = '0';
     for (;;) {
       try {
@@ -75,15 +87,16 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
           | [string, [string, string[]][]][]
           | null;
         const entries = res?.[0]?.[1] ?? [];
-        if (cursor === '0' && !entries.length) {
+        if (cursor !== '>' && !entries.length) {
           cursor = '>';
           continue;
         }
         for (const [id, fields] of entries) {
-          const done = run(handler, id, fields).catch((err) => logger.error({ err }, 'command ack failed'));
-          if (cursor === '0') await done;
+          run(handler, id, fields).catch((err) => logger.error({ err }, 'command ack failed'));
+          if (cursor !== '>') cursor = id; // replaying pending entries: continue after this one
         }
       } catch (err) {
+        if (String((err as Error).message).includes('NOGROUP')) await ensureGroup(); // stream was reset
         logger.error({ err }, 'command stream error');
         await new Promise((r) => setTimeout(r, 2000));
       }

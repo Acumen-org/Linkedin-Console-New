@@ -26,6 +26,14 @@ export async function startBridge(streams: Streams, shared: SharedState) {
   });
   const context = browser.contexts()[0];
   const page = await openBridgeWindow(browser, context, streams.redis, config.accountId);
+  // A crashed or closed bridge tab would leave the account "connected" while every send and sync fails:
+  // restart instead (the container comes back with a fresh window, the LinkedIn session is kept).
+  const lost = (event: string) => () => {
+    logger.error({ event }, 'bridge window lost, exiting so the container restarts');
+    process.exit(1);
+  };
+  page.on('crash', lost('crash'));
+  page.on('close', lost('close'));
   shared.bridgeTargetId = await targetIdOf(context, page);
   logger.info({ targetId: shared.bridgeTargetId }, 'bridge window ready');
 

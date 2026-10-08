@@ -214,6 +214,11 @@ function folderFromCategories(cats: string[] | undefined): Folder {
   return 'focused';
 }
 
+/** A real conversation entity (from the conversation list or a thread), not a reference stub. */
+const isFullConversation = (c: Json) =>
+  isObj(c) &&
+  ['categories', 'unreadCount', 'lastActivityAt', 'read', 'conversationParticipants', '*conversationParticipants'].some((k) => k in c);
+
 function mapConversation(c: Json, ref: Ref, selfUrn: string | null): LiConversation & { messages: LiMessage[] } {
   const urn = c.entityUrn;
   const self = selfUrn ?? selfFromConversationUrn(urn);
@@ -229,12 +234,12 @@ function mapConversation(c: Json, ref: Ref, selfUrn: string | null): LiConversat
     urn,
     threadId: threadIdFromUrn(urn),
     title: txt(c.title) || null,
-    isGroup: !!c.groupChat,
-    unreadCount: Number(c.unreadCount ?? 0),
+    isGroup: typeof c.groupChat === 'boolean' ? c.groupChat : null,
+    unreadCount: c.unreadCount == null ? null : Number(c.unreadCount),
     read: c.read ?? null,
     lastActivityAt: c.lastActivityAt ?? null,
     categories: c.categories ?? [],
-    folder: folderFromCategories(c.categories),
+    folder: Array.isArray(c.categories) ? folderFromCategories(c.categories) : null,
     participants: participants.filter((p) => p.urn !== self),
     messages: msgs,
   };
@@ -279,7 +284,11 @@ export function extract(json: Json, selfUrn: string | null = null): Extracted {
       const key = urn || JSON.stringify(o).slice(0, 200);
       if (convSeen.has(key)) continue;
       convSeen.add(key);
-      const c = mapConversation(byUrn.get(urn) ?? o, ref, selfUrn);
+      const full = byUrn.get(urn) ?? o;
+      // Messages carry a stub of their conversation (just the URN): that is no conversation update, and
+      // mapping it would reset folder, unread count and group flag to defaults.
+      if (!isFullConversation(full)) continue;
+      const c = mapConversation(full, ref, selfUrn);
       if (c.urn) {
         out.conversations.push(c);
         out.selfUrn ??= selfFromConversationUrn(c.urn);

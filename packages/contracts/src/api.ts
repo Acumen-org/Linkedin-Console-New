@@ -18,6 +18,17 @@ export interface User {
   lastSignInAt?: string | null;
 }
 
+/** Why a sign-in was refused (sent to the login page as ?error=<code>). */
+export const LOGIN_ERRORS = {
+  cancelled: 'Sign-in was cancelled.',
+  failed: 'Microsoft sign-in failed. Please try again.',
+  throttled: 'Too many sign-in attempts. Please wait a few minutes.',
+  expired: 'The sign-in took too long. Please try again.',
+  not_member: 'Your Microsoft account is not a member of this workspace. Ask an admin to add you.',
+  disabled: 'Your access has been disabled. Contact an admin.',
+} as const;
+export type LoginError = keyof typeof LOGIN_ERRORS;
+
 /** Sign-in and staff directory setup (admins). */
 export interface DirectoryInfo {
   microsoft: boolean;

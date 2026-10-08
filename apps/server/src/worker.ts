@@ -1,5 +1,4 @@
 // Worker process: applies bridge events, delivers webhooks, runs scheduled jobs.
-import os from 'node:os';
 import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkedin-console/contracts';
 import { migrate, sql } from './lib/db.ts';
 import { logger } from './lib/logger.ts';
@@ -34,7 +33,8 @@ await migrate();
 startScheduler();
 runWebhookDelivery();
 logger.info('worker started');
-const consumer = `${os.hostname()}-${process.pid}`;
+// A stable name: after a redeploy the new worker picks up entries the previous one hadn't finished.
+const consumer = process.env.WORKER_NAME ?? 'worker';
 // Command results (e.g. "sent") have their own stream, so a burst of synced messages never delays them.
 await Promise.all(
   [EVENTS_STREAM, RESULTS_STREAM].map((stream) =>

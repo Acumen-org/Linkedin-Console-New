@@ -14,7 +14,10 @@ import { newRedis } from '../lib/redis.ts';
 import { accessibleAccountIds, conversationForUser } from './access.ts';
 import { parseCookies, SESSION_COOKIE, type SessionUser, userFromToken } from './auth.ts';
 
-type SocketData = { user: SessionUser };
+type SocketData = { user: SessionUser; token: string; accountIds: string[] };
+
+/** Open sockets re-check their session this often (revoked, expired or disabled → disconnected). */
+const SESSION_RECHECK_MS = 5 * 60_000;
 
 /** Socket.IO server: rooms per account/user; events published to Redis are relayed here. */
 export function startRealtime(server: HttpServer) {
@@ -24,18 +27,32 @@ export function startRealtime(server: HttpServer) {
     cors: { origin: false },
   });
 
+  // Everything that can fail (database) happens here, where an error refuses the connection instead of
+  // becoming an unhandled rejection that would take the whole API down.
   io.use(async (socket, next) => {
-    const user = await userFromToken(parseCookies(socket.handshake.headers.cookie)[SESSION_COOKIE]).catch(() => null);
-    if (!user) return next(new Error('unauthorized'));
-    socket.data.user = user;
-    next();
+    try {
+      const token = parseCookies(socket.handshake.headers.cookie)[SESSION_COOKIE] ?? '';
+      const user = await userFromToken(token);
+      if (!user) return next(new Error('unauthorized'));
+      socket.data = { user, token, accountIds: await accessibleAccountIds(user) };
+      next();
+    } catch (err) {
+      logger.warn({ err }, 'socket auth failed');
+      next(new Error('unavailable'));
+    }
   });
 
-  io.on('connection', async (socket) => {
-    const user = socket.data.user;
+  io.on('connection', (socket) => {
+    const { user, token, accountIds } = socket.data;
     socket.join([userRoom(user.id), EVERYONE_ROOM]);
     if (user.role !== 'MEMBER') socket.join(ADMINS_ROOM);
-    for (const id of await accessibleAccountIds(user)) socket.join(accountRoom(id));
+    for (const id of accountIds) socket.join(accountRoom(id));
+
+    const recheck = setInterval(async () => {
+      const still = await userFromToken(token).catch(() => user); // a database blip is no reason to disconnect
+      if (!still) socket.disconnect(true);
+    }, SESSION_RECHECK_MS);
+    socket.on('disconnect', () => clearInterval(recheck));
 
     // Team presence: "Ali is replying…" (our users, not LinkedIn's typing indicator).
     socket.on('composing', async ({ conversationId, active }) => {

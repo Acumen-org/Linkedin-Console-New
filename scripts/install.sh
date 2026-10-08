@@ -15,16 +15,21 @@ fi
 [ -f .env ] || cp .env.example .env
 
 # Generate secrets that are still empty.
-for key in POSTGRES_PASSWORD POD_AGENT_TOKEN LIVE_SECRET; do
-  if grep -qE "^${key}=$" .env; then
-    sed -i "s#^${key}=\$#${key}=$(openssl rand -hex 24)#" .env
-  fi
-done
+. scripts/ensure-secrets.sh
+ensure_secrets
 
 if grep -q '^SITE_ADDRESS=app.example.com' .env; then
   read -rp "Domain for the app (e.g. inbox.yourcompany.com), or :80 for a quick LAN test: " domain
   sed -i "s#^SITE_ADDRESS=.*#SITE_ADDRESS=${domain}#" .env
-  if [[ "$domain" == :* ]]; then sed -i 's#^COOKIE_SECURE=.*#COOKIE_SECURE=false#' .env; fi
+  if [[ "$domain" == :* ]]; then
+    # Plain HTTP here can mean a LAN test, or a gateway (APISIX, nginx…) in front that serves https:
+    # then the session cookie must stay Secure.
+    read -rp "Will people open the app over https through a gateway in front of this server? [y/N] " gw
+    case "$gw" in
+      [Yy]*) echo "Keeping secure cookies. Set TRUSTED_PROXIES in .env to the gateway's address." ;;
+      *) sed -i 's#^COOKIE_SECURE=.*#COOKIE_SECURE=false#' .env ;;
+    esac
+  fi
 fi
 
 echo "Building images (first time takes a few minutes)…"

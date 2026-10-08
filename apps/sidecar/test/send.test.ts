@@ -84,3 +84,27 @@ test('a failing job rejects its caller and the queue keeps going', async () => {
   );
   assert.equal(await exclusive(async () => 42), 42);
 });
+
+test('history sync encodes the conversation URN like LinkedIn (parentheses too)', async () => {
+  const { encodeUrn } = await import('../src/bridge/linkedin.ts');
+  assert.equal(
+    encodeUrn('urn:li:msg_conversation:(urn:li:fsd_profile:X,2-ab==)'),
+    'urn%3Ali%3Amsg_conversation%3A%28urn%3Ali%3Afsd_profile%3AX%2C2-ab%3D%3D%29',
+  );
+});
+
+test('the download limiter never runs more than its limit at once', async () => {
+  const { createLimiter } = await import('../src/bridge/context.ts');
+  const limit = createLimiter(2);
+  let running = 0;
+  let peak = 0;
+  const job = () =>
+    limit(async () => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, 10));
+      running--;
+    });
+  await Promise.all(Array.from({ length: 8 }, job));
+  assert.equal(peak, 2);
+});

@@ -1,8 +1,9 @@
 // Account pods through the Docker API.
-// A pod = `pod-<id>` (Chrome, joins the app network) + `pod-<id>-sidecar`
+// A pod = `pod-<id>` (Chrome, on the pods network: reaches Redis and the internet, not the api or database) + `pod-<id>-sidecar`
 // (Live View + bridge, shares Chrome's network namespace so CDP stays on 127.0.0.1).
 import { config } from './config.ts';
 import { docker } from './docker.ts';
+import { podRedisUrl, removePodRedisUser } from './redis-acl.ts';
 
 export interface PodSpec {
   id: string;
@@ -68,12 +69,13 @@ export async function createPod({ id, timezone, language, proxyServer }: PodSpec
   await ensureStarted(n.chrome);
 
   if (!(await inspect(n.sidecar))) {
+    const redisUrl = await podRedisUrl(id);
     await docker.create(n.sidecar, {
       Image: config.sidecarImage,
       Labels: labels(id),
       Env: [
         `ACCOUNT_ID=${id}`,
-        `REDIS_URL=${config.redisUrl}`,
+        `REDIS_URL=${redisUrl}`,
         'FILES_DIR=/data/files',
         `TZ=${timezone}`,
         `LIVE_SECRET=${config.liveSecret}`,
@@ -97,6 +99,7 @@ export async function deletePod(id: string, wipe: boolean) {
   await removeContainer(n.sidecar);
   await removeContainer(n.chrome);
   if (wipe) await docker.removeVolume(n.profile);
+  await removePodRedisUser(id);
   return { id, deleted: true, wiped: wipe };
 }
 

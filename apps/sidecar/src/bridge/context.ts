@@ -78,3 +78,21 @@ export function createDedupe(max = 8000) {
     return true;
   };
 }
+
+/** Runs at most `max` jobs at once; the rest wait in order. */
+export function createLimiter(max: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
+    // A freed slot is handed straight to the next waiting job, so newcomers can't overtake it.
+    if (active >= max) await new Promise<void>((r) => waiting.push(r));
+    else active++;
+    try {
+      return await fn();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}

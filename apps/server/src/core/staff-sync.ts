@@ -68,7 +68,21 @@ async function grantDefault(userId: string) {
   await sql`INSERT INTO account_grants (account_id, user_id, level) SELECT id, ${userId}, ${config.defaultGrant} FROM accounts ON CONFLICT DO NOTHING`;
 }
 
+const LOCK_KEY = 'lu:staffsync:lock';
+
+/** One run at a time across api ("Sync now") and worker (schedule). */
 export async function runStaffSync(): Promise<StaffSyncStatus> {
+  if (!(await redis.set(LOCK_KEY, '1', 'EX', 300, 'NX'))) {
+    return { at: new Date().toISOString(), ok: false, error: 'A sync is already running; try again in a moment' };
+  }
+  try {
+    return await syncOnce();
+  } finally {
+    await redis.del(LOCK_KEY);
+  }
+}
+
+async function syncOnce(): Promise<StaffSyncStatus> {
   const status: StaffSyncStatus = { at: new Date().toISOString(), ok: false };
   try {
     const staff = await fetchStaff();
@@ -131,10 +145,12 @@ export async function runStaffSync(): Promise<StaffSyncStatus> {
         if (!email || s.resigned_at || s.archived_at || s.auto_imported || takenStaffIds.has(s.id)) continue;
         if ([email, ...(s.email_aliases ?? []).map(norm)].some((e) => known.has(e))) continue;
         const id = newId('usr');
-        await sql`
+        const created = await sql`
           INSERT INTO users (id, email, name, password_hash, role, source, staff_id)
           VALUES (${id}, ${email}, ${s.name?.trim() || email}, NULL, 'MEMBER', 'staff_sync', ${s.id})
-          ON CONFLICT DO NOTHING`;
+          ON CONFLICT DO NOTHING
+          RETURNING id`;
+        if (!created.length) continue; // added meanwhile (e.g. by hand)
         await grantDefault(id);
         known.add(email);
         takenStaffIds.add(s.id);

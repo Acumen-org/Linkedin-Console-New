@@ -3,7 +3,7 @@ import type { BridgeSessionStatus } from '@linkedin-console/contracts';
 import { sleep } from '../cdp.ts';
 import { logger } from '../logger.ts';
 import type { BridgeContext } from './context.ts';
-import { ensureOnLinkedIn, hasSessionCookie, inPageFetch, loadSelf } from './linkedin.ts';
+import { ensureOnLinkedIn, forgetTemplate, hasSessionCookie, inPageFetch, isFormatRejection, loadSelf } from './linkedin.ts';
 
 const CHALLENGE_RE = /linkedin\.com\/(checkpoint|authwall|uas\/login|login)/;
 
@@ -62,7 +62,7 @@ export function createSessionMonitor(ctx: BridgeContext) {
             const tpl = ctx.state.templates.conversations;
             if (tpl) {
               const r = await inPageFetch(ctx, tpl.url, tpl.headers);
-              if (r.status !== 200) delete ctx.state.templates.conversations;
+              if (isFormatRejection(r.status)) forgetTemplate(ctx, 'conversations');
             } else {
               await ctx.actions.loadInbox(ctx.page, 1);
             }

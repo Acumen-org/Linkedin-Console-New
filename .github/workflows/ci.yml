@@ -39,7 +39,7 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s#^SITE_ADDRESS=.*#SITE_ADDRESS=:80#; s#^COOKIE_SECURE=.*#COOKIE_SECURE=false#; s#^HTTP_PORT=.*#HTTP_PORT=8088#; s#^HTTPS_PORT=.*#HTTPS_PORT=8443#" .env
-          for key in POSTGRES_PASSWORD POD_AGENT_TOKEN LIVE_SECRET; do
+          for key in POSTGRES_PASSWORD POD_AGENT_TOKEN LIVE_SECRET REDIS_PASSWORD; do
             sed -i "s#^${key}=\$#${key}=$(openssl rand -hex 24)#" .env
           done
           # Identity tests: a fake tenant, and the test's own fake Twilio staff list (served by the test on api:4100).

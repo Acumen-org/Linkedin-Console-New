@@ -24,9 +24,29 @@ function upsertMessage(list: Message[] | undefined, m: Message) {
   return copy;
 }
 
-export function connectRealtime(qc: QueryClient) {
+/**
+ * Collects list refreshes for a moment and runs them once: a sync touching 40 conversations, or a teammate
+ * typing, must not make every open browser refetch its lists 40 times.
+ */
+function batchedInvalidate(qc: QueryClient, delayMs = 1500) {
+  const pending = new Set<string>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return (key: string) => {
+    pending.add(key);
+    if (timer) return; // a refresh is already scheduled and will include this key
+    timer = setTimeout(() => {
+      for (const k of pending) qc.invalidateQueries({ queryKey: [k] }, { cancelRefetch: false });
+      pending.clear();
+      timer = null;
+    }, delayMs);
+  };
+}
+
+export function connectRealtime(qc: QueryClient, onSignedOut: () => void) {
   if (socket) return socket;
   socket = io({ path: '/socket.io', transports: ['websocket', 'polling'] });
+  const refresh = batchedInvalidate(qc);
+  let connectedBefore = false;
   const emit = (type: string, data: any) => {
     for (const l of listeners) l({ type, data });
   };
@@ -35,7 +55,16 @@ export function connectRealtime(qc: QueryClient) {
     // Server kicks us when our permissions change; reconnect to join the right rooms.
     if (reason === 'io server disconnect') setTimeout(() => socket?.connect(), 800);
   });
-  socket.on('connect', () => qc.invalidateQueries({ queryKey: ['accounts'] }));
+  socket.on('connect', () => {
+    qc.invalidateQueries({ queryKey: ['accounts'] });
+    // Back after a restart, deploy or network drop: events sent meanwhile were missed, so reload what's open.
+    if (connectedBefore) for (const k of ['conversations', 'conversation', 'messages', 'notes']) qc.invalidateQueries({ queryKey: [k] });
+    connectedBefore = true;
+  });
+  // The session expired or was revoked: show the sign-in page instead of a silently dead app.
+  socket.on('connect_error', (err) => {
+    if (err.message === 'unauthorized') onSignedOut();
+  });
 
   socket.on('conversation.updated', (c: Conversation) => {
     // Conversation lists are paged (infinite queries): patch in place, refetch if it moved to the top.
@@ -51,9 +80,9 @@ export function connectRealtime(qc: QueryClient) {
       );
       return { ...data, pages };
     });
-    if (movedOrNew) qc.invalidateQueries({ queryKey: ['conversations'] });
+    if (movedOrNew) refresh('conversations');
     qc.setQueryData<Conversation>(['conversation', c.id], (old) => (old ? { ...old, ...c } : old));
-    qc.invalidateQueries({ queryKey: ['accounts'] });
+    refresh('accounts'); // unread badges
   });
 
   const onMessage = (m: Message) => {

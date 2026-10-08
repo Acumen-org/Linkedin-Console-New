@@ -9,8 +9,8 @@ import path from 'node:path';
 import type { CommandResult, FileRef } from '@linkedin-console/contracts';
 import { config } from '../config.ts';
 import { IDLE_URL, jitter } from './actions.ts';
-import { type BridgeContext, createExclusiveRunner } from './context.ts';
-import { inPageFetch, sendViaApi } from './linkedin.ts';
+import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
+import { encodeUrn, forgetTemplate, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import type { Command } from './streams.ts';
 
@@ -28,23 +28,39 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   const sendPause = (min: number, max: number) => (fast ? Promise.resolve() : jitter(min, max));
   const sends = createExclusiveRunner('send');
   const background = createExclusiveRunner('background command');
+  const downloads = createLimiter(2);
   const backToIdle = () => ctx.pageLock(() => page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' })).catch(() => {});
   const result = (cmd: Command, data: Outcome) => ctx.streams.emit('result', { cmdId: cmd.cmdId, type: cmd.type, ...data });
 
   async function existingFiles(files: FileRef[] = []) {
+    const root = path.resolve(ctx.filesDir);
     for (const f of files) {
-      if (!path.resolve(f.path).startsWith(path.resolve(ctx.filesDir))) throw new Error('file outside files dir');
+      const rel = path.relative(root, path.resolve(f.path));
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('file outside files dir');
       await fs.access(f.path);
     }
     return files;
   }
 
-  /** Downloads an attachment with the account's cookies and stores it for the app to serve. */
+  /**
+   * Downloads an attachment with the account's cookies and stores it for the app to serve. At most two at a
+   * time (each is held in memory, and this process has 256 MB); every redirect hop must stay on LinkedIn.
+   */
   async function fetchMedia(cmd: Extract<Command, { type: 'fetch_media' }>) {
     try {
-      if (!MEDIA_HOSTS.test(new URL(cmd.url).hostname)) throw new Error('host not allowed');
-      const res = await ctx.context.request.get(cmd.url, { timeout: 60_000, maxRedirects: 5 });
+      let url = cmd.url;
+      let res: Awaited<ReturnType<typeof ctx.context.request.get>> | null = null;
+      for (let hop = 0; hop <= 5; hop++) {
+        if (!MEDIA_HOSTS.test(new URL(url).hostname)) throw new Error('host not allowed');
+        res = await ctx.context.request.get(url, { timeout: 60_000, maxRedirects: 0 });
+        const location = res.status() >= 300 && res.status() < 400 ? res.headers().location : undefined;
+        if (!location) break;
+        url = new URL(location, url).toString();
+        res = null;
+      }
+      if (!res) throw new Error('too many redirects');
       if (!res.ok()) throw new Error(`download failed (${res.status()})`);
+      if (Number(res.headers()['content-length'] ?? 0) > MAX_MEDIA_BYTES) throw new Error('file too large');
       const body = await res.body();
       if (body.length > MAX_MEDIA_BYTES) throw new Error('file too large');
       const dir = path.join(ctx.filesDir, 'media', ctx.accountId);
@@ -79,6 +95,10 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     if (res.status >= 200 && res.status < 300) return { ok: true }; // LinkedIn's copy arrives in a moment and gets matched
     if (res.status === 401) return { ok: false, error: 'LinkedIn session expired' };
     if (res.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now; try again later' };
+    if (!isFormatRejection(res.status) && res.status < 500) {
+      // Refused for this message or recipient (e.g. they can't be messaged): the request format is fine.
+      return { ok: false, error: `LinkedIn refused the message (${res.status})` };
+    }
     if (res.status >= 500) {
       const seen = await echo();
       return seen
@@ -86,7 +106,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
         : { ok: false, error: `LinkedIn error (${res.status})` };
     }
     // Rejected (LinkedIn changed the request): forget it; the UI sends this one and teaches the new format.
-    reader.dropSendTemplate();
+    forgetTemplate(ctx, 'send');
     return null;
   }
 
@@ -136,11 +156,13 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     if (tpl) {
       const url = tpl.url.replace(
         /conversationUrn:urn%3Ali%3Amsg_conversation%3A%28.*?%29(?=[,)&]|$)/,
-        `conversationUrn:${encodeURIComponent(cmd.conversationUrn)}`,
+        // LinkedIn encodes the URN's parentheses too (encodeURIComponent leaves them as is).
+        `conversationUrn:${encodeUrn(cmd.conversationUrn)}`,
       );
       const r = await inPageFetch(ctx, url, tpl.headers);
       if (r.status === 200) return;
-      delete ctx.state.templates.messages;
+      if (!isFormatRejection(r.status)) return; // temporary (rate limit, server error): keep the request
+      forgetTemplate(ctx, 'messages');
     }
     // Without a template, opening the thread is the only way (it marks it read), so only when allowed.
     if (cmd.allowOpen && cmd.threadId) {
@@ -167,7 +189,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
 
   return async function handle(cmd: Command): Promise<unknown> {
     if (cmd.type === 'check_session') return checkSession();
-    if (cmd.type === 'fetch_media') return fetchMedia(cmd);
+    if (cmd.type === 'fetch_media') return downloads(() => fetchMedia(cmd));
     if (cmd.type === 'send_message' || cmd.type === 'start_chat') return sends(() => send(cmd));
     return background(async () => {
       if (ctx.state.status !== 'CONNECTED') return;

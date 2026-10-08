@@ -3,9 +3,15 @@ import { logger } from '../lib/logger.ts';
 
 type Entries = [string, [string, string[]][]][] | null;
 
+const ATTEMPTS = 3;
+/** Entries that kept failing are kept here (not dropped) for inspection: `XRANGE <stream>:dead - +`. */
+const deadLetter = (stream: string) => `${stream}:dead`;
+
 /**
  * Reads a Redis stream through a consumer group, one JSON entry at a time, forever.
- * On start it first re-processes entries left pending by a previous crash.
+ * An entry is acknowledged only after it was handled; a failing one is retried (a database blip shouldn't
+ * lose a message) and after ATTEMPTS moved to the dead-letter stream. On start, entries left pending by
+ * a previous run are handled first.
  */
 export async function consumeStream<T>(opts: {
   redis: Redis;
@@ -26,17 +32,26 @@ export async function consumeStream<T>(opts: {
     try {
       const res = (await blocking.xreadgroup('GROUP', group, consumer, 'COUNT', 50, 'BLOCK', 5000, 'STREAMS', stream, cursor)) as Entries;
       const entries = res?.[0]?.[1] ?? [];
-      if (cursor === '0' && !entries.length) {
+      if (cursor !== '>' && !entries.length) {
         cursor = '>';
         continue;
       }
       for (const [id, fields] of entries) {
-        try {
-          await handle(JSON.parse(fields[fields.indexOf('json') + 1]) as T);
-        } catch (err) {
-          logger.error({ err, stream }, 'stream entry failed');
+        const raw = fields[fields.indexOf('json') + 1];
+        let handled = false;
+        for (let attempt = 1; attempt <= ATTEMPTS && !handled; attempt++) {
+          try {
+            await handle(JSON.parse(raw) as T);
+            handled = true;
+          } catch (err) {
+            logger.error({ err, stream, id, attempt }, 'stream entry failed');
+            if (err instanceof SyntaxError) break; // unparseable: retrying won't help
+            if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+          }
         }
+        if (!handled) await redis.xadd(deadLetter(stream), 'MAXLEN', '~', '10000', '*', 'id', id, 'json', raw);
         await redis.xack(stream, group, id);
+        if (cursor !== '>') cursor = id;
       }
     } catch (err) {
       logger.error({ err, stream }, 'stream read failed');

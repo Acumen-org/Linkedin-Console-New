@@ -79,6 +79,8 @@ docker rm -f "$tmp" >/dev/null
 echo "    database and user are now ${NEW_DB}"
 
 echo "5/5 Starting LinkedIn Console"
+. scripts/ensure-secrets.sh
+ensure_secrets
 if [ -z "${SKIP_BUILD:-}" ]; then
   docker compose --profile images build
   docker compose build

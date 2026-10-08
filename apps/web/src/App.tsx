@@ -12,8 +12,8 @@ import { AuditPage } from './features/settings/AuditPage';
 import { ProfilePage } from './features/settings/ProfilePage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { TeamPage } from './features/settings/TeamPage';
-import { ApiError, api } from './lib/api';
-import { connectRealtime } from './lib/realtime';
+import { ApiError, api, setSignedOutHandler } from './lib/api';
+import { connectRealtime, disconnectRealtime } from './lib/realtime';
 import type { User } from './types';
 
 const MeContext = createContext<User | null>(null);
@@ -37,7 +37,12 @@ export function App() {
   });
 
   useEffect(() => {
-    if (me.data) connectRealtime(qc);
+    const signedOut = () => {
+      disconnectRealtime();
+      qc.setQueryData(['me'], null);
+    };
+    setSignedOutHandler(signedOut);
+    if (me.data) connectRealtime(qc, signedOut);
   }, [me.data, qc]);
 
   if (setup.isLoading || (setup.data?.needsSetup === false && me.isLoading)) {

@@ -93,4 +93,5 @@ See [docs/development.md](docs/development.md) for local setup, the bridge simul
 - [Operations](docs/operations.md): configuration, updates, backups, monitoring, troubleshooting
 - [Roles and access](docs/rbac.md): team roles, per-account grants, recommended setup
 - [Bridge maintenance](docs/bridge-maintenance.md): keeping up with LinkedIn changes
-- [Master plan](docs/master-plan.md): original design and roadmap
+- [Roadmap](docs/roadmap.md): current order of work
+- [Master plan](docs/master-plan.md): original design

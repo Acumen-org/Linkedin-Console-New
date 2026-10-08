@@ -3,6 +3,7 @@
 // is matched by its Entra object ID once linked, and by email the first time. MFA and conditional
 // access are enforced by Microsoft.
 import crypto from 'node:crypto';
+import type { LoginError } from '@linkedin-console/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { audit } from '../../core/audit.ts';
 import { assertLoginAllowed, clearLoginFailures, createSession, recordLoginFailure } from '../../core/auth.ts';
@@ -16,6 +17,8 @@ const CALLBACK_PATH = '/api/auth/microsoft/callback';
 const b64url = (b: Buffer) => b.toString('base64url');
 
 interface IdClaims {
+  /** Present for guests (B2B) and accounts from another identity provider. */
+  idp?: string;
   iss?: string;
   aud?: string;
   tid?: string;
@@ -41,7 +44,8 @@ export function claimsFromIdToken(idToken: string, expect: { tenantId: string; c
   return c;
 }
 
-const toLogin = (reply: FastifyReply, error: string) => reply.redirect(`/login?error=${encodeURIComponent(error)}`);
+/** Errors go back as fixed codes; the login page shows its own text for them (nobody can put text there). */
+const toLogin = (reply: FastifyReply, error: LoginError) => reply.redirect(`/login?error=${error}`);
 
 export default async function microsoftRoutes(app: FastifyInstance) {
   app.get('/api/auth/methods', async () => ({ microsoft: !!config.microsoft, password: config.passwordSignin }));
@@ -51,7 +55,12 @@ export default async function microsoftRoutes(app: FastifyInstance) {
   const authority = `https://login.microsoftonline.com/${ms.tenantId}/oauth2/v2.0`;
   const redirectUri = `${config.appUrl}${CALLBACK_PATH}`;
 
-  app.get('/api/auth/microsoft', async (_req, reply) => {
+  app.get('/api/auth/microsoft', async (req, reply) => {
+    // Each start stores a pending sign-in for 10 minutes: limit how fast one address can create them.
+    const key = `lu:oidc:rate:${req.ip}`;
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, 60);
+    if (n > 30) return toLogin(reply, 'throttled');
     const state = b64url(crypto.randomBytes(24));
     const nonce = b64url(crypto.randomBytes(24));
     const verifier = b64url(crypto.randomBytes(32));
@@ -82,14 +91,14 @@ export default async function microsoftRoutes(app: FastifyInstance) {
   app.get(CALLBACK_PATH, async (req: FastifyRequest<{ Querystring: Record<string, string> }>, reply) => {
     const { code, state, error } = req.query;
     reply.clearCookie(STATE_COOKIE, { path: CALLBACK_PATH });
-    if (error) return toLogin(reply, error === 'access_denied' ? 'Sign-in was cancelled' : 'Microsoft sign-in failed');
+    if (error) return toLogin(reply, error === 'access_denied' ? 'cancelled' : 'failed');
     try {
       assertLoginAllowed(req.ip);
     } catch {
-      return toLogin(reply, 'Too many failed sign-ins, try again later');
+      return toLogin(reply, 'throttled');
     }
     const saved = state && state === req.cookies[STATE_COOKIE] ? await redis.getdel(`lu:oidc:${state}`) : null;
-    if (!code || !saved) return toLogin(reply, 'The sign-in expired, please try again');
+    if (!code || !saved) return toLogin(reply, 'expired');
     const { nonce, verifier } = JSON.parse(saved) as { nonce: string; verifier: string };
 
     let claims: IdClaims;
@@ -113,22 +122,28 @@ export default async function microsoftRoutes(app: FastifyInstance) {
       claims = claimsFromIdToken(body.id_token, { tenantId: ms.tenantId, clientId: ms.clientId, nonce });
     } catch (err) {
       logger.warn({ err }, 'Microsoft sign-in failed');
-      return toLogin(reply, 'Microsoft sign-in failed');
+      return toLogin(reply, 'failed');
     }
 
     const email = (claims.email ?? claims.preferred_username ?? '').toLowerCase().trim();
     // Linked accounts are matched by the Entra object ID; the first time, by email (and then linked).
     const [byOid] = await sql`SELECT id, disabled_at FROM users WHERE microsoft_oid = ${claims.oid!}`;
-    const [byEmail] = byOid ? [] : await sql`SELECT id, disabled_at, microsoft_oid FROM users WHERE email = ${email}`;
+    // Linking by email only for the tenant's own members: a guest's email claim isn't verified by the tenant,
+    // so a guest could otherwise claim a teammate's account. (A guest an admin linked keeps working by oid.)
+    const guest = !!claims.idp && claims.idp !== claims.iss;
+    const [byEmail] = byOid || guest ? [] : await sql`SELECT id, disabled_at, microsoft_oid FROM users WHERE email = ${email}`;
     const user = byOid ?? (byEmail && !byEmail.microsoftOid ? byEmail : null);
     if (!user || user.disabledAt) {
       recordLoginFailure(req.ip);
-      const reason = !user ? (byEmail ? 'email linked to another Microsoft account' : 'not a teammate') : 'account disabled';
+      const reason = user
+        ? 'account disabled'
+        : guest
+          ? 'guest account (not linked)'
+          : byEmail
+            ? 'email linked to another Microsoft account'
+            : 'not a teammate';
       await audit({ userId: user?.id ?? null, action: 'auth.login_failed', meta: { method: 'microsoft', email, reason }, ip: req.ip, req });
-      return toLogin(
-        reply,
-        user ? 'Your access has been disabled' : `${email || 'This account'} is not a member of this workspace. Ask an admin to add you.`,
-      );
+      return toLogin(reply, user ? 'disabled' : 'not_member');
     }
     if (!byOid) await sql`UPDATE users SET microsoft_oid = ${claims.oid!} WHERE id = ${user.id}`;
     clearLoginFailures(req.ip);

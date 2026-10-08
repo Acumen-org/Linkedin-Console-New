@@ -1,17 +1,25 @@
 // Local forward proxy on 127.0.0.1:3128 that adds credentials for an upstream proxy.
 // Chrome's --proxy-server flag can't carry a username/password, so Chrome points here.
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
+import tls from 'node:tls';
 import { logger } from './logger.ts';
 
 export function startProxyForwarder(upstreamUrl: string, port = 3128) {
   const up = new URL(upstreamUrl);
   const auth = `Basic ${Buffer.from(`${decodeURIComponent(up.username)}:${decodeURIComponent(up.password)}`).toString('base64')}`;
-  const upPort = Number(up.port || 80);
+  // An https:// upstream proxy is spoken to over TLS (default port 443); http:// over plain TCP (80).
+  const secure = up.protocol === 'https:';
+  const upPort = Number(up.port || (secure ? 443 : 80));
+  const connectUpstream = (onConnect: () => void) =>
+    secure
+      ? tls.connect({ port: upPort, host: up.hostname, servername: up.hostname }, onConnect)
+      : net.connect(upPort, up.hostname, onConnect);
 
   const server = http.createServer((req, res) => {
     // Plain-HTTP request: forward with absolute URI to the upstream proxy.
-    const fwd = http.request(
+    const fwd = (secure ? https : http).request(
       { host: up.hostname, port: upPort, method: req.method, path: req.url, headers: { ...req.headers, 'proxy-authorization': auth } },
       (r) => {
         res.writeHead(r.statusCode ?? 502, r.headers);
@@ -19,14 +27,15 @@ export function startProxyForwarder(upstreamUrl: string, port = 3128) {
       },
     );
     fwd.on('error', () => {
-      res.writeHead(502);
+      // The upstream may fail mid-response: headers can't be sent twice (that would throw and kill the sidecar).
+      if (!res.headersSent) res.writeHead(502);
       res.end();
     });
     req.pipe(fwd);
   });
 
   server.on('connect', (req: http.IncomingMessage, client: net.Socket, head: Buffer) => {
-    const upstream = net.connect(upPort, up.hostname, () => {
+    const upstream = connectUpstream(() => {
       upstream.write(`CONNECT ${req.url} HTTP/1.1\r\nHost: ${req.url}\r\nProxy-Authorization: ${auth}\r\n\r\n`);
     });
     let buf = Buffer.alloc(0);

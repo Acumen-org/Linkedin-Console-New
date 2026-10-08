@@ -37,12 +37,29 @@ $MARK_END
 RULES
 }
 
+# IPv6: the gateway reaches us over IPv4, so nothing may reach the published ports over IPv6 at all.
+docker_user_rules6() {
+  local ext_if="$1"
+  cat <<RULES
+$MARK_BEGIN
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -i $ext_if -p tcp -m conntrack --ctorigdstport 80 --ctdir ORIGINAL -j DROP
+-A DOCKER-USER -i $ext_if -p tcp -m conntrack --ctorigdstport 443 --ctdir ORIGINAL -j DROP
+-A DOCKER-USER -j RETURN
+COMMIT
+$MARK_END
+RULES
+}
+
 ext_interface() {
   ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
 }
 
 if [ -n "$DRY_RUN" ]; then
   [ -n "$GATEWAY_IP" ] && docker_user_rules "${EXT_IF:-$(ext_interface || echo eth0)}" "$GATEWAY_IP"
+  [ -n "$GATEWAY_IP" ] && docker_user_rules6 "${EXT_IF:-$(ext_interface || echo eth0)}"
   echo "# ssh allowed from: ${SSH_ALLOW:-anywhere}"
   exit 0
 fi
@@ -63,13 +80,22 @@ id linkedin-console >/dev/null 2>&1 && usermod -aG docker linkedin-console
 # Firewall (host ports): SSH + web.
 ufw default deny incoming
 ufw default allow outgoing
+# Re-runs replace earlier choices: a rule from a previous run (e.g. SSH open to anyone) is removed first.
 if [ -n "$SSH_ALLOW" ]; then
+  ufw delete allow 22/tcp >/dev/null 2>&1 || true
   for src in $SSH_ALLOW; do ufw allow from "$src" to any port 22 proto tcp; done
 else
   ufw allow 22/tcp
 fi
-ufw allow 80/tcp
-[ -z "$GATEWAY_IP" ] && ufw allow 443/tcp
+if [ -n "$GATEWAY_IP" ]; then
+  # Host-level rules matter when Docker hands IPv6 to its userland proxy: only the gateway, IPv4.
+  ufw delete allow 80/tcp >/dev/null 2>&1 || true
+  ufw delete allow 443/tcp >/dev/null 2>&1 || true
+  ufw allow from "$GATEWAY_IP" to any port 80 proto tcp
+else
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+fi
 
 # Firewall (Docker-published ports) when behind a gateway.
 if [ -n "$GATEWAY_IP" ]; then
@@ -79,7 +105,9 @@ if [ -n "$GATEWAY_IP" ]; then
   sed -i "/^$MARK_BEGIN\$/,/^$MARK_END\$/d" /etc/ufw/after.rules
   sed -i '/^# BEGIN LINKUNIFY DOCKER-USER$/,/^# END LINKUNIFY DOCKER-USER$/d' /etc/ufw/after.rules # former project name
   docker_user_rules "$EXT_IF" "$GATEWAY_IP" >> /etc/ufw/after.rules
-  echo "Gateway mode: port 80 only from $GATEWAY_IP on $EXT_IF; 443 closed."
+  sed -i "/^$MARK_BEGIN$/,/^$MARK_END$/d" /etc/ufw/after6.rules
+  docker_user_rules6 "$EXT_IF" >> /etc/ufw/after6.rules
+  echo "Gateway mode: port 80 only from $GATEWAY_IP on $EXT_IF (IPv4); 80/443 closed over IPv6; 443 closed."
 fi
 ufw --force enable
 ufw reload
@@ -88,5 +116,5 @@ ufw reload
 dpkg-reconfigure -f noninteractive unattended-upgrades
 
 echo "✅ VM ready. Next: cd /opt/linkedin-console && ./scripts/install.sh"
-[ -n "$GATEWAY_IP" ] && echo "   Check: sudo iptables -L DOCKER-USER -n --line-numbers (5 rules)"
+[ -n "$GATEWAY_IP" ] && echo "   Check: sudo iptables -L DOCKER-USER -n (5 rules) and sudo ip6tables -L DOCKER-USER -n (4 rules)"
 exit 0

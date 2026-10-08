@@ -56,6 +56,13 @@ export function startLiveView(state: SharedState) {
     const s = JSON.stringify(obj);
     for (const ws of viewers.keys()) if (ws.readyState === WebSocket.OPEN) ws.send(s);
   };
+  /** Screen frames: a viewer that can't keep up (slow link, sleeping laptop) skips frames instead of
+   * buffering them in this process (which would run it out of memory). */
+  const MAX_BUFFERED = 1024 * 1024;
+  const broadcastFrame = (data: string) => {
+    const s = JSON.stringify({ t: 'frame', data });
+    for (const ws of viewers.keys()) if (ws.readyState === WebSocket.OPEN && ws.bufferedAmount < MAX_BUFFERED) ws.send(s);
+  };
   const visibleTabs = async () => (await listPages()).filter((t) => t.id !== state.bridgeTargetId);
   const tabSummary = (tabs: CdpTarget[]) => tabs.map(({ id, title, url }) => ({ id, title, url }));
   const controlInfo = () => ({ t: 'control', user: controller?.user ?? null, id: controller?.id ?? null });
@@ -85,7 +92,7 @@ export function startLiveView(state: SharedState) {
     session.on('Page.screencastFrame', ({ data, metadata, sessionId }) => {
       meta = metadata;
       lastFrame = data;
-      broadcast({ t: 'frame', data });
+      broadcastFrame(data);
       session.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
     });
     session.on('Page.frameNavigated', ({ frame }) => {
@@ -119,7 +126,7 @@ export function startLiveView(state: SharedState) {
     ]);
     meta = { deviceWidth: vp.clientWidth, deviceHeight: vp.clientHeight };
     lastFrame = shot.data;
-    broadcast({ t: 'frame', data: lastFrame });
+    if (lastFrame) broadcastFrame(lastFrame);
     broadcast({ t: 'tab', ...current, tabs: tabSummary(await visibleTabs()) });
   }
 
@@ -205,6 +212,7 @@ export function startLiveView(state: SharedState) {
     if (!pathname.endsWith('/ws') || !fromCaddy(req)) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
+  wss.on('error', (err) => logger.warn({ err }, 'live view server error'));
 
   wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
     const viewer: Viewer = {
@@ -215,6 +223,12 @@ export function startLiveView(state: SharedState) {
     viewers.set(ws, viewer);
     lastViewerAt = Date.now();
     send(ws, { t: 'hello', id: viewer.id, canControl: viewer.canControl });
+
+    // Bad frames (too large, invalid) emit 'error': without a listener that would crash the sidecar.
+    ws.on('error', (err) => {
+      logger.warn({ err: err.message }, 'live view socket error');
+      ws.terminate();
+    });
 
     ws.on('close', () => {
       viewers.delete(ws);
@@ -227,6 +241,9 @@ export function startLiveView(state: SharedState) {
     });
 
     ws.on('message', (raw) => {
+      // Only controllers send large messages (file uploads); a viewer's messages are tiny.
+      const size = Array.isArray(raw) ? raw.reduce((n, b) => n + b.byteLength, 0) : raw.byteLength;
+      if (!viewer.canControl && size > 64 * 1024) return;
       let msg: ClientMessage;
       try {
         msg = JSON.parse(String(raw));

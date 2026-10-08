@@ -1,4 +1,5 @@
 // READ path: everything LinkedIn's page loads (HTTP JSON + realtime stream) → normalized events.
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { LiMessage } from '@linkedin-console/contracts';
@@ -9,6 +10,11 @@ import { extract, parseSse } from './extract.ts';
 import { isCreateMessageRequest, scrubSendBody } from './send-template.ts';
 
 const LINKEDIN_DATA = /^https:\/\/www\.linkedin\.com\/(voyager\/api|realtime)/;
+/** The responses we use: messaging, the realtime stream, who is logged in, connections. Feed, search and
+ * profile pages a teammate browses in Live View are skipped before their (large) bodies are read. */
+const USEFUL_DATA = /messag|messeng|realtime|\/voyager\/api\/me\b|connection|relationship/i;
+/** A realtime event bigger than this without an event boundary is not SSE we understand: drop it. */
+const MAX_SSE_BUFFER = 1024 * 1024;
 
 interface Waiter {
   text: string;
@@ -16,6 +22,9 @@ interface Waiter {
   since: number;
   resolve: (m: LiMessage | null) => void;
 }
+
+/** Short fingerprint of a message text (an edit of the same length is still a change). */
+const textKey = (text: string) => crypto.createHash('sha1').update(text).digest('base64url').slice(0, 12);
 
 const norm = (s: unknown) =>
   String(s ?? '')
@@ -61,16 +70,18 @@ export function createReader(ctx: BridgeContext) {
     await fs.writeFile(path.join(dir, `${Date.now()}-${slug}.json`), JSON.stringify(json));
   }
 
-  /** ownSend: the response to a create-message request, so every message in it was sent by this account. */
+  /** ownSend: the response to a create-message request; the message it created is this account's. */
   async function handleJson(json: unknown, source: string, ownSend = false) {
     if (ctx.captureRaw) saveCapture(json, source).catch(() => {});
     const { emit } = ctx.streams;
     const x = extract(json, ctx.state.selfUrn);
     if (!ctx.state.selfUrn && x.selfUrn) ctx.state.selfUrn = x.selfUrn;
     if (ownSend) {
-      // LinkedIn's reply to a send may name the sender only by reference: fill in this account.
+      // LinkedIn's reply to a send may name the sender only by reference: fill in this account. Messages that
+      // name someone else (e.g. the other side's last message, included for context) stay theirs.
       const self = ctx.state.self;
       for (const m of x.messages) {
+        if (m.senderUrn && m.senderUrn !== ctx.state.selfUrn) continue;
         m.fromSelf = true;
         m.senderUrn ??= ctx.state.selfUrn;
         m.senderName ??= self?.name ?? null;
@@ -86,7 +97,9 @@ export function createReader(ctx: BridgeContext) {
     if (x.messages.length) {
       const msgs = x.messages.filter((m) => m.conversationUrn);
       const changed = msgs.filter((m) =>
-        fresh(`m:${m.urn}:${m.text.length}:${m.reactions.map((r) => r.emoji + r.count).join()}:${m.deleted}`),
+        fresh(
+          `m:${m.urn}:${textKey(m.text)}:${m.edited}:${m.attachments.length}:${m.reactions.map((r) => r.emoji + r.count).join()}:${m.deleted}`,
+        ),
       );
       if (changed.length) await emit('messages', changed);
       checkWaiters(msgs);
@@ -132,6 +145,7 @@ export function createReader(ctx: BridgeContext) {
       const url = res.url();
       if (!LINKEDIN_DATA.test(url)) return;
       if (res.ok() && isCreateMessageRequest(res.request().method(), url)) rememberSendTemplate(res.request());
+      if (!USEFUL_DATA.test(url)) return;
       if (!(res.headers()['content-type'] ?? '').includes('json')) return;
       try {
         rememberTemplate(res.request());
@@ -150,21 +164,30 @@ export function createReader(ctx: BridgeContext) {
         onPayload(JSON.parse(e.data), 'realtime');
       } catch {}
     });
+    const feedSse = (requestId: string, chunk: string) => {
+      const buffered = sseBuffers.get(requestId);
+      if (buffered === undefined || !chunk) return;
+      const [payloads, rest] = parseSse(buffered + chunk);
+      sseBuffers.set(requestId, rest.length > MAX_SSE_BUFFER ? '' : rest);
+      for (const p of payloads) onPayload(p, 'realtime');
+    };
     cdp.on('Network.responseReceived', async (e) => {
       if (!e.response.url.includes('/realtime/connect')) return;
       sseBuffers.set(e.requestId, '');
       try {
-        await cdp.send('Network.streamResourceContent', { requestId: e.requestId });
+        // Events that arrived before streaming was switched on come back as bufferedData.
+        const { bufferedData } = (await cdp.send('Network.streamResourceContent', { requestId: e.requestId })) as {
+          bufferedData?: string;
+        };
+        if (bufferedData) feedSse(e.requestId, Buffer.from(bufferedData, 'base64').toString('utf8'));
       } catch {}
     });
     cdp.on('Network.dataReceived', (e) => {
-      const buffered = sseBuffers.get(e.requestId);
-      if (buffered === undefined || !e.data) return;
-      const [payloads, rest] = parseSse(buffered + Buffer.from(e.data, 'base64').toString('utf8'));
-      sseBuffers.set(e.requestId, rest);
-      for (const p of payloads) onPayload(p, 'realtime');
+      if (e.data) feedSse(e.requestId, Buffer.from(e.data, 'base64').toString('utf8'));
     });
+    // Finished or failed (aborted by a navigation, network drop): forget the stream's buffer either way.
     cdp.on('Network.loadingFinished', (e) => sseBuffers.delete(e.requestId));
+    cdp.on('Network.loadingFailed', (e) => sseBuffers.delete(e.requestId));
     cdp.on('Network.webSocketFrameReceived', (e) => {
       try {
         onPayload(JSON.parse(e.response.payloadData), 'realtime-ws');
@@ -172,13 +195,7 @@ export function createReader(ctx: BridgeContext) {
     });
   }
 
-  /** Forget the send template (LinkedIn rejected a replay). */
-  function dropSendTemplate() {
-    delete ctx.state.templates.send;
-    saveTemplates();
-  }
-
-  return { start, waitForOutbound, dropSendTemplate };
+  return { start, waitForOutbound };
 }
 
 export type Reader = ReturnType<typeof createReader>;

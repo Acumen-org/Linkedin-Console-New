@@ -1,3 +1,4 @@
+import { userRoom } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
@@ -16,6 +17,11 @@ import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
+import { publish } from '../../lib/redis.ts';
+
+const WRONG_CREDENTIALS = config.microsoft
+  ? 'Wrong email or password. If your team uses Microsoft accounts, use "Sign in with Microsoft".'
+  : 'Wrong email or password';
 
 const Password = z.string().min(10, 'Password must be at least 10 characters').max(200);
 
@@ -46,8 +52,10 @@ export default async function authRoutes(app: FastifyInstance) {
     assertLoginAllowed(req.ip);
     const body = z.object({ email: z.string(), password: z.string() }).parse(req.body);
     const [u] = await sql`SELECT id, role, password_hash, disabled_at FROM users WHERE email = ${body.email.toLowerCase().trim()}`;
-    // With company sign-in on, passwords can be limited to the owner (emergency access).
+    // With company sign-in on, passwords can be limited to the owner (emergency access). Same answer as a
+    // wrong password (no hint whether the email belongs to a teammate), and it counts as a failure.
     if (u && !u.disabledAt && config.microsoft && (!u.passwordHash || (config.passwordSignin === 'owner' && u.role !== 'OWNER'))) {
+      recordLoginFailure(req.ip);
       await audit({
         userId: u.id,
         action: 'auth.login_failed',
@@ -55,7 +63,7 @@ export default async function authRoutes(app: FastifyInstance) {
         ip: req.ip,
         req,
       });
-      throw new HttpError(403, 'Sign in with Microsoft for this account');
+      throw new HttpError(401, WRONG_CREDENTIALS);
     }
     if (!u || u.disabledAt || !u.passwordHash || !(await verifyPassword(u.passwordHash, body.password))) {
       recordLoginFailure(req.ip);
@@ -67,7 +75,7 @@ export default async function authRoutes(app: FastifyInstance) {
         ip: req.ip,
         req,
       });
-      throw new HttpError(401, 'Wrong email or password');
+      throw new HttpError(401, WRONG_CREDENTIALS);
     }
     clearLoginFailures(req.ip);
     await createSession(reply, req, u.id);
@@ -92,6 +100,7 @@ export default async function authRoutes(app: FastifyInstance) {
     await sql`UPDATE users SET password_hash = ${await hashPassword(body.next)} WHERE id = ${user.id}`;
     await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;
     await createSession(reply, req, user.id);
+    await publish(userRoom(user.id), 'grants.changed', {}); // other devices' live connections are dropped
     await audit({ userId: user.id, action: 'auth.password_changed', ip: req.ip, req });
     return { ok: true };
   });

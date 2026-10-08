@@ -73,12 +73,13 @@ export interface LiConversation {
   urn: string;
   threadId: string | null;
   title: string | null;
-  isGroup: boolean;
-  unreadCount: number;
+  /** null = not in this payload (keep what's stored). */
+  isGroup: boolean | null;
+  unreadCount: number | null;
   read?: boolean | null;
   lastActivityAt: number | null;
   categories?: string[];
-  folder: Folder;
+  folder: Folder | null;
   participants: LiParticipant[];
 }
 

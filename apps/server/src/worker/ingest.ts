@@ -27,21 +27,43 @@ const norm = (s: string | null | undefined) =>
 const preview = (m: LiMessage) => norm(m.text).slice(0, 200) || (m.attachments.length ? '📎 Attachment' : '');
 const ts = (ms: number | null | undefined) => new Date(ms ?? Date.now());
 
-async function upsertConversation(accountId: string, c: LiConversation) {
-  const [row] = await sql`
+/**
+ * Insert or update a conversation. Returns changed = false when LinkedIn sent nothing new, so callers can skip
+ * publishing (every browser refetches on conversation.updated). Fields missing from the payload keep their value.
+ */
+interface UpsertedConversation {
+  id: string;
+  inserted: boolean;
+  historySyncedAt: Date | null;
+  unreadCount: number;
+}
+
+async function upsertConversation(accountId: string, c: LiConversation): Promise<UpsertedConversation & { changed: boolean }> {
+  const next = {
+    threadId: sql`coalesce(excluded.thread_id, conversations.thread_id)`,
+    title: sql`coalesce(excluded.title, conversations.title)`,
+    isGroup: c.isGroup === null ? sql`conversations.is_group` : sql`excluded.is_group`,
+    folder: c.folder === null ? sql`conversations.folder` : sql`excluded.folder`,
+    participants: sql`CASE WHEN jsonb_array_length(excluded.participants) > 0 THEN excluded.participants ELSE conversations.participants END`,
+    lastMessageAt: sql`greatest(conversations.last_message_at, excluded.last_message_at)`,
+    unreadCount: c.unreadCount === null ? sql`conversations.unread_count` : sql`excluded.unread_count`,
+  };
+  const [row] = await sql<UpsertedConversation[]>`
     INSERT INTO conversations (id, account_id, thread_urn, thread_id, title, is_group, folder, participants, last_message_at, unread_count)
-    VALUES (${newId('cnv')}, ${accountId}, ${c.urn}, ${c.threadId}, ${c.title}, ${c.isGroup}, ${c.folder},
-            ${sql.json(c.participants as never)}, ${c.lastActivityAt ? ts(c.lastActivityAt) : null}, ${c.unreadCount})
+    VALUES (${newId('cnv')}, ${accountId}, ${c.urn}, ${c.threadId}, ${c.title}, ${c.isGroup ?? false}, ${c.folder ?? 'focused'},
+            ${sql.json(c.participants as never)}, ${c.lastActivityAt ? ts(c.lastActivityAt) : null}, ${c.unreadCount ?? 0})
     ON CONFLICT (account_id, thread_urn) DO UPDATE SET
-      thread_id = coalesce(excluded.thread_id, conversations.thread_id),
-      title = coalesce(excluded.title, conversations.title),
-      is_group = excluded.is_group,
-      folder = excluded.folder,
-      participants = CASE WHEN jsonb_array_length(excluded.participants) > 0 THEN excluded.participants ELSE conversations.participants END,
-      last_message_at = greatest(conversations.last_message_at, excluded.last_message_at),
-      unread_count = excluded.unread_count
+      thread_id = ${next.threadId}, title = ${next.title}, is_group = ${next.isGroup}, folder = ${next.folder},
+      participants = ${next.participants}, last_message_at = ${next.lastMessageAt}, unread_count = ${next.unreadCount}
+    WHERE (conversations.thread_id, conversations.title, conversations.is_group, conversations.folder, conversations.participants,
+           conversations.last_message_at, conversations.unread_count)
+      IS DISTINCT FROM (${next.threadId}, ${next.title}, ${next.isGroup}, ${next.folder}, ${next.participants},
+           ${next.lastMessageAt}, ${next.unreadCount})
     RETURNING id, (xmax = 0) AS inserted, history_synced_at, unread_count`;
-  return row;
+  if (row) return { ...row, changed: true };
+  const [same] = await sql<UpsertedConversation[]>`
+    SELECT id, false AS inserted, history_synced_at, unread_count FROM conversations WHERE account_id = ${accountId} AND thread_urn = ${c.urn}`;
+  return { ...same, changed: false };
 }
 
 async function ensureConversation(accountId: string, m: LiMessage) {
@@ -54,10 +76,10 @@ async function ensureConversation(accountId: string, m: LiMessage) {
     urn: m.conversationUrn,
     threadId,
     title: null,
-    isGroup: false,
-    unreadCount: 0,
+    isGroup: null,
+    unreadCount: null,
     lastActivityAt: m.sentAt,
-    folder: 'focused',
+    folder: null,
     participants,
   });
   // We only know this thread from a single message: refresh the list to get full details.
@@ -65,18 +87,18 @@ async function ensureConversation(accountId: string, m: LiMessage) {
   return row.id as string;
 }
 
-async function requestHistory(accountId: string, conversationId: string, c: LiConversation) {
+async function requestHistory(accountId: string, conversationId: string, c: LiConversation, unread: number) {
   await sql`UPDATE conversations SET history_synced_at = now() WHERE id = ${conversationId}`;
   // Opening a thread marks it read on LinkedIn, so the bridge only opens already-read threads.
-  await sendCommand(accountId, { type: 'sync_thread', conversationUrn: c.urn, threadId: c.threadId, allowOpen: c.unreadCount === 0 });
+  await sendCommand(accountId, { type: 'sync_thread', conversationUrn: c.urn, threadId: c.threadId, allowOpen: unread === 0 });
 }
 
 export async function onConversations(accountId: string, items: LiConversation[]) {
   for (const c of items) {
     if (!c.urn) continue;
     const row = await upsertConversation(accountId, c);
-    if (!row.historySyncedAt && c.threadId) await requestHistory(accountId, row.id, c);
-    await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(row.id));
+    if (!row.historySyncedAt && c.threadId) await requestHistory(accountId, row.id, c, row.unreadCount);
+    if (row.changed) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(row.id));
   }
 }
 
@@ -92,12 +114,14 @@ async function matchPendingOutbound(conversationId: string, m: LiMessage) {
     ORDER BY status = 'FAILED', created_at`;
   const match = candidates.find((r) => norm(r.text) === norm(m.text) && (norm(m.text) || m.attachments.length));
   if (!match) return null;
-  await sql`
+  // Only if it's still unlinked: the results consumer may have linked it in the meantime.
+  const linked = await sql`
     UPDATE messages SET message_urn = ${m.urn}, status = 'SENT', error = NULL, sent_at = ${ts(m.sentAt)},
       attachments = CASE WHEN jsonb_array_length(${sql.json(m.attachments as never)}) > 0 THEN ${sql.json(m.attachments as never)} ELSE attachments END,
       sender_urn = ${m.senderUrn}, sender_name = ${m.senderName}
-    WHERE id = ${match.id}`;
-  return match.id as string;
+    WHERE id = ${match.id} AND message_urn IS NULL
+    RETURNING id`;
+  return linked.length ? (match.id as string) : null;
 }
 
 /** start_chat sends have no message row yet; attribute them to the teammate who sent them. */
@@ -153,19 +177,23 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
     // A copy without a sender can't be from the other side (theirs always name them): if it matches a
     // message a teammate just sent, it is LinkedIn's copy of that one.
     let messageId = m.fromSelf || !m.senderUrn ? await matchPendingOutbound(conversationId, m) : null;
+    // Matched to a teammate's send: it is ours even if this copy named no sender.
+    const own = m.fromSelf || !!messageId;
     let freshInbound = false;
     let event: 'message.created' | 'message.updated' = 'message.updated';
     if (!messageId) {
       messageId = newId('msg');
       event = 'message.created';
       const sentBy = m.fromSelf ? await pendingSender(accountId, m) : null;
-      await sql`
+      const inserted = await sql`
         INSERT INTO messages (id, conversation_id, account_id, message_urn, direction, sender_urn, sender_name, sender_avatar_url,
                               sent_by_user_id, text, attachments, reactions, status, deleted, sent_at)
         VALUES (${messageId}, ${conversationId}, ${accountId}, ${m.urn}, ${m.fromSelf ? 'OUTBOUND' : 'INBOUND'}, ${m.senderUrn},
                 ${m.senderName}, ${m.senderAvatarUrl}, ${sentBy}, ${m.text}, ${sql.json(m.attachments as never)},
                 ${sql.json(m.reactions as never)}, 'SENT', ${!!m.deleted}, ${ts(m.sentAt)})
-        ON CONFLICT (message_urn) DO NOTHING`;
+        ON CONFLICT (message_urn) DO NOTHING
+        RETURNING id`;
+      if (!inserted.length) continue; // already stored meanwhile (the other consumer, or a duplicate delivery)
       // New inbound message newer than what we had → unread +1 (LinkedIn's count corrects it on the next list refresh).
       // A new reply also wakes a snoozed conversation. (History backfill doesn't count.)
       if (!m.fromSelf) {
@@ -182,7 +210,7 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
     await sql`
       UPDATE conversations SET
         last_message_preview = CASE WHEN ${newest} THEN ${preview(m)} ELSE last_message_preview END,
-        last_message_from_self = CASE WHEN ${newest} THEN ${m.fromSelf} ELSE last_message_from_self END,
+        last_message_from_self = CASE WHEN ${newest} THEN ${own} ELSE last_message_from_self END,
         last_message_at = greatest(last_message_at, ${sentAt})
       WHERE id = ${conversationId}`;
     const saved = await emitMessage(accountId, messageId, event);
@@ -262,22 +290,26 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
 export async function onResult(accountId: string, r: BridgeEventMap['result']) {
   const owner = await redis.get(`li:cmdowner:${r.cmdId}`);
   let sentAnyway = false;
+  let savedId: string | null = null;
   if (r.type === 'send_message') {
-    const [row] = await sql`SELECT id, message_urn FROM messages WHERE cmd_id = ${r.cmdId}`;
-    if (row) {
+    // One transaction with the row locked: the messages consumer may link LinkedIn's copy at the same time.
+    await sql.begin(async (tx) => {
+      const [row] = await tx`SELECT id, message_urn FROM messages WHERE cmd_id = ${r.cmdId} FOR UPDATE`;
+      if (!row) return;
+      savedId = row.id;
       if (r.ok && r.messageUrn && !row.messageUrn) {
-        await sql.begin(async (tx) => {
-          // The bridge may have already stored LinkedIn's copy as a separate row: merge it into ours.
-          await tx`DELETE FROM messages WHERE message_urn = ${r.messageUrn!} AND id <> ${row.id} AND cmd_id IS NULL`;
-          await tx`UPDATE messages SET message_urn = ${r.messageUrn!} WHERE id = ${row.id}`;
-        });
+        // The bridge may have already stored LinkedIn's copy as a separate row: merge it into ours.
+        await tx`DELETE FROM messages WHERE message_urn = ${r.messageUrn} AND id <> ${row.id} AND cmd_id IS NULL`;
+        await tx`UPDATE messages SET message_urn = ${r.messageUrn} WHERE id = ${row.id}`;
       }
       // A failure report never overrides LinkedIn's own copy: if it already showed up, the message was sent.
       sentAnyway = !r.ok && !!row.messageUrn;
       if (!sentAnyway) {
-        await sql`UPDATE messages SET status = ${r.ok ? 'SENT' : 'FAILED'}, error = ${r.ok ? null : (r.error ?? 'Failed')} WHERE id = ${row.id}`;
+        await tx`UPDATE messages SET status = ${r.ok ? 'SENT' : 'FAILED'}, error = ${r.ok ? null : (r.error ?? 'Failed')} WHERE id = ${row.id}`;
       }
-      const saved = await emitMessage(accountId, row.id, 'message.updated');
+    });
+    if (savedId) {
+      const saved = await emitMessage(accountId, savedId, 'message.updated');
       if (r.ok && saved) await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
     }
   }

@@ -6,7 +6,11 @@ name: linkedin-console
 
 networks:
   default:
-    name: linkedin-console            # account pods join this network by name
+    name: linkedin-console
+  # Account pods (browsers that load untrusted pages) live here: they reach Redis (their own restricted user)
+  # and the internet, never the api, worker, pod-agent or database. Caddy joins to proxy Live View.
+  pods:
+    name: linkedin-console-pods
 
 volumes:
   pgdata: {}
@@ -18,7 +22,7 @@ volumes:
 
 x-server-env: &server-env
   DATABASE_URL: postgres://linkedin_console:${POSTGRES_PASSWORD}@postgres:5432/linkedin_console
-  REDIS_URL: redis://redis:6379
+  REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
   FILES_DIR: /data/files
   POD_AGENT_URL: http://pod-agent:7070
   POD_AGENT_TOKEN: ${POD_AGENT_TOKEN}
@@ -68,8 +72,12 @@ services:
   redis:
     image: valkey/valkey:8
     restart: unless-stopped
-    command: ["valkey-server", "--appendonly", "yes"]
+    command: ["sh", "-c", 'exec valkey-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}     # so `docker compose exec redis valkey-cli` just works
     volumes: [redisdata:/data]
+    networks: [default, pods]
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
@@ -106,11 +114,11 @@ services:
     restart: unless-stopped
     environment:
       POD_AGENT_TOKEN: ${POD_AGENT_TOKEN}
-      POD_NETWORK: linkedin-console
+      POD_NETWORK: linkedin-console-pods
       FILES_VOLUME: linkedin-console_files
       CHROME_IMAGE: linkedin-console/chrome:latest
       SIDECAR_IMAGE: linkedin-console/sidecar:latest
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
       POD_MEMORY_MB: ${POD_MEMORY_MB:-2048}
       SIDECAR_ENV: ${SIDECAR_ENV:-}
       LIVE_SECRET: ${LIVE_SECRET}
@@ -134,6 +142,7 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
+    networks: [default, pods]
     volumes:
       - caddydata:/data
       - caddyconfig:/config
@@ -142,7 +151,10 @@ services:
 
   # Images used by account pods (built, never started by compose).
   chrome-image:
-    build: ./apps/chrome
+    build:
+      context: ./apps/chrome
+      args:
+        CHROME_REFRESH: ${CHROME_REFRESH:-initial}
     image: linkedin-console/chrome:latest
     profiles: ["images"]
 

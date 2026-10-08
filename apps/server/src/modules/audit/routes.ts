@@ -29,7 +29,7 @@ const actionsIn = (category: string) =>
 function where(f: Filters) {
   // 'auth' = the whole category, 'auth.login' = one action.
   const action = f.action
-    ? f.action in AUDIT_CATEGORIES
+    ? Object.hasOwn(AUDIT_CATEGORIES, f.action)
       ? sql`AND l.action IN ${sql(actionsIn(f.action))}`
       : sql`AND l.action = ${f.action}`
     : sql``;
@@ -91,7 +91,7 @@ export default async function auditRoutes(app: FastifyInstance) {
   app.get('/api/audit/export', async (req, reply) => {
     const user = requireAdmin(req);
     const q = Filters.extend({ format: z.enum(AUDIT_EXPORT_FORMATS).default('csv') }).parse(req.query);
-    if (q.from && q.to && q.from >= q.to) throw badRequest('"From" must be before "to"');
+    if (q.from && q.to && Date.parse(q.from) >= Date.parse(q.to)) throw badRequest('"From" must be before "to"');
     const filters: Filters = { userId: q.userId, accountId: q.accountId, action: q.action, from: q.from, to: q.to };
 
     async function* body() {

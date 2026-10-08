@@ -2,7 +2,11 @@
 # rendered into a virtual display (Xvfb). Humans see it through the CDP-screencast Live View.
 FROM debian:bookworm-slim
 
+# Changes weekly (set by scripts/update.sh): forces a fresh Chrome download instead of a cached old build,
+# so security fixes arrive and the version LinkedIn sees doesn't age.
+ARG CHROME_REFRESH=initial
 RUN set -eux; \
+    echo "chrome refresh: ${CHROME_REFRESH}"; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       ca-certificates wget xvfb dumb-init curl \

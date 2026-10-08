@@ -16,6 +16,8 @@ export interface WebhookPayload {
 /**
  * POSTs one payload to one endpoint.
  * Headers: X-LinkedIn-Console-Event, X-LinkedIn-Console-Delivery, X-LinkedIn-Console-Signature: sha256=<hex HMAC of the raw body>.
+ * The same values are also sent under the project's former names (X-LinkUnify-*), so receivers set up
+ * before the rename keep working.
  */
 export async function deliver(hook: WebhookRow, payload: WebhookPayload, attempts = 3) {
   const body = JSON.stringify(payload);
@@ -34,6 +36,9 @@ export async function deliver(hook: WebhookRow, payload: WebhookPayload, attempt
           'x-linkedin-console-event': payload.event,
           'x-linkedin-console-delivery': deliveryId,
           'x-linkedin-console-signature': `sha256=${signature}`,
+          'x-linkunify-event': payload.event,
+          'x-linkunify-delivery': deliveryId,
+          'x-linkunify-signature': `sha256=${signature}`,
         },
         body,
         signal: AbortSignal.timeout(10_000),

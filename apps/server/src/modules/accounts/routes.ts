@@ -1,7 +1,7 @@
 import type { Account, Level } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { accessibleAccountIds, accountLevel, assertAccount } from '../../core/access.ts';
+import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
@@ -16,6 +16,8 @@ const Language = z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$/, 'Invali
 const ProxyUrl = z
   .string()
   .regex(/^(https?|socks5?):\/\/\S+$/, 'ProxyUrl must look like http://host:port')
+  // Chrome can't send SOCKS credentials, and the local forwarder speaks HTTP(S) only.
+  .refine((v) => !/^socks5?:\/\/[^/]*@/.test(v), 'SOCKS proxies with a username/password are not supported; use an http(s) proxy')
   .max(300);
 
 export const ACCOUNT_COLUMNS = sql`
@@ -33,14 +35,16 @@ export default async function accountRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const ids = await accessibleAccountIds(user);
     if (!ids.length) return [];
-    const rows = await sql`
+    // One query (this list is refetched often): the caller's level comes from a join, not a query per account.
+    return sql`
       SELECT ${ACCOUNT_COLUMNS}, u.name AS owner_name,
         (SELECT coalesce(sum(unread_count), 0)::int FROM conversations c
-         WHERE c.account_id = a.id AND c.unread_count > 0 AND NOT c.is_archived) AS unread
+         WHERE c.account_id = a.id AND c.unread_count > 0 AND NOT c.is_archived) AS unread,
+        ${user.role === 'MEMBER' ? sql`g.level` : sql`'FULL'`} AS level
       FROM accounts a JOIN users u ON u.id = a.owner_user_id
+      LEFT JOIN account_grants g ON g.account_id = a.id AND g.user_id = ${user.id}
       WHERE a.id IN ${sql(ids)}
       ORDER BY a.created_at`;
-    return Promise.all(rows.map(async (a) => ({ ...a, level: await accountLevel(user, a.id) })));
   });
 
   app.get('/api/accounts/:id', async (req) => {

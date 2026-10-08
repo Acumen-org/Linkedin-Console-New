@@ -13,6 +13,9 @@ import { publish, redis } from '../../lib/redis.ts';
 import { CONVERSATION_COLUMNS, CONVERSATION_FROM, loadConversation } from './queries.ts';
 
 const LOCK_SECONDS = 120;
+
+/** A search term matched literally by ILIKE: % and _ typed by the user are not wildcards. */
+const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 type Params = { id: string };
 
 const ListQuery = z.object({
@@ -20,7 +23,7 @@ const ListQuery = z.object({
   view: z.enum(CONVERSATION_VIEWS).default('all'),
   labelId: z.string().optional(),
   q: z.string().max(200).optional(),
-  before: z.string().optional(),
+  before: z.iso.datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(40),
 });
 
@@ -60,9 +63,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
           term
             ? // Name/title match (trigram index) or message text match (full-text index), as one id set.
               sql`AND c.id IN (
-          SELECT id FROM conversations WHERE (coalesce(title, '') || ' ' || participants::text) ILIKE ${`%${term}%`}
+          SELECT id FROM conversations
+          WHERE account_id IN ${sql(ids)} AND (coalesce(title, '') || ' ' || participants::text) ILIKE ${`%${likeEscape(term)}%`}
           UNION
-          SELECT conversation_id FROM messages WHERE to_tsvector('simple', text) @@ plainto_tsquery('simple', ${term})
+          SELECT conversation_id FROM messages
+          WHERE account_id IN ${sql(ids)} AND to_tsvector('simple', text) @@ plainto_tsquery('simple', ${term})
         )`
             : sql``
         }

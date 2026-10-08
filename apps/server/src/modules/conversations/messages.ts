@@ -42,7 +42,9 @@ export default async function messageRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>('/api/conversations/:id/messages', async (req) => {
     const user = requireUser(req);
     await conversationForUser(user, req.params.id, 'READ');
-    const q = z.object({ before: z.string().optional(), limit: z.coerce.number().int().min(1).max(200).default(60) }).parse(req.query);
+    const q = z
+      .object({ before: z.iso.datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(200).default(60) })
+      .parse(req.query);
     const rows = await sql`
       SELECT ${MESSAGE_COLUMNS} FROM messages m LEFT JOIN users u ON u.id = m.sent_by_user_id
       WHERE m.conversation_id = ${req.params.id} ${q.before ? sql`AND m.sent_at < ${q.before}` : sql``}
@@ -81,6 +83,7 @@ export default async function messageRoutes(app: FastifyInstance) {
       INSERT INTO messages (id, conversation_id, account_id, client_id, cmd_id, direction, sent_by_user_id, text, attachments, status, sent_at)
       VALUES (${messageId}, ${id}, ${conversation.accountId}, ${body.clientId}, ${cmdId}, 'OUTBOUND', ${user.id}, ${body.text},
               ${sql.json(attachments as never)}, 'QUEUED', now())`;
+    if (uploads.length) await sql`UPDATE uploads SET account_id = ${conversation.accountId} WHERE id IN ${sql(body.uploadIds)}`;
     await sendCommand(
       conversation.accountId,
       {
