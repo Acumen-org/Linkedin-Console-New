@@ -42,6 +42,21 @@ function batchedInvalidate(qc: QueryClient, delayMs = 1500) {
   };
 }
 
+/** What the inbox views and filters look at (Unread, Mine, Starred, Snoozed, Archived, folders, labels). */
+const filterKey = (c: Conversation) =>
+  [
+    c.isArchived,
+    c.unreadCount > 0,
+    c.assignedTo,
+    c.snoozedUntil,
+    c.isStarred,
+    c.folder,
+    (c.labels ?? [])
+      .map((l) => l.id)
+      .sort()
+      .join(),
+  ].join('|');
+
 export function connectRealtime(qc: QueryClient, onSignedOut: () => void) {
   if (socket) return socket;
   socket = io({ path: '/socket.io', transports: ['websocket', 'polling'] });
@@ -74,7 +89,9 @@ export function connectRealtime(qc: QueryClient, onSignedOut: () => void) {
       const pages = data.pages.map((page) =>
         page.map((x) => {
           if (x.id !== c.id) return x;
-          if (x.lastMessageAt === c.lastMessageAt) movedOrNew = false;
+          // Unchanged time and filters: patch in place. A change to what the views filter on (a teammate
+          // archived, assigned, read, snoozed, labelled it) means it may belong in other lists now: refetch.
+          if (x.lastMessageAt === c.lastMessageAt && filterKey(x) === filterKey(c)) movedOrNew = false;
           return { ...x, ...c };
         }),
       );

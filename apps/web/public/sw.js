@@ -24,7 +24,8 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
       for (const w of windows) {
         if (w.url.startsWith(self.location.origin) && 'focus' in w) {
-          w.navigate(url);
+          // Navigate inside the open app (a reload would lose a reply being typed).
+          w.postMessage({ type: 'navigate', url });
           return w.focus();
         }
       }

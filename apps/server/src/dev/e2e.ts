@@ -716,6 +716,23 @@ try {
     assert.equal((await importDone()).added, 0);
   });
 
+  await step('paging never skips messages that share a timestamp at a page edge', async () => {
+    const same = new Date(now - 7 * 86_400_000);
+    for (const n of [1, 2, 3]) {
+      await sql`
+        INSERT INTO messages (id, conversation_id, account_id, message_urn, direction, text, status, sent_at)
+        VALUES (${newId('msg')}, ${rajId}, ${accountId}, ${`urn:e2e:tie:${tag}:${n}`}, 'INBOUND', ${`tie ${n}`}, 'SENT', ${same})`;
+    }
+    const seen: string[] = [];
+    let page = (await owner('GET', `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(new Date(now - 6 * 86_400_000).toISOString())}`)).data;
+    while (page.length) {
+      seen.push(...page.map((m: any) => m.text));
+      const first = page[0];
+      page = (await owner('GET', `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(first.sentAt)}&beforeId=${first.id}`)).data;
+    }
+    assert.deepEqual(seen.filter((t) => t.startsWith('tie ')).sort(), ['tie 1', 'tie 2', 'tie 3']);
+  });
+
   await step('chat export: latest N chats with their messages, admins only, recorded', async () => {
     const json = await owner('GET', `/api/conversations/export?accountId=${accountId}&limit=1&format=json`);
     assert.equal(json.status, 200);

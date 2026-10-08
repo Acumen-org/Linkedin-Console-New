@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router';
+import { Navigate, Route, Routes, useNavigate } from 'react-router';
 import { Layout } from './components/Layout';
 import { LoginPage, SetupPage } from './features/AuthPages';
 import { AccountsPage } from './features/accounts/AccountsPage';
@@ -35,6 +35,19 @@ export function App() {
         }),
     enabled: setup.data?.needsSetup === false,
   });
+
+  // Notification clicks (service worker) open the conversation inside the running app.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type !== 'navigate') return;
+      const url = new URL(e.data.url, location.origin);
+      if (url.origin === location.origin) navigate(url.pathname + url.search);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [navigate]);
 
   useEffect(() => {
     const signedOut = () => {

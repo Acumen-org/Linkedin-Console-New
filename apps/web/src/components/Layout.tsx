@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../App';
 import { api } from '../lib/api';
+import { disablePush } from '../lib/push';
 import { disconnectRealtime } from '../lib/realtime';
 import type { Account } from '../types';
 import { Avatar } from './ui';
@@ -17,6 +18,8 @@ export function Layout() {
   const attention = accounts.data?.filter((a) => a.status === 'NEEDS_ATTENTION' && a.level === 'FULL').length ?? 0;
 
   const logout = async () => {
+    // This device stops getting notifications for this person (a shared computer must not keep showing them).
+    await disablePush().catch(() => {});
     await api.post('/api/auth/logout');
     disconnectRealtime();
     qc.clear();

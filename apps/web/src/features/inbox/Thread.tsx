@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMe } from '../../App';
 import { Avatar, LabelChip } from '../../components/ui';
-import { api } from '../../lib/api';
+import { api, qs } from '../../lib/api';
 import { conversationTitle, dayLabel, timeAgo } from '../../lib/format';
 import { onRealtime } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
@@ -53,10 +53,13 @@ export function Thread({ conversationId }: { conversationId: string }) {
       }),
     [conversationId],
   );
+  // Re-render only when the next "is typing" expires (not every few seconds for every open thread).
   useEffect(() => {
-    const i = setInterval(() => setTyping((t) => ({ ...t })), 2000);
-    return () => clearInterval(i);
-  }, []);
+    const next = Math.min(...Object.values(typing).filter((until) => until > Date.now()));
+    if (!Number.isFinite(next)) return;
+    const t = setTimeout(() => setTyping((x) => ({ ...x })), next - Date.now() + 50);
+    return () => clearTimeout(t);
+  }, [typing]);
   const typingNow = Object.entries(typing)
     .filter(([, until]) => until > Date.now())
     .map(([k]) => k);
@@ -73,7 +76,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
     if (!first) return;
     setLoadingOlder(true);
     try {
-      const older = await api.get<Message[]>(`/api/conversations/${conversationId}/messages?before=${encodeURIComponent(first.sentAt)}`);
+      const older = await api.get<Message[]>(
+        `/api/conversations/${conversationId}/messages${qs({ before: first.sentAt, beforeId: first.id.startsWith('tmp-') ? undefined : first.id })}`,
+      );
       if (older.length === 0) {
         setNoMore(true);
         await api.post(`/api/conversations/${conversationId}/sync`);
@@ -82,10 +87,15 @@ export function Thread({ conversationId }: { conversationId: string }) {
       const el = scrollRef.current;
       const prevHeight = el?.scrollHeight ?? 0;
       stickToBottom.current = false;
-      qc.setQueryData<Message[]>(['messages', conversationId], (list) => [...older, ...(list ?? [])]);
+      qc.setQueryData<Message[]>(['messages', conversationId], (list) => {
+        const have = new Set((list ?? []).map((m) => m.id));
+        return [...older.filter((m) => !have.has(m.id)), ...(list ?? [])];
+      });
       requestAnimationFrame(() => {
         if (el) el.scrollTop = el.scrollHeight - prevHeight;
       });
+    } catch (e) {
+      toast((e as Error).message, 'error');
     } finally {
       setLoadingOlder(false);
     }
@@ -125,7 +135,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
     <div className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-4 py-2.5">
           <button onClick={() => nav('/inbox')} className="btn-ghost px-1 md:hidden">
             <ArrowLeft size={20} />
           </button>
@@ -290,7 +300,8 @@ function NotesPanel({ conversationId, onClose }: { conversationId: string; onClo
     }
   };
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-amber-50/40">
+    // A slide-over on phones (next to the thread it would leave no room), a side panel on larger screens.
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-slate-200 bg-amber-50 shadow-xl md:static md:w-72 md:max-w-none md:shrink-0 md:bg-amber-50/40 md:shadow-none">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <span className="text-sm font-semibold">Team notes</span>
         <button onClick={onClose} className="text-xs text-slate-500 hover:underline">

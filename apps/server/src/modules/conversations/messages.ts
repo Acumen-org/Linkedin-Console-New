@@ -48,12 +48,23 @@ export default async function messageRoutes(app: FastifyInstance) {
       }
     }
     const q = z
-      .object({ before: z.iso.datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(200).default(60) })
+      .object({
+        before: z.iso.datetime({ offset: true }).optional(),
+        beforeId: z.string().max(64).optional(),
+        limit: z.coerce.number().int().min(1).max(200).default(60),
+      })
       .parse(req.query);
     const rows = await sql`
       SELECT ${MESSAGE_COLUMNS} FROM messages m LEFT JOIN users u ON u.id = m.sent_by_user_id
-      WHERE m.conversation_id = ${req.params.id} ${q.before ? sql`AND m.sent_at < ${q.before}` : sql``}
-      ORDER BY m.sent_at DESC LIMIT ${q.limit}`;
+      WHERE m.conversation_id = ${req.params.id}
+        ${
+          q.before
+            ? q.beforeId
+              ? sql`AND (m.sent_at < ${q.before} OR (m.sent_at = ${q.before} AND m.id < ${q.beforeId}))`
+              : sql`AND m.sent_at < ${q.before}`
+            : sql``
+        }
+      ORDER BY m.sent_at DESC, m.id DESC LIMIT ${q.limit}`;
     return rows.reverse();
   });
 

@@ -6,8 +6,11 @@ export function timeAgo(iso: string | null | undefined) {
   const diff = (Date.now() - d.getTime()) / 1000;
   if (diff < 60) return 'now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (diff < 7 * 86400) return d.toLocaleDateString([], { weekday: 'short' });
+  // Today: the time. Yesterday: "Yesterday" (11 PM yesterday must not look like today). This week: the weekday.
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'short' });
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 

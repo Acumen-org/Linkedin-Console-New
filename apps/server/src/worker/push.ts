@@ -25,7 +25,8 @@ export async function notifyNewMessage(
   await Promise.all(
     subs.map(async (s) => {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 3600 });
+        // Time-boxed: a slow push service must not hold up message processing.
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload, { TTL: 3600, timeout: 5000 });
       } catch (e) {
         const status = (e as { statusCode?: number }).statusCode;
         // The browser unsubscribed: forget it.

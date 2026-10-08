@@ -24,6 +24,8 @@ const ListQuery = z.object({
   labelId: z.string().optional(),
   q: z.string().max(200).optional(),
   before: z.iso.datetime({ offset: true }).optional(),
+  /** With before: the id of the last row seen (rows with the same time aren't skipped). Alone: the last row had no time. */
+  beforeId: z.string().max(64).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(40),
 });
 
@@ -58,7 +60,16 @@ export default async function conversationRoutes(app: FastifyInstance) {
       SELECT ${CONVERSATION_COLUMNS} FROM ${CONVERSATION_FROM}
       WHERE c.account_id IN ${sql(ids)} ${view}
         ${q.labelId ? sql`AND EXISTS (SELECT 1 FROM conversation_labels cl WHERE cl.conversation_id = c.id AND cl.label_id = ${q.labelId})` : sql``}
-        ${q.before ? sql`AND c.last_message_at < ${q.before}` : sql``}
+        ${
+          // Next page after (time, id) in the list order: newest first, no-time rows last, then by id.
+          q.beforeId
+            ? q.before
+              ? sql`AND (c.last_message_at < ${q.before} OR (c.last_message_at = ${q.before} AND c.id > ${q.beforeId}) OR c.last_message_at IS NULL)`
+              : sql`AND c.last_message_at IS NULL AND c.id > ${q.beforeId}`
+            : q.before
+              ? sql`AND c.last_message_at < ${q.before}`
+              : sql``
+        }
         ${
           term
             ? // Name/title match (trigram index) or message text match (full-text index), as one id set.

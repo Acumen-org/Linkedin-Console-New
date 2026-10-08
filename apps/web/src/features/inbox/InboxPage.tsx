@@ -63,9 +63,16 @@ export function InboxPage() {
 
   const list = useInfiniteQuery({
     queryKey: ['conversations', accountId, view, labelId, q],
-    queryFn: ({ pageParam }) => api.get<Conversation[]>(`/api/conversations${qs({ accountId, view, labelId, q, before: pageParam })}`),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.length === 40 ? (last[last.length - 1].lastMessageAt ?? undefined) : undefined),
+    queryFn: ({ pageParam }) =>
+      api.get<Conversation[]>(
+        `/api/conversations${qs({ accountId, view, labelId, q, before: pageParam?.before, beforeId: pageParam?.id })}`,
+      ),
+    initialPageParam: undefined as { before: string | null; id: string } | undefined,
+    // Cursor = the last row's time and id, so rows sharing a time at the page edge aren't skipped.
+    getNextPageParam: (last) => {
+      const row = last[last.length - 1];
+      return last.length === 40 && row ? { before: row.lastMessageAt ?? null, id: row.id } : undefined;
+    },
   });
   const conversations = useMemo(() => list.data?.pages.flat() ?? [], [list.data]);
 

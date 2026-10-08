@@ -1,4 +1,5 @@
 import type { Account, Level } from '@linkedin-console/contracts';
+import { ADMINS_ROOM, EVERYONE_ROOM, userRoom } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
@@ -87,7 +88,8 @@ export default async function accountRoutes(app: FastifyInstance) {
       await sql`UPDATE accounts SET status = 'ERROR', last_error = ${(e as Error).message} WHERE id = ${id}`;
     }
     await audit({ userId: user.id, accountId: id, action: 'account.created', meta: { label: body.label }, ip: req.ip });
-    await publish('admins', 'grants.changed', {});
+    // Live updates for the new account: admins, the member who connected it, and everyone given access by default.
+    await publish(config.defaultGrant === 'NONE' ? [ADMINS_ROOM, userRoom(user.id)] : EVERYONE_ROOM, 'grants.changed', {});
     return { ...(await loadAccount(id)), level: 'FULL', liveUrl: `/live/${id}/` };
   });
 

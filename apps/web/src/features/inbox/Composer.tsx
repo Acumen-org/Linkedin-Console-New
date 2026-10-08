@@ -126,6 +126,7 @@ export function Composer({ conversation, disabledReason }: { conversation: Conve
       setText('');
       setUploads([]);
       lastLock.current = 0;
+      getSocket()?.emit('composing', { conversationId: conversation.id, active: false }); // teammates: done replying
     } catch (e) {
       qc.setQueryData<Message[]>(['messages', conversation.id], (list) => list?.filter((m) => m.clientId !== clientId));
       toast((e as Error).message, 'error');

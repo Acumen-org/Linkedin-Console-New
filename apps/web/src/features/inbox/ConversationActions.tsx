@@ -21,14 +21,19 @@ export function LabelPicker({
   const qc = useQueryClient();
   const labels = useLabels();
   const [newName, setNewName] = useState('');
+  // While a change is saving, further clicks wait (each save sends the whole set: two at once would undo one).
+  const [saving, setSaving] = useState(false);
   const selected = new Set(conversation.labels.map((l) => l.id));
 
   const save = async (ids: string[]) => {
+    setSaving(true);
     try {
       onChange(await api.put<Conversation>(`/api/conversations/${conversation.id}/labels`, { labelIds: ids }));
       qc.invalidateQueries({ queryKey: ['labels'] });
     } catch (e) {
       toast((e as Error).message, 'error');
+    } finally {
+      setSaving(false);
     }
   };
   const toggle = (id: string) => save(selected.has(id) ? [...selected].filter((x) => x !== id) : [...selected, id]);
@@ -62,7 +67,8 @@ export function LabelPicker({
               <button
                 key={l.id}
                 onClick={() => toggle(l.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+                disabled={saving}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100 disabled:opacity-60"
               >
                 <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300">
                   {selected.has(l.id) && <Check size={12} />}
@@ -78,9 +84,9 @@ export function LabelPicker({
               placeholder="New label"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && create()}
+              onKeyDown={(e) => e.key === 'Enter' && !saving && create()}
             />
-            <button onClick={create} className="btn-ghost px-2" title="Create label">
+            <button onClick={create} disabled={saving} className="btn-ghost px-2" title="Create label">
               <Plus size={14} />
             </button>
           </div>

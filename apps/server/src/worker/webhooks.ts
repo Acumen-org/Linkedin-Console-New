@@ -1,4 +1,3 @@
-import os from 'node:os';
 import { WEBHOOK_STREAM } from '../core/webhooks.ts';
 import { sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
@@ -13,11 +12,21 @@ export async function runWebhookDelivery() {
     blocking: newRedis(),
     stream: WEBHOOK_STREAM,
     group: 'webhooks',
-    consumer: `${os.hostname()}-${process.pid}`,
+    consumer: process.env.WORKER_NAME ?? 'worker',
     handle: async (payload: WebhookPayload) => {
       const hooks = await sql<WebhookRow[]>`SELECT id, url, secret FROM webhooks WHERE active AND ${payload.event} = ANY(events)`;
       await Promise.all(
-        hooks.map((h) => deliver(h, payload).catch((err) => logger.warn({ err, webhook: h.id }, 'webhook delivery failed'))),
+        hooks.map(async (h) => {
+          // Circuit breaker: an endpoint that just failed every retry is skipped for a while, so one dead
+          // receiver doesn't hold up every event for everyone (its events would be lost after the retries anyway).
+          const down = `lu:webhook:down:${h.id}`;
+          if (await redis.exists(down)) return;
+          const r = await deliver(h, payload).catch((err) => ({ ok: false, error: (err as Error).message }));
+          if (!r.ok) {
+            logger.warn({ webhook: h.id, error: r.error }, 'webhook delivery failed; pausing this endpoint for 2 minutes');
+            await redis.set(down, '1', 'EX', 120);
+          }
+        }),
       );
     },
   });
