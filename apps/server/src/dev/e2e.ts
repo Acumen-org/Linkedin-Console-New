@@ -62,10 +62,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function client() {
   let cookie = '';
   return async function call(method: string, path: string, body?: unknown) {
+    const form = body instanceof FormData;
     const res = await fetch(API + path, {
       method,
-      headers: { ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: { ...(body !== undefined && !form ? { 'content-type': 'application/json' } : {}), ...(cookie ? { cookie } : {}) },
+      body: form ? body : body !== undefined ? JSON.stringify(body) : undefined,
     });
     const set = res.headers.get('set-cookie');
     if (set) cookie = set.split(';')[0];
@@ -637,6 +638,99 @@ try {
   });
 
   let labelId = '';
+  const csvFile = (name: string, lines: string[]) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([lines.join('\r\n')], { type: 'text/csv' }), name);
+    return fd;
+  };
+  const importDone = () =>
+    until(
+      async () => (await owner('GET', `/api/accounts/${accountId}/import`)).data,
+      (s) => s.state === 'done' || s.state === 'failed',
+      'import finished',
+    );
+
+  await step('archive import: Connections.csv merges with synced connections (live names win)', async () => {
+    const upload = await owner(
+      'POST',
+      `/api/accounts/${accountId}/import`,
+      csvFile('Connections.csv', [
+        'Notes:',
+        '"When exporting your connection data, you may notice that some of the email addresses are missing."',
+        '',
+        'First Name,Last Name,URL,Email Address,Company,Position,Connected On',
+        `Jane,Archived-Name,https://www.linkedin.com/in/jane-${tag},,Acme,CTO,01 Mar 2024`,
+        `Omar,Archive,https://www.linkedin.com/in/omar-${tag},,"Big, Corp",Engineer,15 Jun 2023`,
+        'Broken,Row,,,,,',
+      ]),
+    );
+    assert.equal(upload.status, 200, JSON.stringify(upload.data));
+    const s = await importDone();
+    assert.equal(s.state, 'done', s.error);
+    assert.equal(s.kind, 'connections');
+    assert.equal(s.added, 1, 'Omar is new; Jane already synced');
+    assert.equal(s.skipped, 1, 'the row without a profile URL');
+    const [jane] = await sql`SELECT name, connected_at FROM contacts WHERE account_id = ${accountId} AND public_id = ${`jane-${tag}`}`;
+    assert.equal(jane.name, 'Jane E2E', 'live name kept');
+    assert.equal(new Date(jane.connectedAt).getUTCFullYear(), 2024);
+    const [omar] = await sql`SELECT headline FROM contacts WHERE account_id = ${accountId} AND public_id = ${`omar-${tag}`}`;
+    assert.equal(omar.headline, 'Engineer at Big, Corp');
+    // A file of another kind is refused with what it does contain.
+    await owner('POST', `/api/accounts/${accountId}/import`, csvFile('other.csv', ['Name,Phone', 'x,1']));
+    const bad = await importDone();
+    assert.equal(bad.state, 'failed');
+    assert.match(bad.error, /found columns: Name, Phone/);
+    assert.equal((await member('GET', `/api/accounts/${accountId}/import`)).status, 403, 'FULL access needed');
+  });
+
+  await step('archive import: messages.csv adds older history once, skips what the live sync has', async () => {
+    const at = (ms: number) => `${new Date(ms).toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+    const lines = [
+      'CONVERSATION ID,CONVERSATION TITLE,FROM,SENDER PROFILE URL,TO,RECIPIENT PROFILE URLS,DATE,SUBJECT,CONTENT,FOLDER',
+      // Already synced live (same text, same minute): skipped.
+      `2-JANE${tag},,Jane E2E,https://www.linkedin.com/in/jane-${tag},E2E Self,https://www.linkedin.com/in/e2e,${at(now - 600_000)},,Old hello from Jane,INBOX`,
+      // Older than anything synced: added to Jane's chat.
+      `2-JANE${tag},,E2E Self,https://www.linkedin.com/in/e2e,Jane E2E,https://www.linkedin.com/in/jane-${tag},${at(now - 30 * 86_400_000)},,"First ever message, with ""quotes""\nand two lines",INBOX`,
+      // A chat the live sync never saw: created.
+      `2-OLD${tag},,Lena Old,https://www.linkedin.com/in/lena-${tag},E2E Self,https://www.linkedin.com/in/e2e,${at(now - 90 * 86_400_000)},,<p>Hi from <b>2025</b> &amp; more</p>,ARCHIVE`,
+    ];
+    await owner('POST', `/api/accounts/${accountId}/import`, csvFile('messages.csv', lines));
+    const s = await importDone();
+    assert.equal(s.state, 'done', s.error);
+    assert.equal(s.kind, 'messages');
+    assert.equal(s.added, 2);
+    assert.equal(s.skipped, 1);
+    const jane = await owner('GET', `/api/conversations/${janeId}/messages?limit=200`);
+    const first = jane.data[0];
+    assert.equal(first.text, 'First ever message, with "quotes"\nand two lines');
+    assert.equal(first.direction, 'OUTBOUND');
+    const [old] =
+      await sql`SELECT id, folder, participants FROM conversations WHERE account_id = ${accountId} AND thread_id = ${`2-OLD${tag}`}`;
+    assert.equal(old.folder, 'archived');
+    assert.equal(old.participants[0].name, 'Lena Old');
+    const [msg] = await sql`SELECT text, direction FROM messages WHERE conversation_id = ${old.id}`;
+    assert.equal(msg.text, 'Hi from 2025 & more', 'HTML reduced to text');
+    assert.equal(msg.direction, 'INBOUND');
+    // The same file again adds nothing.
+    await owner('POST', `/api/accounts/${accountId}/import`, csvFile('messages.csv', lines));
+    assert.equal((await importDone()).added, 0);
+  });
+
+  await step('chat export: latest N chats with their messages, admins only, recorded', async () => {
+    const json = await owner('GET', `/api/conversations/export?accountId=${accountId}&limit=1&format=json`);
+    assert.equal(json.status, 200);
+    const chats = new Set(json.data.map((r: any) => r.conversationId));
+    assert.equal(chats.size, 1, 'only the latest chat');
+    assert.ok(json.data.every((r: any) => r.account === 'E2E account' && r.time && ['Sent', 'Received'].includes(r.direction)));
+    const csv = await owner('GET', `/api/conversations/export?accountId=${accountId}&limit=5&format=csv`);
+    assert.ok(csv.text.startsWith('Conversation,Conversation ID,LinkedIn account,Time (UTC)'), csv.text.slice(0, 80));
+    assert.ok(csv.text.includes('"First ever message, with ""quotes""\nand two lines"'), 'multi-line text quoted');
+    assert.equal((await member('GET', '/api/conversations/export')).status, 403);
+    const [audited] = await sql`SELECT meta FROM audit_log WHERE action = 'conversations.exported' ORDER BY id DESC LIMIT 1`;
+    assert.equal(audited.meta.format, 'csv');
+    assert.ok(audited.meta.rows > 0);
+  });
+
   await step('safe volume: new-chat cap, ramp-up for new accounts, automatic pause on a LinkedIn warning', async () => {
     // New chats have their own, lower cap.
     await sql`UPDATE accounts SET send_paused = false, daily_send_cap = 80, new_chat_cap = 0 WHERE id = ${accountId}`;

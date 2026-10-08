@@ -17,6 +17,7 @@
 | **Notifications** | In-app banners, **web push** (installable app), email alerts when an account needs re-login |
 | **Integrations** | Signed **webhooks** (new message, message sent, assignment, account status) for CRMs, Slack, Zapier, n8n |
 | **AI (optional)** | **Reply drafts** and **self-healing** UI selectors, using a local model (Ollama) or Claude |
+| **Data in and out** | First sync loads the 100 latest chats with history and all connections (with progress); LinkedIn data-archive import for older history; chat export (CSV/JSON) |
 | **Security** | Microsoft 365 sign-in (company MFA), leavers disabled automatically from the Twilio console staff list, per-account access levels, tamper-resistant audit log with CSV/JSON export |
 | **Safety** | Daily send caps, pause button, no double sends, optional human-paced sending, session-health monitoring |
 

@@ -12,6 +12,7 @@ import microsoftRoutes from './modules/auth/microsoft.ts';
 import authRoutes from './modules/auth/routes.ts';
 import messageRoutes from './modules/conversations/messages.ts';
 import conversationRoutes from './modules/conversations/routes.ts';
+import dataRoutes from './modules/data/routes.ts';
 import fileRoutes from './modules/files/routes.ts';
 import labelRoutes from './modules/labels/routes.ts';
 import liveRoutes from './modules/live/routes.ts';
@@ -28,6 +29,7 @@ const MODULES = [
   microsoftRoutes,
   userRoutes,
   accountRoutes,
+  dataRoutes,
   conversationRoutes,
   messageRoutes,
   labelRoutes,

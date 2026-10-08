@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
 import { requireAdmin } from '../../core/auth.ts';
+import { csvCell } from '../../lib/csv.ts';
 import { sql } from '../../lib/db.ts';
 import { badRequest } from '../../lib/errors.ts';
 
@@ -42,13 +43,6 @@ function where(f: Filters) {
       ${f.to ? sql`AND l.created_at < ${f.to}` : sql``}`;
 }
 
-/** Cells starting with these are formulas in Excel/Sheets: prefix them so they stay text. */
-const FORMULA = /^[=+\-@\t\r]/;
-function csvCell(v: unknown) {
-  let s = v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v);
-  if (FORMULA.test(s)) s = `'${s}`;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
 const CSV_HEADER = [
   'Time (UTC)',
   'Person',

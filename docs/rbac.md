@@ -44,7 +44,7 @@ Levels are ordered: `READ` < `REPLY` < `FULL`. A higher level includes everythin
 | *(no grant)* | The account does not exist for them: it is hidden from lists and its URLs answer 404 |
 | `READ` | Read conversations, messages and attachments, see the network/connections list, read and add internal notes, mark as read, release their own lock, get notifications |
 | `REPLY` | + send messages and attachments, start new chats from Network, take a conversation lock, assign/status/labels on a conversation, force a sync, AI reply drafts, **watch** Live View (view only) |
-| `FULL` | + **control** Live View (click/type in the LinkedIn browser), account settings (label, timezone, proxy, send cap, pause), restart the browser, manage who has access to this account, account alerts by email |
+| `FULL` | + import the account's LinkedIn data archive, **control** Live View (click/type in the LinkedIn browser), account settings (label, timezone, proxy, send cap, pause), restart the browser, manage who has access to this account, account alerts by email |
 
 Extra rules:
 - Disconnecting (deleting) an account needs `FULL` **and** being the account's owner or an admin.

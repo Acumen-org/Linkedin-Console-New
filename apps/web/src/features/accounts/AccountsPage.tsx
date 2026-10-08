@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LogIn, MonitorPlay, Pause, Play, Plus, RotateCw, Settings2, ShieldCheck, Trash2 } from 'lucide-react';
+import { LogIn, MonitorPlay, Pause, Play, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../../App';
@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { TIMEZONES, timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import type { Account, Level } from '../../types';
+import { ExportChatsMenu, ImportModal } from './DataTools';
 import { isSyncing, SyncProgress } from './SyncProgress';
 
 export function AccountsPage() {
@@ -16,10 +17,13 @@ export function AccountsPage() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [granting, setGranting] = useState<Account | null>(null);
+  const [importing, setImporting] = useState<Account | null>(null);
+  const me = useMe();
 
   return (
     <PageScroll>
       <PageHeader title="LinkedIn accounts">
+        {isAdmin(me) && !!accounts.data?.length && <ExportChatsMenu accounts={accounts.data} />}
         <button onClick={() => setAdding(true)} className="btn-primary">
           <Plus size={16} /> Connect LinkedIn account
         </button>
@@ -37,17 +41,18 @@ export function AccountsPage() {
       )}
       <div className="space-y-3">
         {accounts.data?.map((a) => (
-          <AccountCard key={a.id} a={a} onEdit={() => setEditing(a)} onGrants={() => setGranting(a)} />
+          <AccountCard key={a.id} a={a} onEdit={() => setEditing(a)} onGrants={() => setGranting(a)} onImport={() => setImporting(a)} />
         ))}
       </div>
       {adding && <AddAccountModal onClose={() => setAdding(false)} />}
       {editing && <EditAccountModal a={editing} onClose={() => setEditing(null)} />}
       {granting && <GrantsModal a={granting} onClose={() => setGranting(null)} />}
+      {importing && <ImportModal a={importing} onClose={() => setImporting(null)} />}
     </PageScroll>
   );
 }
 
-function AccountCard({ a, onEdit, onGrants }: { a: Account; onEdit: () => void; onGrants: () => void }) {
+function AccountCard({ a, onEdit, onGrants, onImport }: { a: Account; onEdit: () => void; onGrants: () => void; onImport: () => void }) {
   const me = useMe();
   const qc = useQueryClient();
   const full = a.level === 'FULL';
@@ -129,6 +134,9 @@ function AccountCard({ a, onEdit, onGrants }: { a: Account; onEdit: () => void; 
             </button>
             <button onClick={onEdit} className="btn-ghost" title="Settings">
               <Settings2 size={16} />
+            </button>
+            <button onClick={onImport} className="btn-ghost" title="Import LinkedIn data archive (connections, older chats)">
+              <Upload size={16} />
             </button>
             <button
               onClick={() => action(() => api.post(`/api/accounts/${a.id}/restart`), 'Restarting browser…')}

@@ -38,6 +38,8 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 | Update | `./scripts/update.sh`: pulls, rebuilds, restarts, recreates pods (LinkedIn sessions are kept) |
 | Backup | `./scripts/backup.sh`: database + files + every browser profile. `./scripts/schedule-backup.sh` runs it nightly at 03:15 into `/var/backups/linkedin-console` (`BACKUP_TIME`, `BACKUP_DIR` to change; `--remove` to stop). Copy the result off-site, encrypted; it contains private messages and LinkedIn sessions |
 | Restore | 1. Stop writers: `docker compose stop api worker caddy` and `docker stop $(docker ps -q --filter label=linkedin-console.pod)`. 2. `docker compose exec -T postgres pg_restore -U linkedin_console -d linkedin_console --clean < db.dump`. 3. Untar each `<volume>.tgz` into its volume (`docker run --rm -v <volume>:/v -v $PWD:/b alpine tar xzf /b/<volume>.tgz -C /v`). 4. Put `env` back as `.env` if the secrets changed. 5. `docker compose up -d`, then `docker compose exec api node src/dev/recreate-pods.ts` |
+| Import a LinkedIn data archive | Accounts → ⬆ on the account (FULL access): upload `Connections.csv` and `messages.csv` from LinkedIn's "Download my data" ZIP. Adds every connection (with its date) and older chats; merges with synced data, never duplicates |
+| Export chats | Accounts → **Export chats** (admins): the latest N chats with all stored messages, CSV or JSON; recorded in the audit log |
 | Logs | `docker compose logs -f api worker` · `docker logs -f pod-<accountId>-sidecar` (JSON, filter with `jq`) |
 | Restart an account's browser | Accounts → ⟳, or `docker restart pod-<id> pod-<id>-sidecar` |
 | Pause sending | Accounts → ⏸ |
