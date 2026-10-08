@@ -35,7 +35,7 @@ esac
 
 site=$(grep '^SITE_ADDRESS=' .env | cut -d= -f2)
 echo
-echo "✅ LinkUnify is running."
+echo "✅ LinkedIn Console is running."
 if [[ "$site" == :* ]]; then
   echo "   Open http://<this-server-ip>${site#:80} and create the owner account."
 else

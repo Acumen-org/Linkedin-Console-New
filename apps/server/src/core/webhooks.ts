@@ -1,4 +1,4 @@
-import type { WebhookEvent } from '@linkunify/contracts';
+import type { WebhookEvent } from '@linkedin-console/contracts';
 import { redis } from '../lib/redis.ts';
 
 export const WEBHOOK_STREAM = 'lu:webhooks';

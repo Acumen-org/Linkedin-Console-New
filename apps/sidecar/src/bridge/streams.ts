@@ -1,4 +1,4 @@
-// Redis side of the bridge protocol (see @linkunify/contracts → bridge.ts).
+// Redis side of the bridge protocol (see @linkedin-console/contracts → bridge.ts).
 import {
   type BridgeCommand,
   type BridgeEventMap,
@@ -8,7 +8,7 @@ import {
   type FetchMediaReply,
   RESULTS_STREAM,
   replyKey,
-} from '@linkunify/contracts';
+} from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { logger } from '../logger.ts';
 

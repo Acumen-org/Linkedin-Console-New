@@ -1,6 +1,6 @@
 /** Talking to an account's bridge (in its pod) over Redis, and to the pod-agent over HTTP. */
 import crypto from 'node:crypto';
-import { type BridgeCommand, commandStream, replyKey } from '@linkunify/contracts';
+import { type BridgeCommand, commandStream, replyKey } from '@linkedin-console/contracts';
 import { config } from '../lib/config.ts';
 import { HttpError } from '../lib/errors.ts';
 import { newRedis, redis } from '../lib/redis.ts';

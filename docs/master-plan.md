@@ -1,12 +1,12 @@
 # LinkedIn Unified Team Inbox (Self-Hosted on Proxmox): Master Plan & Project Map
 
-> **Working name:** LinkUnify (rename freely)
+> **Working name:** LinkedIn Console (rename freely)
 > **What it is:** a self-hosted "Unipile + shared inbox". Teammates connect their LinkedIn accounts by **logging in through a live browser window inside our app** (they handle 2FA/captcha themselves). Each account then runs 24/7 in its own isolated Chrome on our Proxmox server. The whole team works from **one unified inbox** across all accounts, and can open any account's **real LinkedIn** live.
 > **Hosting:** Proxmox VE, own hardware, public IP. 100% self-hosted, no SaaS vendors.
 > **Doc date:** 2026-10-04 · **Phase 0 kit:** [`tools/phase0-spike/`](../tools/phase0-spike/README.md) (Live View tested locally)
 >
 > **Build status (2026-10-05):** MVP and the v2 team features are built. See [README](../README.md) and [architecture.md](architecture.md).
-> - **Monorepo:** pnpm workspaces + Turborepo + Biome; shared `@linkunify/contracts`; all apps in TypeScript (Node 24 native type stripping); one multi-target Dockerfile; GitHub Actions CI with a Docker end-to-end test.
+> - **Monorepo:** pnpm workspaces + Turborepo + Biome; shared `@linkedin-console/contracts`; all apps in TypeScript (Node 24 native type stripping); one multi-target Dockerfile; GitHub Actions CI with a Docker end-to-end test.
 > - **Implementation choices vs this plan:**
 >   - Fastify instead of NestJS
 >   - Vite/React SPA instead of Next.js
@@ -254,7 +254,7 @@ Hardware you already own + domain. **No per-seat or per-account fees.** Optional
 ## 6. Project Map
 
 ```
-linkunify/
+linkedin-console/
 ├── apps/
 │   ├── web/                               # Next.js
 │   │   └── app/(app)/

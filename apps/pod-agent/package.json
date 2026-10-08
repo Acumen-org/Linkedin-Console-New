@@ -1,5 +1,5 @@
 {
-  "name": "@linkunify/pod-agent",
+  "name": "@linkedin-console/pod-agent",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,10 +7,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@linkunify/contracts": "workspace:*"
+    "@linkedin-console/contracts": "workspace:*"
   },
   "devDependencies": {
-    "@linkunify/tsconfig": "workspace:*",
+    "@linkedin-console/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3"
   }

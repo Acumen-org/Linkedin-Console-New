@@ -1,5 +1,5 @@
 // HEALTH: is this account logged in? Reports AWAITING_LOGIN / CONNECTED / NEEDS_ATTENTION.
-import type { BridgeSessionStatus } from '@linkunify/contracts';
+import type { BridgeSessionStatus } from '@linkedin-console/contracts';
 import { sleep } from '../cdp.ts';
 import { logger } from '../logger.ts';
 import type { BridgeContext } from './context.ts';

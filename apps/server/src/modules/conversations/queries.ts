@@ -1,4 +1,4 @@
-import type { Conversation, Message } from '@linkunify/contracts';
+import type { Conversation, Message } from '@linkedin-console/contracts';
 import { sql } from '../../lib/db.ts';
 
 /** Columns of a conversation as the API returns it (with account, lock, assignee and labels). */

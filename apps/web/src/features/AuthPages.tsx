@@ -8,7 +8,7 @@ function Shell({ title, subtitle, children }: { title: string; subtitle: string;
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand font-bold text-white">LU</div>
-          <span className="text-2xl font-semibold text-brand">LinkUnify</span>
+          <span className="text-2xl font-semibold text-brand">LinkedIn Console</span>
         </div>
         <div className="card p-6 shadow-sm">
           <h1 className="text-2xl font-semibold">{title}</h1>

@@ -1,6 +1,6 @@
 // Worker process: applies bridge events, delivers webhooks, runs scheduled jobs.
 import os from 'node:os';
-import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkunify/contracts';
+import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkedin-console/contracts';
 import { migrate, sql } from './lib/db.ts';
 import { logger } from './lib/logger.ts';
 import { newRedis, redis } from './lib/redis.ts';

@@ -7,7 +7,7 @@ import {
   REALTIME_CHANNEL,
   type ServerToClientEvents,
   userRoom,
-} from '@linkunify/contracts';
+} from '@linkedin-console/contracts';
 import { Server } from 'socket.io';
 import { logger } from '../lib/logger.ts';
 import { newRedis } from '../lib/redis.ts';

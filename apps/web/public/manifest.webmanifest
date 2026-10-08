@@ -1,6 +1,6 @@
 {
-  "name": "LinkUnify",
-  "short_name": "LinkUnify",
+  "name": "LinkedIn Console",
+  "short_name": "Console",
   "description": "Your team's unified LinkedIn inbox",
   "start_url": "/inbox",
   "scope": "/",

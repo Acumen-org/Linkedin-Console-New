@@ -18,8 +18,8 @@ export interface PodStatus {
   running: boolean;
 }
 
-const names = (id: string) => ({ chrome: `pod-${id}`, sidecar: `pod-${id}-sidecar`, profile: `linkunify_profile_${id}` });
-const labels = (id: string) => ({ 'linkunify.pod': id });
+const names = (id: string) => ({ chrome: `pod-${id}`, sidecar: `pod-${id}-sidecar`, profile: `linkedin-console_profile_${id}` });
+const labels = (id: string) => ({ 'linkedin-console.pod': id });
 const inspect = (name: string) => docker.inspect(name);
 
 async function ensureStarted(name: string) {
@@ -113,7 +113,7 @@ export async function recreatePod(spec: PodSpec) {
 }
 
 export async function listPods() {
-  const list = await docker.listByLabel('linkunify.pod');
-  const ids = [...new Set(list.map((c) => c.Labels['linkunify.pod']))];
+  const list = await docker.listByLabel('linkedin-console.pod');
+  const ids = [...new Set(list.map((c) => c.Labels['linkedin-console.pod']))];
   return Promise.all(ids.map(status));
 }

@@ -8,7 +8,7 @@
 //   POST   /pods/:id/recreate    new containers, same profile (session kept)
 //   DELETE /pods/:id[?wipe=1]    remove (wipe = also delete the browser profile)
 import http from 'node:http';
-import { ACCOUNT_ID_RE } from '@linkunify/contracts';
+import { ACCOUNT_ID_RE } from '@linkedin-console/contracts';
 import { config } from './config.ts';
 import { createPod, deletePod, listPods, type PodSpec, recreatePod, restartPod, status } from './pods.ts';
 

@@ -295,7 +295,7 @@ function WebhooksTab() {
       <div className="mb-3 flex items-center justify-between gap-4">
         <p className="text-sm text-slate-600">
           Send events to your CRM, Slack, Zapier or n8n. Each request is a JSON POST signed with{' '}
-          <code>X-LinkUnify-Signature: sha256=…</code> (HMAC of the body with the webhook secret).
+          <code>X-LinkedIn-Console-Signature: sha256=…</code> (HMAC of the body with the webhook secret).
         </p>
         <button onClick={() => setEditing({ events: ['message.received'], active: true })} className="btn-primary shrink-0">
           <Plus size={16} /> Add
@@ -379,7 +379,7 @@ function WebhookModal({ hook, onClose }: { hook: Partial<Webhook>; onClose: (sec
             className="input font-mono"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://hooks.example.com/linkunify"
+            placeholder="https://hooks.example.com/linkedin-console"
           />
         </div>
         <div>

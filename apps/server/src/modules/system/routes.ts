@@ -1,4 +1,4 @@
-import type { AppConfig } from '@linkunify/contracts';
+import type { AppConfig } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { requireUser } from '../../core/auth.ts';
 import { sql } from '../../lib/db.ts';

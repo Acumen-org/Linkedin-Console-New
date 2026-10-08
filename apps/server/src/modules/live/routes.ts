@@ -1,4 +1,4 @@
-import { ACCOUNT_ID_RE } from '@linkunify/contracts';
+import { ACCOUNT_ID_RE } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { accountLevel } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';

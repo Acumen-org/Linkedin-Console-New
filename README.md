@@ -1,8 +1,8 @@
-# LinkUnify
+# LinkedIn Console
 
 **Self-hosted LinkedIn team inbox.** Connect many LinkedIn accounts and let your whole team read and reply from one unified inbox. Each account runs in its own real Chrome on **your** server. Teammates log in to this app, never to LinkedIn.
 
-> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. LinkUnify keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages, so use the access levels and tell your team.
+> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. LinkedIn Console keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages, so use the access levels and tell your team.
 
 ## Features
 
@@ -42,8 +42,8 @@ Tooling: **pnpm** workspaces · **Turborepo** · **Biome** (lint + format) · on
 ## Quick start (Proxmox / any Linux server)
 
 ```bash
-git clone https://github.com/Acumen-org/Linkedin-Console-New.git /opt/linkunify
-cd /opt/linkunify
+git clone https://github.com/Acumen-org/Linkedin-Console-New.git /opt/linkedin-console
+cd /opt/linkedin-console
 sudo bash infra/proxmox/setup-vm.sh   # Docker + firewall + auto-updates (run inside the VM)
 ./scripts/install.sh                  # asks for your domain, generates secrets, builds, starts
 ```

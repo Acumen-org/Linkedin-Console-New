@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { accountRoom } from '@linkunify/contracts';
+import { accountRoom } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { conversationForUser } from '../../core/access.ts';

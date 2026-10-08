@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { WEBHOOK_EVENTS } from '@linkunify/contracts';
+import { WEBHOOK_EVENTS } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
@@ -59,7 +59,11 @@ export default async function webhookRoutes(app: FastifyInstance) {
     requireAdmin(req);
     const [w] = await sql<WebhookRow[]>`SELECT id, url, secret FROM webhooks WHERE id = ${req.params.id}`;
     if (!w) throw notFound();
-    const result = await deliver(w, { event: 'ping', data: { message: 'Test delivery from LinkUnify' }, at: new Date().toISOString() });
+    const result = await deliver(w, {
+      event: 'ping',
+      data: { message: 'Test delivery from LinkedIn Console' },
+      at: new Date().toISOString(),
+    });
     return result;
   });
 }

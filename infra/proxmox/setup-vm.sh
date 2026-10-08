@@ -3,7 +3,7 @@
 #   sudo bash infra/proxmox/setup-vm.sh
 #
 # Optional settings (environment variables):
-#   GATEWAY_IP=10.10.10.51        LinkUnify sits behind a gateway (APISIX, nginx…): only that address may open
+#   GATEWAY_IP=10.10.10.51        LinkedIn Console sits behind a gateway (APISIX, nginx…): only that address may open
 #                                 connections to port 80; port 443 is closed (TLS ends at the gateway).
 #   SSH_ALLOW="10.0.0.5 10.0.0.6" Only these addresses/CIDRs may use SSH (default: anyone).
 #   DRY_RUN=1                     Print the firewall rules instead of applying anything.
@@ -16,8 +16,8 @@ set -euo pipefail
 GATEWAY_IP=${GATEWAY_IP:-}
 SSH_ALLOW=${SSH_ALLOW:-}
 DRY_RUN=${DRY_RUN:-}
-MARK_BEGIN='# BEGIN LINKUNIFY DOCKER-USER'
-MARK_END='# END LINKUNIFY DOCKER-USER'
+MARK_BEGIN='# BEGIN LINKEDIN-CONSOLE DOCKER-USER'
+MARK_END='# END LINKEDIN-CONSOLE DOCKER-USER'
 
 # The DOCKER-USER rules for "behind a gateway". Only traffic arriving on the external interface is
 # filtered, so the browsers' own outgoing connections (e.g. HTTPS to LinkedIn) and their replies pass.
@@ -58,7 +58,7 @@ cat > /etc/docker/daemon.json <<'JSON'
 { "log-driver": "json-file", "log-opts": { "max-size": "20m", "max-file": "5" } }
 JSON
 systemctl restart docker
-id linkunify >/dev/null 2>&1 && usermod -aG docker linkunify
+id linkedin-console >/dev/null 2>&1 && usermod -aG docker linkedin-console
 
 # Firewall (host ports): SSH + web.
 ufw default deny incoming
@@ -77,6 +77,7 @@ if [ -n "$GATEWAY_IP" ]; then
   [ -n "$EXT_IF" ] || { echo "Could not detect the external interface; set EXT_IF=…" >&2; exit 1; }
   # Replace our block (idempotent), keep everything else in after.rules.
   sed -i "/^$MARK_BEGIN\$/,/^$MARK_END\$/d" /etc/ufw/after.rules
+  sed -i '/^# BEGIN LINKUNIFY DOCKER-USER$/,/^# END LINKUNIFY DOCKER-USER$/d' /etc/ufw/after.rules # former project name
   docker_user_rules "$EXT_IF" "$GATEWAY_IP" >> /etc/ufw/after.rules
   echo "Gateway mode: port 80 only from $GATEWAY_IP on $EXT_IF; 443 closed."
 fi
@@ -86,6 +87,6 @@ ufw reload
 # Automatic security updates
 dpkg-reconfigure -f noninteractive unattended-upgrades
 
-echo "✅ VM ready. Next: cd /opt/linkunify && ./scripts/install.sh"
+echo "✅ VM ready. Next: cd /opt/linkedin-console && ./scripts/install.sh"
 [ -n "$GATEWAY_IP" ] && echo "   Check: sudo iptables -L DOCKER-USER -n --line-numbers (5 rules)"
 exit 0

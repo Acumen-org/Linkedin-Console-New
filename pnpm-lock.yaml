@@ -20,11 +20,11 @@ importers:
 
   apps/pod-agent:
     dependencies:
-      '@linkunify/contracts':
+      '@linkedin-console/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
     devDependencies:
-      '@linkunify/tsconfig':
+      '@linkedin-console/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/node':
@@ -45,7 +45,7 @@ importers:
       '@fastify/multipart':
         specifier: ^10.1.2
         version: 10.1.2
-      '@linkunify/contracts':
+      '@linkedin-console/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@node-rs/argon2':
@@ -76,7 +76,7 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
-      '@linkunify/tsconfig':
+      '@linkedin-console/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/node':
@@ -97,7 +97,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.131.0
         version: 0.131.0(zod@4.6.5)
-      '@linkunify/contracts':
+      '@linkedin-console/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       ioredis:
@@ -113,7 +113,7 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
-      '@linkunify/tsconfig':
+      '@linkedin-console/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@types/node':
@@ -128,7 +128,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@linkunify/contracts':
+      '@linkedin-console/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@tanstack/react-query':
@@ -150,7 +150,7 @@ importers:
         specifier: ^4.8.4
         version: 4.8.4
     devDependencies:
-      '@linkunify/tsconfig':
+      '@linkedin-console/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
       '@tailwindcss/vite':
@@ -177,7 +177,7 @@ importers:
 
   packages/contracts:
     devDependencies:
-      '@linkunify/tsconfig':
+      '@linkedin-console/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
       typescript:

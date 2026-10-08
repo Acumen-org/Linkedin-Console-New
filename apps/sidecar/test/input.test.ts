@@ -102,7 +102,7 @@ test('accented letters and emoji are typed as text', async () => {
 });
 
 test('shortcuts stay shortcuts: Ctrl/Cmd + letter send no text', async () => {
-  for (const mods of [{ ctrl: true }, { meta: true }]) {
+  for (const mods of [{ ctrl: true }, { meta: true }] as Record<string, boolean>[]) {
     const { down } = await press('a', 'KeyA', mods);
     assert.equal(down.type, 'rawKeyDown');
     assert.equal(down.text, undefined);

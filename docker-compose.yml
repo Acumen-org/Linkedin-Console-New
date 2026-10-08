@@ -1,12 +1,12 @@
-# LinkUnify: self-hosted LinkedIn team inbox.
+# LinkedIn Console: self-hosted LinkedIn team inbox.
 # First run:  ./scripts/install.sh      (creates .env, builds images, starts everything)
 # Update:     ./scripts/update.sh
 
-name: linkunify
+name: linkedin-console
 
 networks:
   default:
-    name: linkunify            # account pods join this network by name
+    name: linkedin-console            # account pods join this network by name
 
 volumes:
   pgdata: {}
@@ -14,10 +14,10 @@ volumes:
   caddydata: {}
   caddyconfig: {}
   files:
-    name: linkunify_files      # shared with account pods (uploads, media, live uploads)
+    name: linkedin-console_files      # shared with account pods (uploads, media, live uploads)
 
 x-server-env: &server-env
-  DATABASE_URL: postgres://linkunify:${POSTGRES_PASSWORD}@postgres:5432/linkunify
+  DATABASE_URL: postgres://linkedin_console:${POSTGRES_PASSWORD}@postgres:5432/linkedin_console
   REDIS_URL: redis://redis:6379
   FILES_DIR: /data/files
   POD_AGENT_URL: http://pod-agent:7070
@@ -48,12 +48,12 @@ services:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: linkunify
+      POSTGRES_USER: linkedin_console
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: linkunify
+      POSTGRES_DB: linkedin_console
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U linkunify"]
+      test: ["CMD-SHELL", "pg_isready -U linkedin_console"]
       interval: 5s
       retries: 20
 
@@ -69,7 +69,7 @@ services:
 
   api:
     build: { context: ., target: server }
-    image: linkunify/server:latest
+    image: linkedin-console/server:latest
     restart: unless-stopped
     command: ["node", "src/api.ts"]
     environment: *server-env
@@ -80,7 +80,7 @@ services:
       init-perms: { condition: service_completed_successfully }
 
   worker:
-    image: linkunify/server:latest
+    image: linkedin-console/server:latest
     restart: unless-stopped
     command: ["node", "src/worker.ts"]
     environment:
@@ -94,14 +94,14 @@ services:
 
   pod-agent:
     build: { context: ., target: pod-agent }
-    image: linkunify/pod-agent:latest
+    image: linkedin-console/pod-agent:latest
     restart: unless-stopped
     environment:
       POD_AGENT_TOKEN: ${POD_AGENT_TOKEN}
-      POD_NETWORK: linkunify
-      FILES_VOLUME: linkunify_files
-      CHROME_IMAGE: linkunify/chrome:latest
-      SIDECAR_IMAGE: linkunify/sidecar:latest
+      POD_NETWORK: linkedin-console
+      FILES_VOLUME: linkedin-console_files
+      CHROME_IMAGE: linkedin-console/chrome:latest
+      SIDECAR_IMAGE: linkedin-console/sidecar:latest
       REDIS_URL: redis://redis:6379
       POD_MEMORY_MB: ${POD_MEMORY_MB:-2048}
       SIDECAR_ENV: ${SIDECAR_ENV:-}
@@ -117,7 +117,7 @@ services:
 
   caddy:
     build: { context: ., target: web }
-    image: linkunify/caddy:latest
+    image: linkedin-console/caddy:latest
     restart: unless-stopped
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS}
@@ -135,10 +135,10 @@ services:
   # Images used by account pods (built, never started by compose).
   chrome-image:
     build: ./apps/chrome
-    image: linkunify/chrome:latest
+    image: linkedin-console/chrome:latest
     profiles: ["images"]
 
   sidecar-image:
     build: { context: ., target: sidecar }
-    image: linkunify/sidecar:latest
+    image: linkedin-console/sidecar:latest
     profiles: ["images"]

@@ -1,4 +1,4 @@
-import { LEVELS } from '@linkunify/contracts';
+import { LEVELS } from '@linkedin-console/contracts';
 import { z } from 'zod';
 
 /** All server configuration, validated once at startup. */
@@ -24,7 +24,7 @@ const Env = z.object({
   DEFAULT_LANGUAGE: z.string().default('en-US'),
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),
   SMTP_URL: z.string().default(''),
-  ALERT_FROM: z.string().default('LinkUnify <alerts@localhost>'),
+  ALERT_FROM: z.string().default('LinkedIn Console <alerts@localhost>'),
   APP_URL: z
     .string()
     .default('')

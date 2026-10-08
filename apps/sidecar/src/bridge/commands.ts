@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CommandResult, FileRef } from '@linkunify/contracts';
+import type { CommandResult, FileRef } from '@linkedin-console/contracts';
 import { config } from '../config.ts';
 import { IDLE_URL, jitter } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner } from './context.ts';

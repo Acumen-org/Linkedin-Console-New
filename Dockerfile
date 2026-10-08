@@ -27,11 +27,11 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lo
 # ---------- build shared packages + web ----------
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @linkunify/contracts build \
- && pnpm --filter @linkunify/web build \
- && pnpm --filter @linkunify/server deploy --prod --legacy /out/server \
- && pnpm --filter @linkunify/sidecar deploy --prod --legacy /out/sidecar \
- && pnpm --filter @linkunify/pod-agent deploy --prod --legacy /out/pod-agent
+RUN pnpm --filter @linkedin-console/contracts build \
+ && pnpm --filter @linkedin-console/web build \
+ && pnpm --filter @linkedin-console/server deploy --prod --legacy /out/server \
+ && pnpm --filter @linkedin-console/sidecar deploy --prod --legacy /out/sidecar \
+ && pnpm --filter @linkedin-console/pod-agent deploy --prod --legacy /out/pod-agent
 
 # ---------- runtime images ----------
 FROM ${NODE_IMAGE} AS server

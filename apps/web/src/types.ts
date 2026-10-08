@@ -1,4 +1,4 @@
-// The web app uses the shared API types from @linkunify/contracts.
+// The web app uses the shared API types from @linkedin-console/contracts.
 export type {
   Account,
   AccountStatus,
@@ -17,4 +17,4 @@ export type {
   User,
   Webhook,
   WebhookEvent,
-} from '@linkunify/contracts';
+} from '@linkedin-console/contracts';

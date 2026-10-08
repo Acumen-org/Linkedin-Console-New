@@ -1,7 +1,7 @@
 // READ path: everything LinkedIn's page loads (HTTP JSON + realtime stream) → normalized events.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { LiMessage } from '@linkunify/contracts';
+import type { LiMessage } from '@linkedin-console/contracts';
 import type { Request } from 'patchright';
 import { logger } from '../logger.ts';
 import { type BridgeContext, createDedupe } from './context.ts';

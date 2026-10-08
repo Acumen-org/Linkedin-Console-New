@@ -9,7 +9,7 @@ import {
   type LiMessage,
   type LiParticipant,
   userRoom,
-} from '@linkunify/contracts';
+} from '@linkedin-console/contracts';
 import { audit } from '../core/audit.ts';
 import { sendCommand } from '../core/bridge.ts';
 import { emitWebhook } from '../core/webhooks.ts';
@@ -125,14 +125,15 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
     if (!m.urn || !m.conversationUrn) continue;
     const conversationId = await ensureConversation(accountId, m);
 
-    let [known] = await sql`SELECT id, conversation_id, attachments, direction, sender_urn FROM messages WHERE message_urn = ${m.urn}`;
-    if (known && m.fromSelf && known.direction === 'INBOUND' && !known.senderUrn) {
-      // An earlier copy of our own message named no sender and was stored as incoming: drop it, and
-      // handle this copy as new (it merges into the teammate's sent message, or is stored as outbound).
-      await sql`DELETE FROM messages WHERE id = ${known.id}`;
-      await publish(accountRoom(accountId), 'message.deleted', { id: known.id, conversationId: known.conversationId });
-      known = undefined;
+    const [found] = await sql`SELECT id, conversation_id, attachments, direction, sender_urn FROM messages WHERE message_urn = ${m.urn}`;
+    // An earlier copy of our own message named no sender and was stored as incoming: drop it, and
+    // handle this copy as new (it merges into the teammate's sent message, or is stored as outbound).
+    const ownEcho = !!found && m.fromSelf && found.direction === 'INBOUND' && !found.senderUrn;
+    if (ownEcho) {
+      await sql`DELETE FROM messages WHERE id = ${found.id}`;
+      await publish(accountRoom(accountId), 'message.deleted', { id: found.id, conversationId: found.conversationId });
     }
+    const known = ownEcho ? undefined : found;
     if (known) {
       // Fresh LinkedIn URLs (they expire), but keep our local download cache per attachment.
       const old = (known.attachments ?? []) as Record<string, unknown>[];

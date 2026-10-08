@@ -1,11 +1,11 @@
 # Roles and access (RBAC)
 
-LinkUnify has two layers of access:
+LinkedIn Console has two layers of access:
 
 1. **Team role** (per teammate): what they can do in the app as a whole.
 2. **Account grant** (per teammate × LinkedIn account): what they can do with one LinkedIn account.
 
-Teammates log in to LinkUnify, never to LinkedIn. Access checks happen on the server for every request and Socket.IO subscription, so hiding a button in the UI is never the only protection.
+Teammates log in to LinkedIn Console, never to LinkedIn. Access checks happen on the server for every request and Socket.IO subscription, so hiding a button in the UI is never the only protection.
 
 ## Team roles
 

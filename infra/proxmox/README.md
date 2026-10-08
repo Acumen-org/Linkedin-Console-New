@@ -19,9 +19,9 @@ DNS: create `A  inbox.yourcompany.com → <public IP>`. Caddy gets the HTTPS cer
 ## 2. Create the VM (on the Proxmox host)
 
 ```bash
-scp -r infra/proxmox root@proxmox:/root/linkunify-proxmox
+scp -r infra/proxmox root@proxmox:/root/linkedin-console-proxmox
 ssh root@proxmox
-cd /root/linkunify-proxmox
+cd /root/linkedin-console-proxmox
 VMID=210 CORES=8 MEMORY_MB=32768 ./create-vm.sh
 ```
 
@@ -30,10 +30,10 @@ Sizing: about 0.5 GB RAM per LinkedIn account plus ~1 GB for the app and OS head
 ## 3. Install (inside the VM)
 
 ```bash
-ssh linkunify@<vm-ip>
-sudo mkdir -p /opt/linkunify && sudo chown linkunify /opt/linkunify
+ssh linkedin-console@<vm-ip>
+sudo mkdir -p /opt/linkedin-console && sudo chown linkedin-console /opt/linkedin-console
 # copy the project here (git clone, or scp -r from your PC)
-cd /opt/linkunify
+cd /opt/linkedin-console
 sudo bash infra/proxmox/setup-vm.sh
 newgrp docker
 ./scripts/install.sh

@@ -1,4 +1,4 @@
-import { ADMINS_ROOM, accountRoom } from '@linkunify/contracts';
+import { ADMINS_ROOM, accountRoom } from '@linkedin-console/contracts';
 import { sendCommand } from '../core/bridge.ts';
 import { emitWebhook } from '../core/webhooks.ts';
 import { sql } from '../lib/db.ts';

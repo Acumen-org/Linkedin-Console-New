@@ -1,4 +1,4 @@
 {
-  "extends": "@linkunify/tsconfig/react.json",
+  "extends": "@linkedin-console/tsconfig/react.json",
   "include": ["src", "vite.config.ts"]
 }

@@ -1,4 +1,4 @@
-import { REALTIME_CHANNEL, type RealtimeEvent, type ServerToClientEvents } from '@linkunify/contracts';
+import { REALTIME_CHANNEL, type RealtimeEvent, type ServerToClientEvents } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { config } from './config.ts';
 

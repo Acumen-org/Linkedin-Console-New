@@ -20,7 +20,7 @@ The bridge (`apps/sidecar/src/bridge/`) is the only part that depends on LinkedI
    - **Inbox**: conversations, names, avatars and previews appear; new messages arrive within seconds.
    - Captures: `./scripts/capture.sh list <accountId>` shows thread URNs; `./scripts/capture.sh extract <accountId> <urn>` saves one thread's raw conversation and messages to `captures/`.
 5. Send a test reply from the inbox to yourself or a colleague, with text and then with an image. Watch the status go to ✓, and check it on your phone.
-6. If something's missing, copy a capture locally, turn it into an anonymized fixture in `apps/sidecar/test/`, adjust `extract.ts` until `pnpm --filter @linkunify/sidecar test` passes, then `./scripts/update.sh`.
+6. If something's missing, copy a capture locally, turn it into an anonymized fixture in `apps/sidecar/test/`, adjust `extract.ts` until `pnpm --filter @linkedin-console/sidecar test` passes, then `./scripts/update.sh`.
 7. Turn capture off again: `./scripts/capture.sh off` (also deletes the captured files; they contain private messages). Delete `captures/` when done.
 
 ## Self-healing

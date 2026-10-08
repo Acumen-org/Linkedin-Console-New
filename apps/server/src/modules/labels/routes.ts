@@ -1,4 +1,4 @@
-import { EVERYONE_ROOM } from '@linkunify/contracts';
+import { EVERYONE_ROOM } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';

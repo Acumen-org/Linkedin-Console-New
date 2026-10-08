@@ -25,7 +25,11 @@ const receiver = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
-    received.push({ event: String(req.headers['x-linkunify-event']), signature: String(req.headers['x-linkunify-signature']), body });
+    received.push({
+      event: String(req.headers['x-linkedin-console-event']),
+      signature: String(req.headers['x-linkedin-console-signature']),
+      body,
+    });
     res.end('ok');
   });
 });

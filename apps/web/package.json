@@ -1,5 +1,5 @@
 {
-  "name": "@linkunify/web",
+  "name": "@linkedin-console/web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@linkunify/contracts": "workspace:*",
+    "@linkedin-console/contracts": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.51.0",
     "react": "^19.3.0",
@@ -18,7 +18,7 @@
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
-    "@linkunify/tsconfig": "workspace:*",
+    "@linkedin-console/tsconfig": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

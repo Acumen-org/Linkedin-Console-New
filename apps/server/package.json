@@ -1,5 +1,5 @@
 {
-  "name": "@linkunify/server",
+  "name": "@linkedin-console/server",
   "private": true,
   "type": "module",
   "engines": {
@@ -15,7 +15,7 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "@fastify/cookie": "^11.1.2",
     "@fastify/multipart": "^10.1.2",
-    "@linkunify/contracts": "workspace:*",
+    "@linkedin-console/contracts": "workspace:*",
     "@node-rs/argon2": "^2.2.1",
     "fastify": "^5.12.5",
     "ioredis": "^5.11.1",
@@ -27,7 +27,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@linkunify/tsconfig": "workspace:*",
+    "@linkedin-console/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/web-push": "^3.6.4",

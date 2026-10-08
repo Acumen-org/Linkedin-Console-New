@@ -1,4 +1,4 @@
-import type { Account, Level } from '@linkunify/contracts';
+import type { Account, Level } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { accessibleAccountIds, accountLevel, assertAccount } from '../../core/access.ts';

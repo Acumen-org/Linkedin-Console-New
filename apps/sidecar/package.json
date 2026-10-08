@@ -1,5 +1,5 @@
 {
-  "name": "@linkunify/sidecar",
+  "name": "@linkedin-console/sidecar",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,14 +9,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
-    "@linkunify/contracts": "workspace:*",
+    "@linkedin-console/contracts": "workspace:*",
     "ioredis": "^5.11.1",
     "patchright": "^1.63.0",
     "pino": "^10.4.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@linkunify/tsconfig": "workspace:*",
+    "@linkedin-console/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
     "typescript": "^5.9.3"

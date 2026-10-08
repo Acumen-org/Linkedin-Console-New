@@ -38,7 +38,7 @@ case "${1:-}" in
     ;;
   list)
     account=${2:?usage: capture.sh list <accountId>}
-    docker compose exec -T postgres psql -U linkunify -d linkunify -v account="$account" <<'SQL'
+    docker compose exec -T postgres psql -U linkedin_console -d linkedin_console -v account="$account" <<'SQL'
 SELECT thread_urn, participants->0->>'name' AS name, folder, last_message_at
 FROM conversations WHERE account_id = :'account' ORDER BY last_message_at DESC NULLS LAST LIMIT 20;
 SQL

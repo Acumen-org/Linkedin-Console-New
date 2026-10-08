@@ -1,4 +1,4 @@
-import { accountRoom, CONVERSATION_VIEWS } from '@linkunify/contracts';
+import { accountRoom, CONVERSATION_VIEWS } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { accessibleAccountIds, conversationForUser } from '../../core/access.ts';

@@ -1,5 +1,5 @@
 {
-  "name": "@linkunify/contracts",
+  "name": "@linkedin-console/contracts",
   "version": "0.0.0",
   "private": true,
   "description": "Shared types and constants: bridge protocol, API models, realtime events",
@@ -18,7 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@linkunify/tsconfig": "workspace:*",
+    "@linkedin-console/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }
 }

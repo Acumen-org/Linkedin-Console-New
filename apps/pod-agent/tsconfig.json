@@ -1,4 +1,4 @@
 {
-  "extends": "@linkunify/tsconfig/node.json",
+  "extends": "@linkedin-console/tsconfig/node.json",
   "include": ["src"]
 }

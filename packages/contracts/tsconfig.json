@@ -1,5 +1,5 @@
 {
-  "extends": "@linkunify/tsconfig/library.json",
+  "extends": "@linkedin-console/tsconfig/library.json",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src"

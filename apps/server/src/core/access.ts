@@ -1,4 +1,4 @@
-import { atLeast, LEVELS, type Level } from '@linkunify/contracts';
+import { atLeast, LEVELS, type Level } from '@linkedin-console/contracts';
 import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
 import type { SessionUser } from './auth.ts';

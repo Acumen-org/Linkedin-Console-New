@@ -1,5 +1,5 @@
 {
-  "extends": "@linkunify/tsconfig/node.json",
+  "extends": "@linkedin-console/tsconfig/node.json",
   "compilerOptions": {
     "lib": ["es2024", "dom"]
   },

@@ -30,8 +30,8 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 | Task | How |
 |---|---|
 | Update | `./scripts/update.sh`: pulls, rebuilds, restarts, recreates pods (LinkedIn sessions are kept) |
-| Backup | `./scripts/backup.sh`: database + files + every browser profile. `./scripts/schedule-backup.sh` runs it nightly at 03:15 into `/var/backups/linkunify` (`BACKUP_TIME`, `BACKUP_DIR` to change; `--remove` to stop). Copy the result off-site, encrypted; it contains private messages and LinkedIn sessions |
-| Restore | `docker compose exec -T postgres pg_restore -U linkunify -d linkunify --clean < db.dump`, then untar each volume archive into its volume |
+| Backup | `./scripts/backup.sh`: database + files + every browser profile. `./scripts/schedule-backup.sh` runs it nightly at 03:15 into `/var/backups/linkedin-console` (`BACKUP_TIME`, `BACKUP_DIR` to change; `--remove` to stop). Copy the result off-site, encrypted; it contains private messages and LinkedIn sessions |
+| Restore | `docker compose exec -T postgres pg_restore -U linkedin_console -d linkedin_console --clean < db.dump`, then untar each volume archive into its volume |
 | Logs | `docker compose logs -f api worker` · `docker logs -f pod-<accountId>-sidecar` (JSON, filter with `jq`) |
 | Restart an account's browser | Accounts → ⟳, or `docker restart pod-<id> pod-<id>-sidecar` |
 | Pause sending | Accounts → ⏸ |
@@ -42,7 +42,7 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 - `api` container healthy, and `worker` running (it logs `worker started`)
 - Accounts page: any **Needs attention** / **Offline** (email alerts if SMTP is set)
 - Settings → Webhooks: last delivery status
-- Disk: `docker system df`; the `linkunify_files` volume grows with attachments
+- Disk: `docker system df`; the `linkedin-console_files` volume grows with attachments
 
 ## Troubleshooting
 
@@ -85,4 +85,4 @@ What keeps it light:
 
 ## Scaling
 
-One VM with 32 GB RAM comfortably runs about 30 accounts (roughly 0.45–0.6 GB each plus ~0.3 GB of shared services, with headroom for Live View sessions). Beyond that, run additional browser VMs. That needs a shared `linkunify_files` volume (NFS) and a pod-agent per VM, with the api choosing the agent per account. This is designed (`docs/master-plan.md` §5) but not built yet.
+One VM with 32 GB RAM comfortably runs about 30 accounts (roughly 0.45–0.6 GB each plus ~0.3 GB of shared services, with headroom for Live View sessions). Beyond that, run additional browser VMs. That needs a shared `linkedin-console_files` volume (NFS) and a pod-agent per VM, with the api choosing the agent per account. This is designed (`docs/master-plan.md` §5) but not built yet.

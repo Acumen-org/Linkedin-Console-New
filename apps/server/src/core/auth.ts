@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { Role } from '@linkunify/contracts';
+import type { Role } from '@linkedin-console/contracts';
 import { hash, verify } from '@node-rs/argon2';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../lib/config.ts';

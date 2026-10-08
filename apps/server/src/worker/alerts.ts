@@ -38,7 +38,7 @@ export async function alertAccountStatus(accountId: string, status: string) {
     await transport.sendMail({
       from: config.alertFrom,
       to: recipients.map((r) => r.email).join(', '),
-      subject: `LinkUnify: "${account.label}" ${msg.subject}`,
+      subject: `LinkedIn Console: "${account.label}" ${msg.subject}`,
       text: `${msg.body}\n\n${link ? `Fix it here: ${link}\n` : ''}`,
     });
   } catch (e) {

@@ -14,7 +14,7 @@
 | `pnpm lint` / `pnpm format` | Biome check / fix (lint + format + import order) |
 | `pnpm typecheck` | `tsc --noEmit` in every package (Turborepo, cached) |
 | `pnpm test` | Unit tests (`apps/sidecar/test`) |
-| `pnpm build` | Build `@linkunify/contracts` and the web app |
+| `pnpm build` | Build `@linkedin-console/contracts` and the web app |
 | `pnpm images` | Build all Docker images (`docker compose --profile images build`) |
 | `pnpm e2e` | End-to-end test inside the running api container (21 checks, fake bridge) |
 
@@ -29,13 +29,13 @@ docker compose up -d --wait
 open http://localhost:8088
 ```
 
-Frontend hot reload: `pnpm --filter @linkunify/web dev` (proxies `/api` to `localhost:4000`; publish the api port or run the api with `pnpm --filter @linkunify/server dev`).
+Frontend hot reload: `pnpm --filter @linkedin-console/web dev` (proxies `/api` to `localhost:4000`; publish the api port or run the api with `pnpm --filter @linkedin-console/server dev`).
 
 ## Working without LinkedIn: the bridge simulator
 
 ```bash
 # an account row without a pod (or stop a real pod's sidecar first)
-docker compose exec -T postgres psql -U linkunify -c "insert into accounts (id,label,owner_user_id,status,timezone,language) select 'demoacct0001','Demo',id,'PROVISIONING','UTC','en-US' from users limit 1"
+docker compose exec -T postgres psql -U linkedin_console -c "insert into accounts (id,label,owner_user_id,status,timezone,language) select 'demoacct0001','Demo',id,'PROVISIONING','UTC','en-US' from users limit 1"
 docker compose exec api node src/dev/simulate.ts demoacct0001
 ```
 
@@ -45,7 +45,7 @@ It seeds conversations, answers send commands like a real bridge (echo → confi
 
 ```bash
 chrome --remote-debugging-port=9333 --user-data-dir=/tmp/heal --headless=new &
-HEAL_TEST_CDP=http://127.0.0.1:9333 pnpm --filter @linkunify/sidecar test
+HEAL_TEST_CDP=http://127.0.0.1:9333 pnpm --filter @linkedin-console/sidecar test
 ```
 
 ## Conventions

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Run on the PROXMOX HOST (as root). Creates an Ubuntu 24.04 VM for LinkUnify from the official cloud image.
+# Run on the PROXMOX HOST (as root). Creates an Ubuntu 24.04 VM for LinkedIn Console from the official cloud image.
 #   VMID=210 IPCONFIG="ip=dhcp" ./create-vm.sh
 # For a static IP from your Comcast block, e.g.:
 #   IPCONFIG="ip=203.0.113.163/29,gw=203.0.113.166" ./create-vm.sh
 set -euo pipefail
 
 VMID=${VMID:-210}
-NAME=${NAME:-linkunify}
+NAME=${NAME:-linkedin-console}
 CORES=${CORES:-8}
 MEMORY_MB=${MEMORY_MB:-32768}      # ~0.5 GB per LinkedIn account + headroom (see docs/operations.md)
 DISK=${DISK:-150G}
@@ -24,9 +24,9 @@ qm create "$VMID" --name "$NAME" --ostype l26 --cpu host --cores "$CORES" --memo
 qm set "$VMID" --scsi0 "${STORAGE}:0,import-from=${IMG},discard=on,ssd=1,iothread=1"
 qm resize "$VMID" scsi0 "$DISK"
 qm set "$VMID" --ide2 "${STORAGE}:cloudinit" --boot order=scsi0
-qm set "$VMID" --ciuser linkunify --sshkeys "$SSH_KEYS" --ipconfig0 "$IPCONFIG" --nameserver 1.1.1.1
+qm set "$VMID" --ciuser linkedin-console --sshkeys "$SSH_KEYS" --ipconfig0 "$IPCONFIG" --nameserver 1.1.1.1
 qm set "$VMID" --onboot 1
 qm start "$VMID"
 
-echo "VM $VMID started. SSH in as 'linkunify', copy the project to /opt/linkunify, then run:"
-echo "  sudo bash /opt/linkunify/infra/proxmox/setup-vm.sh"
+echo "VM $VMID started. SSH in as 'linkedin-console', copy the project to /opt/linkedin-console, then run:"
+echo "  sudo bash /opt/linkedin-console/infra/proxmox/setup-vm.sh"

@@ -1,4 +1,4 @@
-import type { BridgeSessionStatus, LiSelf } from '@linkunify/contracts';
+import type { BridgeSessionStatus, LiSelf } from '@linkedin-console/contracts';
 import type { Browser, BrowserContext, Page } from 'patchright';
 import type { SharedState } from '../liveview/server.ts';
 import { logger } from '../logger.ts';

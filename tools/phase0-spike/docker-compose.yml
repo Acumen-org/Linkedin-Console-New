@@ -2,7 +2,7 @@
 # + Live View (CDP screencast) for the human login + test scripts.
 # Usage: see phase0/README.md
 
-name: linkunify-phase0
+name: linkedin-console-phase0
 
 services:
   # Real headful Google Chrome on a virtual display, persistent profile.

@@ -16,7 +16,7 @@ import type {
   LiProfile,
   LiSeenReceipt,
   LiTyping,
-} from '@linkunify/contracts';
+} from '@linkedin-console/contracts';
 
 type Json = any;
 type Ref = (obj: Json, key: string) => Json;

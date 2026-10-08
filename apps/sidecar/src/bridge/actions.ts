@@ -2,7 +2,7 @@
 // pace. Sending runs at human pace with SEND_MODE=human, otherwise as fast as the page allows.
 // Selectors are role/label-first with LinkedIn class fallbacks. If LinkedIn changes its UI,
 // this is the file to update (see docs/bridge-maintenance.md). Self-healing covers the gap.
-import type { FileRef } from '@linkunify/contracts';
+import type { FileRef } from '@linkedin-console/contracts';
 import type { Locator, Page } from 'patchright';
 import type { Healer } from './heal.ts';
 

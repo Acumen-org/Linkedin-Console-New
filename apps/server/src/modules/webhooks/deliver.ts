@@ -15,7 +15,7 @@ export interface WebhookPayload {
 
 /**
  * POSTs one payload to one endpoint.
- * Headers: X-LinkUnify-Event, X-LinkUnify-Delivery, X-LinkUnify-Signature: sha256=<hex HMAC of the raw body>.
+ * Headers: X-LinkedIn-Console-Event, X-LinkedIn-Console-Delivery, X-LinkedIn-Console-Signature: sha256=<hex HMAC of the raw body>.
  */
 export async function deliver(hook: WebhookRow, payload: WebhookPayload, attempts = 3) {
   const body = JSON.stringify(payload);
@@ -30,10 +30,10 @@ export async function deliver(hook: WebhookRow, payload: WebhookPayload, attempt
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': 'LinkUnify-Webhooks/1',
-          'x-linkunify-event': payload.event,
-          'x-linkunify-delivery': deliveryId,
-          'x-linkunify-signature': `sha256=${signature}`,
+          'user-agent': 'LinkedIn-Console-Webhooks/1',
+          'x-linkedin-console-event': payload.event,
+          'x-linkedin-console-delivery': deliveryId,
+          'x-linkedin-console-signature': `sha256=${signature}`,
         },
         body,
         signal: AbortSignal.timeout(10_000),
