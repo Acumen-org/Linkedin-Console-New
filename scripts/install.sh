@@ -6,6 +6,12 @@ cd "$(dirname "$0")/.."
 
 command -v docker >/dev/null || { echo "Docker is missing. Run infra/proxmox/setup-vm.sh first."; exit 1; }
 
+# An install from before the rename keeps its data under the old names: move it first.
+if docker volume inspect linkunify_pgdata >/dev/null 2>&1 && ! docker volume inspect linkedin-console_pgdata >/dev/null 2>&1; then
+  echo "This server has an install from before the rename (LinkUnify). Run ./scripts/migrate-from-linkunify.sh instead." >&2
+  exit 1
+fi
+
 [ -f .env ] || cp .env.example .env
 
 # Generate secrets that are still empty.

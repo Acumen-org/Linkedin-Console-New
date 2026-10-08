@@ -37,6 +37,10 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 | Pause sending | Accounts → ⏸ |
 | Health | `GET /api/health` (db + redis); Docker healthchecks on api, postgres, redis |
 
+### Registry images
+
+`./scripts/push-images.sh` pushes the locally built images to Harbor (`h4rb0r.acm.acumen-strategy.com/linkedin-outreach`, tags `latest` and the commit): server → `worker`, web/Caddy → `frontend`, plus `sidecar`, `chrome`, `pod-agent`. Log in first with `docker login`; `REGISTRY` and `PROJECT` override the target.
+
 ## Monitoring checklist
 
 - `api` container healthy, and `worker` running (it logs `worker started`)

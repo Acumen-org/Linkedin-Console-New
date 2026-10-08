@@ -50,6 +50,17 @@ sudo bash infra/proxmox/setup-vm.sh   # Docker + firewall + auto-updates (run in
 
 Then open `https://your-domain`, create the owner account, go to **Accounts → Connect LinkedIn account**, and log in through the live window. Full guide: [infra/proxmox/README.md](infra/proxmox/README.md) · day-2 operations: [docs/operations.md](docs/operations.md).
 
+### Upgrading an install from before the rename (LinkUnify)
+
+The database, volumes and images now use the name `linkedin-console`. On a server installed under the old name, run once (instead of `update.sh`):
+
+```bash
+git pull
+./scripts/migrate-from-linkunify.sh
+```
+
+It copies all data and every account's LinkedIn login to the new names (a few minutes of downtime) and keeps the old volumes for rollback. `update.sh` refuses to run until this is done.
+
 ## Development
 
 ```bash
