@@ -4,6 +4,7 @@ import {
   accountRoom,
   type ClientToServerEvents,
   EVERYONE_ROOM,
+  isAdminRole,
   REALTIME_CHANNEL,
   type ServerToClientEvents,
   userRoom,
@@ -45,7 +46,7 @@ export function startRealtime(server: HttpServer) {
   io.on('connection', (socket) => {
     const { user, token, accountIds } = socket.data;
     socket.join([userRoom(user.id), EVERYONE_ROOM]);
-    if (user.role !== 'MEMBER') socket.join(ADMINS_ROOM);
+    if (isAdminRole(user.role)) socket.join(ADMINS_ROOM);
     for (const id of accountIds) socket.join(accountRoom(id));
 
     const recheck = setInterval(async () => {

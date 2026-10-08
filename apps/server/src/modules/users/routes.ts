@@ -1,3 +1,4 @@
+import { isAdminRole } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
@@ -19,7 +20,7 @@ export default async function userRoutes(app: FastifyInstance) {
              (SELECT max(l.created_at) FROM audit_log l WHERE l.user_id = u.id AND l.action = 'auth.login') AS last_sign_in_at
       FROM users u ORDER BY u.created_at`;
     // Members see names only (for assignment and "sent by"); admins see the security details.
-    return me.role === 'MEMBER' ? rows.map(({ id, name, role, disabledAt }) => ({ id, name, role, disabledAt })) : rows;
+    return isAdminRole(me.role) ? rows : rows.map(({ id, name, role, disabledAt }) => ({ id, name, role, disabledAt }));
   });
 
   /** How sign-in and the Twilio staff sync are set up, and the last sync result. */
@@ -48,7 +49,7 @@ export default async function userRoutes(app: FastifyInstance) {
         email: z.email(),
         // Optional with Microsoft sign-in: without one the teammate signs in with Microsoft only.
         password: config.microsoft ? z.string().min(10).max(200).optional() : z.string().min(10).max(200),
-        role: z.enum(['ADMIN', 'MEMBER']).default('MEMBER'),
+        role: z.enum(['ADMIN', 'MEMBER', 'AUDITOR']).default('MEMBER'),
       })
       .parse(req.body);
     const id = newId('usr');
@@ -57,7 +58,7 @@ export default async function userRoutes(app: FastifyInstance) {
     await sql.begin(async (tx) => {
       await tx`INSERT INTO users (id, email, name, password_hash, role) VALUES (${id}, ${body.email.toLowerCase()}, ${body.name}, ${body.password ? await hashPassword(body.password) : null}, ${body.role})`;
       // New teammates get the default grant on every existing LinkedIn account (none when DEFAULT_GRANT=NONE).
-      if (config.defaultGrant !== 'NONE') {
+      if (config.defaultGrant !== 'NONE' && body.role !== 'AUDITOR') {
         await tx`INSERT INTO account_grants (account_id, user_id, level) SELECT id, ${id}, ${config.defaultGrant} FROM accounts`;
       }
     });
@@ -71,7 +72,7 @@ export default async function userRoutes(app: FastifyInstance) {
     const body = z
       .object({
         name: z.string().min(1).max(100).optional(),
-        role: z.enum(['ADMIN', 'MEMBER']).optional(),
+        role: z.enum(['ADMIN', 'MEMBER', 'AUDITOR']).optional(),
         disabled: z.boolean().optional(),
         password: z.string().min(10).max(200).optional(),
       })
@@ -83,6 +84,7 @@ export default async function userRoutes(app: FastifyInstance) {
 
     if (body.name) await sql`UPDATE users SET name = ${body.name} WHERE id = ${id}`;
     if (body.role) await sql`UPDATE users SET role = ${body.role} WHERE id = ${id}`;
+    if (body.role === 'AUDITOR') await sql`DELETE FROM account_grants WHERE user_id = ${id}`; // auditors read the log only
     if (body.password) {
       await sql`UPDATE users SET password_hash = ${await hashPassword(body.password)} WHERE id = ${id}`;
       await sql`DELETE FROM sessions WHERE user_id = ${id}`;

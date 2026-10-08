@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Contact, Inbox, Link2, LogOut, Settings, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { isAdmin, useMe } from '../App';
+import { isAdmin, isAuditor, useMe } from '../App';
 import { api } from '../lib/api';
 import { disablePush } from '../lib/push';
 import { disconnectRealtime } from '../lib/realtime';
@@ -34,30 +34,34 @@ export function Layout() {
     <div className="flex h-full">
       <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
         <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">LC</div>
-        <NavLink to="/inbox" className={link}>
-          <Inbox size={22} /> Inbox
-          {unread > 0 && (
-            <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
-        </NavLink>
-        <NavLink to="/accounts" className={link}>
-          <Link2 size={22} /> Accounts
-          {attention > 0 && <span className="absolute right-2 top-1 h-2.5 w-2.5 rounded-full bg-red-600" />}
-        </NavLink>
-        <NavLink to="/connections" className={link}>
-          <Contact size={22} /> Network
-        </NavLink>
-        <NavLink to="/settings" className={link}>
-          <Settings size={22} /> Settings
-        </NavLink>
+        {!isAuditor(me) && (
+          <>
+            <NavLink to="/inbox" className={link}>
+              <Inbox size={22} /> Inbox
+              {unread > 0 && (
+                <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </NavLink>
+            <NavLink to="/accounts" className={link}>
+              <Link2 size={22} /> Accounts
+              {attention > 0 && <span className="absolute right-2 top-1 h-2.5 w-2.5 rounded-full bg-red-600" />}
+            </NavLink>
+            <NavLink to="/connections" className={link}>
+              <Contact size={22} /> Network
+            </NavLink>
+            <NavLink to="/settings" className={link}>
+              <Settings size={22} /> Settings
+            </NavLink>
+          </>
+        )}
         {isAdmin(me) && (
           <NavLink to="/team" className={link}>
             <Users size={22} /> Team
           </NavLink>
         )}
-        {isAdmin(me) && (
+        {(isAdmin(me) || isAuditor(me)) && (
           <NavLink to="/audit" className={link}>
             <ShieldCheck size={22} /> Audit
           </NavLink>

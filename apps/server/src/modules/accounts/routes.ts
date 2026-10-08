@@ -1,5 +1,5 @@
 import type { Account, Level } from '@linkedin-console/contracts';
-import { ADMINS_ROOM, EVERYONE_ROOM, userRoom } from '@linkedin-console/contracts';
+import { ADMINS_ROOM, EVERYONE_ROOM, isAdminRole, userRoom } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
@@ -43,7 +43,7 @@ export default async function accountRoutes(app: FastifyInstance) {
       SELECT ${ACCOUNT_COLUMNS}, u.name AS owner_name,
         (SELECT coalesce(sum(unread_count), 0)::int FROM conversations c
          WHERE c.account_id = a.id AND c.unread_count > 0 AND NOT c.is_archived) AS unread,
-        ${user.role === 'MEMBER' ? sql`g.level` : sql`'FULL'`} AS level
+        ${isAdminRole(user.role) ? sql`'FULL'` : sql`g.level`} AS level
       FROM accounts a JOIN users u ON u.id = a.owner_user_id
       LEFT JOIN account_grants g ON g.account_id = a.id AND g.user_id = ${user.id}
       WHERE a.id IN ${sql(ids)}
@@ -145,7 +145,7 @@ export default async function accountRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await assertAccount(user, id, 'FULL');
     const [a] = await sql`SELECT owner_user_id, label FROM accounts WHERE id = ${id}`;
-    if (user.role === 'MEMBER' && a.ownerUserId !== user.id)
+    if (!isAdminRole(user.role) && a.ownerUserId !== user.id)
       throw new HttpError(403, 'Only the account owner or an admin can disconnect it');
     await pods.remove(id, true).catch((e) => console.error('[accounts] pod remove', e.message));
     await sql`DELETE FROM accounts WHERE id = ${id}`;
@@ -182,9 +182,9 @@ export default async function accountRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await assertAccount(user, id, 'FULL');
     return sql`
-      SELECT u.id AS user_id, u.name, u.role, coalesce(g.level, CASE WHEN u.role <> 'MEMBER' THEN 'FULL' END) AS level
+      SELECT u.id AS user_id, u.name, u.role, coalesce(g.level, CASE WHEN u.role IN ('OWNER', 'ADMIN') THEN 'FULL' END) AS level
       FROM users u LEFT JOIN account_grants g ON g.user_id = u.id AND g.account_id = ${id}
-      WHERE u.disabled_at IS NULL ORDER BY u.created_at`;
+      WHERE u.disabled_at IS NULL AND u.role <> 'AUDITOR' ORDER BY u.created_at`;
   });
 
   app.put('/api/accounts/:id/grants', async (req) => {
@@ -192,6 +192,9 @@ export default async function accountRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await assertAccount(user, id, 'FULL');
     const grants = z.array(z.object({ userId: z.string(), level: z.enum(['READ', 'REPLY', 'FULL']).nullable() })).parse(req.body);
+    // Auditors never get account access (they only read the audit log).
+    const auditors = await sql`SELECT id FROM users WHERE role = 'AUDITOR' AND id IN ${sql(grants.map((g) => g.userId).concat(''))}`;
+    if (auditors.length) throw new HttpError(400, 'Auditors cannot be given access to LinkedIn accounts');
     await sql.begin(async (tx) => {
       for (const g of grants) {
         if (g.level) {

@@ -1,7 +1,11 @@
 /** Shared vocabulary used by every app. */
 
-export const ROLES = ['OWNER', 'ADMIN', 'MEMBER'] as const;
+export const ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'AUDITOR'] as const;
 export type Role = (typeof ROLES)[number];
+/** Owner and admins: every account, team management. (Members work with granted accounts; auditors only read the audit log.) */
+export const isAdminRole = (role: Role | string | null | undefined) => role === 'OWNER' || role === 'ADMIN';
+/** Who may read and export the audit log. */
+export const canAudit = (role: Role | string | null | undefined) => isAdminRole(role) || role === 'AUDITOR';
 
 /** Per-account access for MEMBERs. OWNER/ADMIN always have FULL. */
 export const LEVELS = ['READ', 'REPLY', 'FULL'] as const;

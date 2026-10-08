@@ -9,3 +9,4 @@ packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.map
 captures/
+.migrate-from-linkunify.state

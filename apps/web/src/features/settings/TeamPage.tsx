@@ -151,6 +151,7 @@ export function TeamPage() {
                 onChange={(e) => update(u, { role: e.target.value }, 'Role updated')}
               >
                 <option value="MEMBER">Member</option>
+                <option value="AUDITOR">Auditor</option>
                 <option value="ADMIN">Admin</option>
               </select>
             )}
@@ -247,6 +248,7 @@ function AddUserModal({ microsoft, onClose }: { microsoft: boolean; onClose: () 
           <label className="label">Role</label>
           <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
             <option value="MEMBER">Member: works in the inbox with the access you grant</option>
+            <option value="AUDITOR">Auditor: reads and exports the audit log only (no inbox, no accounts)</option>
             <option value="ADMIN">Admin: full access to everything, manages the team</option>
           </select>
         </div>

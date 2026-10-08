@@ -362,6 +362,15 @@ try {
     assert.equal(r.data.length, 1);
   });
 
+  await step('name search matches names only (not the field names or URNs inside participant data)', async () => {
+    const search = async (term: string) =>
+      (await owner('GET', `/api/conversations?accountId=${accountId}&view=all&q=${encodeURIComponent(term)}`)).data.length;
+    assert.equal(await search('Raj E2E'), 1);
+    assert.equal(await search('fsd_profile'), 0, 'URNs are not names');
+    assert.equal(await search('avatarUrl'), 0, 'field names are not names');
+    assert.equal(await search('100%'), 0, '% is a literal character, not a wildcard');
+  });
+
   await step('sending: queued → SENT, merged with LinkedIn copy, attributed to teammate', async () => {
     const clientId = crypto.randomUUID();
     const sent = await member('POST', `/api/conversations/${janeId}/messages`, { text: 'Reply from member', clientId });
@@ -490,6 +499,35 @@ try {
     assert.equal((await reader('POST', `/api/conversations/${janeId}/messages`, { text: 'x', clientId: crypto.randomUUID() })).status, 403);
     assert.equal((await reader('PATCH', `/api/conversations/${janeId}`, { isStarred: true })).status, 403);
     assert.equal((await reader('GET', `/api/conversations/${janeId}/messages`)).status, 200);
+  });
+
+  await step('auditor: reads and exports the audit log, nothing else', async () => {
+    const email = `auditor-${tag}@e2e.test`;
+    const created = await owner('POST', '/api/users', { name: 'E2E Auditor', email, password, role: 'AUDITOR' });
+    assert.equal(created.status, 200, JSON.stringify(created.data));
+    const auditor = client();
+    assert.equal((await auditor('POST', '/api/auth/login', { email, password })).status, 200);
+    assert.equal((await auditor('GET', '/api/audit')).status, 200);
+    assert.equal((await auditor('GET', '/api/audit/export?format=json')).status, 200);
+    const options = (await auditor('GET', '/api/audit/options')).data;
+    assert.ok(
+      options.accounts.some((a: any) => a.id === accountId),
+      'account names for the filter',
+    );
+    // No LinkedIn data and no admin powers.
+    assert.deepEqual((await auditor('GET', '/api/accounts')).data, []);
+    assert.equal((await auditor('GET', `/api/conversations/${janeId}`)).status, 404);
+    assert.equal((await auditor('GET', '/api/users/directory')).status, 403);
+    assert.equal((await auditor('POST', '/api/users', { name: 'x', email: 'y@e2e.test', password, role: 'ADMIN' })).status, 403);
+    assert.ok(
+      (await auditor('GET', '/api/users')).data.every((u: any) => u.email === undefined),
+      'names only',
+    );
+    // Can't be given account access, and isn't offered for it.
+    const grant = await owner('PUT', `/api/accounts/${accountId}/grants`, [{ userId: created.data.id, level: 'READ' }]);
+    assert.equal(grant.status, 400);
+    const offered = (await owner('GET', `/api/accounts/${accountId}/grants`)).data;
+    assert.ok(!offered.some((g: any) => g.userId === created.data.id));
   });
 
   await step('members cannot see audit log or manage users', async () => {
@@ -724,11 +762,18 @@ try {
         VALUES (${newId('msg')}, ${rajId}, ${accountId}, ${`urn:e2e:tie:${tag}:${n}`}, 'INBOUND', ${`tie ${n}`}, 'SENT', ${same})`;
     }
     const seen: string[] = [];
-    let page = (await owner('GET', `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(new Date(now - 6 * 86_400_000).toISOString())}`)).data;
+    let page = (
+      await owner(
+        'GET',
+        `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(new Date(now - 6 * 86_400_000).toISOString())}`,
+      )
+    ).data;
     while (page.length) {
       seen.push(...page.map((m: any) => m.text));
       const first = page[0];
-      page = (await owner('GET', `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(first.sentAt)}&beforeId=${first.id}`)).data;
+      page = (
+        await owner('GET', `/api/conversations/${rajId}/messages?limit=2&before=${encodeURIComponent(first.sentAt)}&beforeId=${first.id}`)
+      ).data;
     }
     assert.deepEqual(seen.filter((t) => t.startsWith('tie ')).sort(), ['tie 1', 'tie 2', 'tie 3']);
   });

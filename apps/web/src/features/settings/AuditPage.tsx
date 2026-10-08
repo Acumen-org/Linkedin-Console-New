@@ -70,8 +70,13 @@ export function AuditPage() {
     setToDay('');
   };
 
-  const people = useQuery({ queryKey: ['users'], queryFn: () => api.get<Person[]>('/api/users') });
-  const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api.get<AccountOption[]>('/api/accounts') });
+  // Names for the filters (works for auditors too, who can't open accounts).
+  const options = useQuery({
+    queryKey: ['audit-options'],
+    queryFn: () => api.get<{ people: Person[]; accounts: AccountOption[] }>('/api/audit/options'),
+  });
+  const people = { data: options.data?.people };
+  const accounts = { data: options.data?.accounts };
   const log = useInfiniteQuery({
     queryKey: ['audit', filters],
     queryFn: ({ pageParam }) => api.get<AuditEntry[]>(`/api/audit${qs({ ...filters, before: pageParam })}`),

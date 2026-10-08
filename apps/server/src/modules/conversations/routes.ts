@@ -75,7 +75,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
             ? // Name/title match (trigram index) or message text match (full-text index), as one id set.
               sql`AND c.id IN (
           SELECT id FROM conversations
-          WHERE account_id IN ${sql(ids)} AND (coalesce(title, '') || ' ' || participants::text) ILIKE ${`%${likeEscape(term)}%`}
+          WHERE account_id IN ${sql(ids)} AND conversation_search_text(title, participants) ILIKE ${`%${likeEscape(term)}%`}
           UNION
           SELECT conversation_id FROM messages
           WHERE account_id IN ${sql(ids)} AND to_tsvector('simple', text) @@ plainto_tsquery('simple', ${term})

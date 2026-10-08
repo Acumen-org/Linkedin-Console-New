@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { Role } from '@linkedin-console/contracts';
+import { canAudit, isAdminRole } from '@linkedin-console/contracts';
 import { hash, verify } from '@node-rs/argon2';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../lib/config.ts';
@@ -75,9 +76,16 @@ export function requireUser(req: FastifyRequest): SessionUser {
   return req.user;
 }
 
+/** Owner, admins and auditors: the audit log. */
+export function requireAuditAccess(req: FastifyRequest): SessionUser {
+  const u = requireUser(req);
+  if (!canAudit(u.role)) throw new HttpError(403, 'Admins and auditors only');
+  return u;
+}
+
 export function requireAdmin(req: FastifyRequest): SessionUser {
   const u = requireUser(req);
-  if (u.role === 'MEMBER') throw new HttpError(403, 'Admins only');
+  if (!isAdminRole(u.role)) throw new HttpError(403, 'Admins only');
   return u;
 }
 

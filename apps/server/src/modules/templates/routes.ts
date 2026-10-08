@@ -1,3 +1,4 @@
+import { isAdminRole } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireUser } from '../../core/auth.ts';
@@ -37,7 +38,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const [t] = await sql`SELECT user_id FROM templates WHERE id = ${req.params.id}`;
     if (!t) throw notFound();
-    if (t.userId !== user.id && user.role === 'MEMBER') throw forbidden('Only the author or an admin can edit this template');
+    if (t.userId !== user.id && !isAdminRole(user.role)) throw forbidden('Only the author or an admin can edit this template');
     const body = Template.parse(req.body);
     await sql`UPDATE templates SET title = ${body.title}, body = ${body.body}, shared = ${body.shared} WHERE id = ${req.params.id}`;
     return { id: req.params.id, ...body };
@@ -47,7 +48,7 @@ export default async function templateRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const [t] = await sql`SELECT user_id FROM templates WHERE id = ${req.params.id}`;
     if (!t) throw notFound();
-    if (t.userId !== user.id && user.role === 'MEMBER') throw forbidden('Only the author or an admin can delete this template');
+    if (t.userId !== user.id && !isAdminRole(user.role)) throw forbidden('Only the author or an admin can delete this template');
     await sql`DELETE FROM templates WHERE id = ${req.params.id}`;
     return { ok: true };
   });

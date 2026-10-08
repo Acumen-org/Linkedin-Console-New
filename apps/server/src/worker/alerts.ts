@@ -34,7 +34,7 @@ export async function alertAccountStatus(accountId: string, status: string) {
   const recipients = await sql`
     SELECT DISTINCT u.email FROM users u
     LEFT JOIN account_grants g ON g.user_id = u.id AND g.account_id = ${accountId}
-    WHERE u.disabled_at IS NULL AND (u.role <> 'MEMBER' OR u.id = ${account.ownerUserId} OR g.level = 'FULL')`;
+    WHERE u.disabled_at IS NULL AND (u.role IN ('OWNER', 'ADMIN') OR u.id = ${account.ownerUserId} OR g.level = 'FULL')`;
   if (!recipients.length) return;
 
   const link = config.appUrl ? `${config.appUrl}/accounts${status === 'SEND_PAUSED' ? '' : `/${accountId}/connect`}` : '';

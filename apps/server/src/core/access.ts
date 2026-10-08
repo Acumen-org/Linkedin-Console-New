@@ -1,4 +1,4 @@
-import { atLeast, LEVELS, type Level } from '@linkedin-console/contracts';
+import { atLeast, isAdminRole, LEVELS, type Level } from '@linkedin-console/contracts';
 import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
 import type { SessionUser } from './auth.ts';
@@ -7,7 +7,7 @@ import type { SessionUser } from './auth.ts';
 export async function accountLevel(user: SessionUser, accountId: string): Promise<Level | null> {
   const [a] = await sql`SELECT id FROM accounts WHERE id = ${accountId}`;
   if (!a) return null;
-  if (user.role !== 'MEMBER') return 'FULL';
+  if (isAdminRole(user.role)) return 'FULL';
   const [g] = await sql`SELECT level FROM account_grants WHERE account_id = ${accountId} AND user_id = ${user.id}`;
   return (g?.level as Level) ?? null;
 }
@@ -20,7 +20,7 @@ export async function assertAccount(user: SessionUser, accountId: string, min: L
 }
 
 export async function accessibleAccountIds(user: SessionUser, min: Level = 'READ'): Promise<string[]> {
-  if (user.role !== 'MEMBER') return (await sql`SELECT id FROM accounts`).map((r) => r.id as string);
+  if (isAdminRole(user.role)) return (await sql`SELECT id FROM accounts`).map((r) => r.id as string);
   const levels = LEVELS.filter((l) => atLeast(l, min));
   const rows = await sql`SELECT account_id FROM account_grants WHERE user_id = ${user.id} AND level IN ${sql(levels)}`;
   return rows.map((r) => r.accountId as string);
@@ -38,6 +38,6 @@ export async function accountReaders(accountId: string): Promise<string[]> {
   const rows = await sql`
     SELECT u.id FROM users u
     LEFT JOIN account_grants g ON g.user_id = u.id AND g.account_id = ${accountId}
-    WHERE u.disabled_at IS NULL AND (u.role <> 'MEMBER' OR g.level IS NOT NULL)`;
+    WHERE u.disabled_at IS NULL AND (u.role IN ('OWNER', 'ADMIN') OR g.level IS NOT NULL)`;
   return rows.map((r) => r.id as string);
 }

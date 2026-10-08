@@ -1,3 +1,4 @@
+import { isAdminRole } from '@linkedin-console/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router';
@@ -18,7 +19,9 @@ import type { User } from './types';
 
 const MeContext = createContext<User | null>(null);
 export const useMe = () => useContext(MeContext)!;
-export const isAdmin = (u: User | null) => !!u && u.role !== 'MEMBER';
+export const isAdmin = (u: User | null) => !!u && isAdminRole(u.role);
+/** Auditors only read the audit log: no inbox, accounts or settings. */
+export const isAuditor = (u: User | null) => u?.role === 'AUDITOR';
 
 export function App() {
   const qc = useQueryClient();
@@ -69,7 +72,7 @@ export function App() {
     <MeContext.Provider value={me.data}>
       <Routes>
         <Route element={<Layout />}>
-          <Route path="/" element={<Navigate to="/inbox" replace />} />
+          <Route path="/" element={<Navigate to={isAuditor(me.data) ? '/audit' : '/inbox'} replace />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/inbox/:conversationId" element={<InboxPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
@@ -82,7 +85,7 @@ export function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<Navigate to="/settings/templates" replace />} />
           <Route path="/settings/:tab" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/inbox" replace />} />
+          <Route path="*" element={<Navigate to={isAuditor(me.data) ? '/audit' : '/inbox'} replace />} />
         </Route>
       </Routes>
     </MeContext.Provider>

@@ -3,7 +3,7 @@ import { AUDIT_ACTIONS, AUDIT_CATEGORIES, AUDIT_EXPORT_FORMATS, type AuditEntry,
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
-import { requireAdmin } from '../../core/auth.ts';
+import { requireAuditAccess } from '../../core/auth.ts';
 import { csvCell } from '../../lib/csv.ts';
 import { sql } from '../../lib/db.ts';
 import { badRequest } from '../../lib/errors.ts';
@@ -72,8 +72,18 @@ const csvRow = (e: AuditEntry) =>
     .join(',');
 
 export default async function auditRoutes(app: FastifyInstance) {
+  /** Names for the filters (people and LinkedIn accounts), also for auditors who can't open accounts. */
+  app.get('/api/audit/options', async (req) => {
+    requireAuditAccess(req);
+    const [people, accounts] = await Promise.all([
+      sql`SELECT id, name FROM users ORDER BY name`,
+      sql`SELECT id, label FROM accounts ORDER BY label`,
+    ]);
+    return { people, accounts };
+  });
+
   app.get('/api/audit', async (req) => {
-    requireAdmin(req);
+    requireAuditAccess(req);
     const q = Filters.extend({ before: z.coerce.number().int().optional() }).parse(req.query);
     return sql<AuditEntry[]>`
       SELECT ${COLUMNS} FROM audit_log l ${where(q)}
@@ -83,7 +93,7 @@ export default async function auditRoutes(app: FastifyInstance) {
 
   /** The filtered log as a download, newest first, streamed in batches (any size). */
   app.get('/api/audit/export', async (req, reply) => {
-    const user = requireAdmin(req);
+    const user = requireAuditAccess(req);
     const q = Filters.extend({ format: z.enum(AUDIT_EXPORT_FORMATS).default('csv') }).parse(req.query);
     if (q.from && q.to && Date.parse(q.from) >= Date.parse(q.to)) throw badRequest('"From" must be before "to"');
     const filters: Filters = { userId: q.userId, accountId: q.accountId, action: q.action, from: q.from, to: q.to };
