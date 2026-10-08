@@ -8,3 +8,6 @@
 tools
 docs
 *.md
+captures
+.migrate-from-linkunify.state
+compose.test-override.yml

@@ -19,14 +19,9 @@ set_capture() {
   current=$(grep -E '^SIDECAR_ENV=' .env | head -1 | cut -d= -f2- || true)
   entries=$(printf '%s' "$current" | tr ',' '\n' | grep -v '^CAPTURE_RAW=' | grep -v '^$' || true)
   [ "$1" = on ] && entries=$(printf '%s\nCAPTURE_RAW=1' "$entries" | grep -v '^$')
-  local value
-  value=$(printf '%s' "$entries" | paste -sd, -)
-  if grep -qE '^SIDECAR_ENV=' .env; then
-    sed -i "s#^SIDECAR_ENV=.*#SIDECAR_ENV=${value}#" .env
-  else
-    echo "SIDECAR_ENV=${value}" >> .env
-  fi
+  set_env SIDECAR_ENV "$(printf '%s' "$entries" | paste -sd, -)"
 }
+. scripts/ensure-secrets.sh
 
 case "${1:-}" in
   on)

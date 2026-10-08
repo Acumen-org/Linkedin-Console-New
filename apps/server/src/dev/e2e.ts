@@ -61,7 +61,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // ---------- tiny HTTP client with a cookie per user ----------
 function client() {
   let cookie = '';
-  return async function call(method: string, path: string, body?: unknown) {
+  const call = async (method: string, path: string, body?: unknown) => {
     const form = body instanceof FormData;
     const res = await fetch(API + path, {
       method,
@@ -75,7 +75,11 @@ function client() {
     const data = json ? await res.json() : null;
     return { status: res.status, data: data as any, text, headers: res.headers };
   };
+  return Object.assign(call, { cookie: () => cookie });
 }
+
+// Through Caddy, as a browser sees the app (CADDY_URL=off skips this when Caddy isn't running).
+const CADDY = process.env.CADDY_URL ?? 'http://caddy';
 
 async function until<T>(fn: () => Promise<T>, check: (v: T) => boolean, what: string, timeoutMs = 10_000): Promise<T> {
   const end = Date.now() + timeoutMs;
@@ -499,6 +503,21 @@ try {
     assert.equal((await reader('POST', `/api/conversations/${janeId}/messages`, { text: 'x', clientId: crypto.randomUUID() })).status, 403);
     assert.equal((await reader('PATCH', `/api/conversations/${janeId}`, { isStarred: true })).status, 403);
     assert.equal((await reader('GET', `/api/conversations/${janeId}/messages`)).status, 200);
+  });
+
+  await step('through Caddy: app pages with security headers, API, Live View gate', async () => {
+    if (CADDY === 'off') return;
+    const page = await fetch(`${CADDY}/inbox`);
+    assert.equal(page.status, 200, 'app page');
+    assert.match(await page.text(), /<div id="root">/);
+    assert.equal(page.headers.get('content-security-policy'), "frame-ancestors 'self'");
+    assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.equal(page.headers.get('server'), null, 'Server header hidden');
+    assert.equal((await fetch(`${CADDY}/api/health`)).status, 200, 'api');
+    const live = (cookie?: string) => fetch(`${CADDY}/live/${accountId}/`, { headers: cookie ? { cookie } : {} }).then((r) => r.status);
+    assert.equal(await live(), 401, 'Live View without a session');
+    assert.equal(await live('lu_session=forged'), 401, 'Live View with a forged session');
+    assert.equal(await live(reader.cookie()), 403, 'Live View with READ access');
   });
 
   await step('auditor: reads and exports the audit log, nothing else', async () => {

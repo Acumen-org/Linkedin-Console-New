@@ -49,6 +49,10 @@
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
+		# Only this app may show its pages in a frame (Live View is an iframe of our own origin): no clickjacking.
+		Content-Security-Policy "frame-ancestors 'self'"
+		X-Frame-Options SAMEORIGIN
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		-Server
 	}
 }

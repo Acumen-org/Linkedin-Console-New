@@ -148,12 +148,25 @@ async function emitMessage(accountId: string, messageId: string, event: 'message
 }
 
 export async function onMessages(accountId: string, items: LiMessage[]) {
-  const touched = new Set<string>();
-  for (const m of items) {
-    if (!m.urn || !m.conversationUrn) continue;
-    const conversationId = await ensureConversation(accountId, m);
+  // A history page brings many messages at once: look up what we already have in one query, resolve each
+  // conversation once, and write each conversation's preview once at the end (newest message wins).
+  const unique = [...new Map(items.filter((m) => m.urn && m.conversationUrn).map((m) => [m.urn, m])).values()];
+  if (!unique.length) return;
+  const existing = await sql`
+    SELECT id, message_urn, conversation_id, attachments, direction, sender_urn FROM messages
+    WHERE message_urn IN ${sql(unique.map((m) => m.urn))}`;
+  const byUrn = new Map(existing.map((r) => [r.messageUrn as string, r]));
+  const conversationIds = new Map<string, string>();
+  const newest = new Map<string, { sentAt: Date; preview: string; own: boolean }>();
 
-    const [found] = await sql`SELECT id, conversation_id, attachments, direction, sender_urn FROM messages WHERE message_urn = ${m.urn}`;
+  for (const m of unique) {
+    let conversationId = conversationIds.get(m.conversationUrn);
+    if (!conversationId) {
+      conversationId = await ensureConversation(accountId, m);
+      conversationIds.set(m.conversationUrn, conversationId);
+    }
+
+    const found = byUrn.get(m.urn);
     // An earlier copy of our own message named no sender and was stored as incoming: drop it, and
     // handle this copy as new (it merges into the teammate's sent message, or is stored as outbound).
     const ownEcho = !!found && m.fromSelf && found.direction === 'INBOUND' && !found.senderUrn;
@@ -199,8 +212,10 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
         RETURNING id`;
       if (!inserted.length) continue; // already stored meanwhile (the other consumer, or a duplicate delivery)
       // New inbound message newer than what we had → unread +1 (LinkedIn's count corrects it on the next list refresh).
-      // A new reply also wakes a snoozed conversation. (History backfill doesn't count.)
-      if (!m.fromSelf) {
+      // A new reply also wakes a snoozed conversation. (History backfill doesn't count, nor does a message
+      // older than one already in this batch.)
+      const later = newest.get(conversationId);
+      if (!m.fromSelf && (!later || later.sentAt < ts(m.sentAt))) {
         const [bumped] = await sql`
           UPDATE conversations SET unread_count = unread_count + 1, snoozed_until = NULL
           WHERE id = ${conversationId} AND (last_message_at IS NULL OR last_message_at < ${ts(m.sentAt)})
@@ -208,23 +223,27 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
         freshInbound = !!bumped;
       }
     }
-    // Messages can arrive out of order: only the newest one sets the preview, and the time never goes backwards.
+    // Messages can arrive out of order: only the newest one sets the preview.
     const sentAt = ts(m.sentAt);
-    const newest = sql`(last_message_at IS NULL OR last_message_at <= ${sentAt} OR last_message_preview IS NULL)`;
-    await sql`
-      UPDATE conversations SET
-        last_message_preview = CASE WHEN ${newest} THEN ${preview(m)} ELSE last_message_preview END,
-        last_message_from_self = CASE WHEN ${newest} THEN ${own} ELSE last_message_from_self END,
-        last_message_at = greatest(last_message_at, ${sentAt})
-      WHERE id = ${conversationId}`;
+    const prev = newest.get(conversationId);
+    if (!prev || prev.sentAt <= sentAt) newest.set(conversationId, { sentAt, preview: preview(m), own });
     const saved = await emitMessage(accountId, messageId, event);
-    touched.add(conversationId);
     if (freshInbound && saved) {
       await emitWebhook('message.received', { accountId, conversationId, message: saved });
       await notifyNewMessage(accountId, conversationId, saved).catch(() => {});
     }
   }
-  for (const id of touched) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(id));
+  // The time never goes backwards.
+  for (const [id, n] of newest) {
+    const isNewest = sql`(last_message_at IS NULL OR last_message_at <= ${n.sentAt} OR last_message_preview IS NULL)`;
+    await sql`
+      UPDATE conversations SET
+        last_message_preview = CASE WHEN ${isNewest} THEN ${n.preview} ELSE last_message_preview END,
+        last_message_from_self = CASE WHEN ${isNewest} THEN ${n.own} ELSE last_message_from_self END,
+        last_message_at = greatest(last_message_at, ${n.sentAt})
+      WHERE id = ${id}`;
+  }
+  for (const id of newest.keys()) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(id));
 }
 
 /** First-sync progress follows the conversations as they arrive. */
@@ -252,12 +271,27 @@ export async function onTyping(accountId: string, items: BridgeEventMap['typing'
 }
 
 export async function onContacts(accountId: string, data: BridgeEventMap['contacts']) {
+  // One statement per batch (a connections page holds hundreds). Postgres rejects a batch that touches the
+  // same row twice, so the last copy of each person wins.
+  const byId = new Map<string, Record<string, unknown>>();
   for (const p of data.items) {
     if (!p.publicId || !p.name) continue;
+    byId.set(p.publicId, {
+      id: newId('ctc'),
+      accountId,
+      publicId: p.publicId,
+      memberUrn: String(p.urn ?? '').startsWith('urn:') ? p.urn : null,
+      name: p.name,
+      headline: p.headline ?? null,
+      avatarUrl: p.avatarUrl ?? null,
+      profileUrl: p.profileUrl ?? null,
+      isConnection: !!data.connections,
+    });
+  }
+  const rows = [...byId.values()];
+  for (let i = 0; i < rows.length; i += 500) {
     await sql`
-      INSERT INTO contacts (id, account_id, public_id, member_urn, name, headline, avatar_url, profile_url, is_connection)
-      VALUES (${newId('ctc')}, ${accountId}, ${p.publicId}, ${String(p.urn ?? '').startsWith('urn:') ? p.urn : null}, ${p.name},
-              ${p.headline ?? null}, ${p.avatarUrl ?? null}, ${p.profileUrl ?? null}, ${!!data.connections})
+      INSERT INTO contacts ${sql(rows.slice(i, i + 500) as never, 'id', 'accountId', 'publicId', 'memberUrn', 'name', 'headline', 'avatarUrl', 'profileUrl', 'isConnection')}
       ON CONFLICT (account_id, public_id) DO UPDATE SET
         name = excluded.name,
         headline = coalesce(nullif(excluded.headline, ''), contacts.headline),

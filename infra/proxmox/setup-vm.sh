@@ -65,15 +65,21 @@ if [ -n "$DRY_RUN" ]; then
 fi
 
 apt-get update
-apt-get install -y ca-certificates curl ufw fail2ban unattended-upgrades qemu-guest-agent openssl
+apt-get install -y ca-certificates curl ufw fail2ban unattended-upgrades qemu-guest-agent openssl python3
 systemctl enable --now qemu-guest-agent
 
 # Docker
 if ! command -v docker >/dev/null; then curl -fsSL https://get.docker.com | sh; fi
 mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<'JSON'
-{ "log-driver": "json-file", "log-opts": { "max-size": "20m", "max-file": "5" } }
-JSON
+# Log rotation, merged into any existing settings (registry mirrors, IPv6…) instead of replacing them.
+python3 - <<'PY'
+import json, os
+path = '/etc/docker/daemon.json'
+conf = json.load(open(path)) if os.path.exists(path) and os.path.getsize(path) else {}
+conf.setdefault('log-driver', 'json-file')
+conf.setdefault('log-opts', {}).update({'max-size': '20m', 'max-file': '5'})
+json.dump(conf, open(path, 'w'), indent=2)
+PY
 systemctl restart docker
 id linkedin-console >/dev/null 2>&1 && usermod -aG docker linkedin-console
 

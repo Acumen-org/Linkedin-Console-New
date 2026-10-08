@@ -20,14 +20,14 @@ ensure_secrets
 
 if grep -q '^SITE_ADDRESS=app.example.com' .env; then
   read -rp "Domain for the app (e.g. inbox.yourcompany.com), or :80 for a quick LAN test: " domain
-  sed -i "s#^SITE_ADDRESS=.*#SITE_ADDRESS=${domain}#" .env
+  set_env SITE_ADDRESS "$domain"
   if [[ "$domain" == :* ]]; then
     # Plain HTTP here can mean a LAN test, or a gateway (APISIX, nginx…) in front that serves https:
     # then the session cookie must stay Secure.
     read -rp "Will people open the app over https through a gateway in front of this server? [y/N] " gw
     case "$gw" in
       [Yy]*) echo "Keeping secure cookies. Set TRUSTED_PROXIES in .env to the gateway's address." ;;
-      *) sed -i 's#^COOKIE_SECURE=.*#COOKIE_SECURE=false#' .env ;;
+      *) set_env COOKIE_SECURE false ;;
     esac
   fi
 fi

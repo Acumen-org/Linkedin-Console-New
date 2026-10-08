@@ -17,10 +17,22 @@ export async function openBridgeWindow(browser: Browser, context: BrowserContext
       if ((await targetIdOf(context, p).catch(() => null)) === savedId) return p;
     }
   }
-  const pagePromise = context.waitForEvent('page', { timeout: 60_000 });
+  // Match the new page by its target id: a page someone opens in Live View at the same moment would
+  // otherwise be taken for the bridge window.
   const session = await browser.newBrowserCDPSession();
-  await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
-  const page = await pagePromise;
-  await redis.set(key, await targetIdOf(context, page));
-  return page;
+  const { targetId } = (await session.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true })) as {
+    targetId: string;
+  };
+  await session.detach().catch(() => {});
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    for (const p of context.pages()) {
+      if ((await targetIdOf(context, p).catch(() => null)) === targetId) {
+        await redis.set(key, targetId);
+        return p;
+      }
+    }
+    await context.waitForEvent('page', { timeout: 1_000 }).catch(() => {});
+  }
+  throw new Error('The bridge window did not open');
 }
