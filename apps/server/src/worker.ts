@@ -1,4 +1,5 @@
 // Worker process: applies bridge events, delivers webhooks, runs scheduled jobs.
+import fs from 'node:fs/promises';
 import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkedin-console/contracts';
 import { migrate, sql } from './lib/db.ts';
 import { logger } from './lib/logger.ts';
@@ -15,7 +16,7 @@ import {
   onTyping,
 } from './worker/ingest.ts';
 import { startScheduler } from './worker/scheduler.ts';
-import { consumeStream } from './worker/stream.ts';
+import { consumeStream, lastAlive } from './worker/stream.ts';
 import { runWebhookDelivery } from './worker/webhooks.ts';
 
 async function handleBridgeEvent(ev: BridgeEvent) {
@@ -42,6 +43,20 @@ async function handleBridgeEvent(ev: BridgeEvent) {
       return onProgress(ev.accountId, ev.data);
   }
 }
+
+/**
+ * Health: a heartbeat file the container's health check reads, and a watchdog that restarts a worker whose
+ * stream loops stopped (e.g. a Redis connection that never recovered), instead of it silently doing nothing.
+ */
+const HEARTBEAT = '/tmp/worker-heartbeat';
+setInterval(() => {
+  const stalled = Date.now() - lastAlive > 3 * 60_000;
+  if (stalled) {
+    logger.error('worker stream loops stalled for 3 minutes, exiting so the container restarts');
+    process.exit(1);
+  }
+  fs.writeFile(HEARTBEAT, String(Date.now())).catch(() => {});
+}, 30_000).unref();
 
 await migrate();
 startScheduler();

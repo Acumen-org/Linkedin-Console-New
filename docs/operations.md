@@ -19,7 +19,8 @@
 | `AI_PROVIDER`, `AI_MODEL` | off | Reply drafts: `ollama` (local) or `anthropic` (Claude, default model `claude-opus-5-5`) |
 | `HEAL_PROVIDER`, `HEAL_MODEL` | off | Self-healing selectors: `ollama` or `anthropic` |
 | `ANTHROPIC_API_KEY`, `OLLAMA_URL` | | Shared by AI drafts and self-healing |
-| `POD_MEMORY_MB` | `2048` | Memory limit per account browser |
+| `POD_MEMORY_MB` | `1024` | Memory limit per account browser (measured use is about 450 MB) |
+| `PG_SHARED_BUFFERS`, `PG_EFFECTIVE_CACHE_SIZE` | `1GB`, `4GB` | Postgres memory; protected from the memory killer, like Redis |
 | `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | | Microsoft 365 sign-in (Entra app registration; redirect URI `<APP_URL>/api/auth/microsoft/callback`). Needs `APP_URL`. See [rbac.md](rbac.md) |
 | `PASSWORD_SIGNIN` | `on` | `owner`: only the owner may use a password (emergency access); others use Microsoft |
 | `STAFF_SYNC` | `off` | Follow the Twilio console staff list: `disable` (leavers) or `provision` (also adds staff as members). With `TWILIO_CONSOLE_URL`, `TWILIO_CONSOLE_API_KEY`, `STAFF_SYNC_MINUTES` (5) |
@@ -36,7 +37,7 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 |---|---|
 | Update | `./scripts/update.sh`: pulls, rebuilds, restarts, recreates pods (LinkedIn sessions are kept) |
 | Backup | `./scripts/backup.sh`: database + files + every browser profile. `./scripts/schedule-backup.sh` runs it nightly at 03:15 into `/var/backups/linkedin-console` (`BACKUP_TIME`, `BACKUP_DIR` to change; `--remove` to stop). Copy the result off-site, encrypted; it contains private messages and LinkedIn sessions |
-| Restore | `docker compose exec -T postgres pg_restore -U linkedin_console -d linkedin_console --clean < db.dump`, then untar each volume archive into its volume |
+| Restore | 1. Stop writers: `docker compose stop api worker caddy` and `docker stop $(docker ps -q --filter label=linkedin-console.pod)`. 2. `docker compose exec -T postgres pg_restore -U linkedin_console -d linkedin_console --clean < db.dump`. 3. Untar each `<volume>.tgz` into its volume (`docker run --rm -v <volume>:/v -v $PWD:/b alpine tar xzf /b/<volume>.tgz -C /v`). 4. Put `env` back as `.env` if the secrets changed. 5. `docker compose up -d`, then `docker compose exec api node src/dev/recreate-pods.ts` |
 | Logs | `docker compose logs -f api worker` · `docker logs -f pod-<accountId>-sidecar` (JSON, filter with `jq`) |
 | Restart an account's browser | Accounts → ⟳, or `docker restart pod-<id> pod-<id>-sidecar` |
 | Pause sending | Accounts → ⏸ |
@@ -48,7 +49,7 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 
 ## Monitoring checklist
 
-- `api` container healthy, and `worker` running (it logs `worker started`)
+- `api` and `worker` containers healthy (`docker compose ps`); the worker restarts itself if its event processing stalls
 - Accounts page: any **Needs attention** / **Offline** (email alerts if SMTP is set)
 - Settings → Webhooks: last delivery status
 - Disk: `docker system df`; the `linkedin-console_files` volume grows with attachments

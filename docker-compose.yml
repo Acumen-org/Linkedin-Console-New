@@ -63,6 +63,22 @@ services:
   postgres:
     image: postgres:17
     restart: unless-stopped
+    # Sized for a few million messages on a 32 GB VM shared with the account browsers (override in .env).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-4GB}
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - random_page_cost=1.1
+    shm_size: 1g
+    # The memory killer picks a browser before the database when the VM runs short.
+    oom_score_adj: -500
     environment:
       POSTGRES_USER: linkedin_console
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -77,6 +93,7 @@ services:
     image: valkey/valkey:8
     restart: unless-stopped
     command: ["sh", "-c", 'exec valkey-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    oom_score_adj: -500
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDISCLI_AUTH: ${REDIS_PASSWORD}     # so `docker compose exec redis valkey-cli` just works
@@ -106,8 +123,12 @@ services:
     environment:
       <<: *server-env
       SERVICE_NAME: worker
+    # Healthy while its stream loops make progress (it also restarts itself if they stall for 3 minutes).
     healthcheck:
-      disable: true
+      test: ["CMD", "node", "-e", "process.exit(Date.now() - Number(require('fs').readFileSync('/tmp/worker-heartbeat', 'utf8')) < 120000 ? 0 : 1)"]
+      interval: 30s
+      start_period: 60s
+      retries: 3
     volumes: [files:/data/files]
     depends_on:
       api: { condition: service_started }
@@ -123,7 +144,7 @@ services:
       CHROME_IMAGE: linkedin-console/chrome:latest
       SIDECAR_IMAGE: linkedin-console/sidecar:latest
       REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
-      POD_MEMORY_MB: ${POD_MEMORY_MB:-2048}
+      POD_MEMORY_MB: ${POD_MEMORY_MB:-1024}
       SIDECAR_ENV: ${SIDECAR_ENV:-}
       LIVE_SECRET: ${LIVE_SECRET}
       HEAL_PROVIDER: ${HEAL_PROVIDER:-}

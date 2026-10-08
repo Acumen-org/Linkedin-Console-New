@@ -18,7 +18,7 @@ export const config = {
   chromeImage: env.CHROME_IMAGE ?? 'linkedin-console/chrome:latest',
   sidecarImage: env.SIDECAR_IMAGE ?? 'linkedin-console/sidecar:latest',
   redisUrl: env.REDIS_URL ?? 'redis://redis:6379',
-  podMemoryBytes: Number(env.POD_MEMORY_MB ?? 2048) * 1024 * 1024,
+  podMemoryBytes: Number(env.POD_MEMORY_MB ?? 1024) * 1024 * 1024,
   sidecarEnv: [
     ...FORWARDED_KEYS.filter((k) => env[k]).map((k) => `${k}=${env[k]}`),
     ...(env.SIDECAR_ENV ?? '')
