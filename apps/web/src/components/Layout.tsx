@@ -30,7 +30,7 @@ export function Layout() {
   return (
     <div className="flex h-full">
       <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
-        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">LU</div>
+        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">LC</div>
         <NavLink to="/inbox" className={link}>
           <Inbox size={22} /> Inbox
           {unread > 0 && (

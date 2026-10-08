@@ -36,6 +36,20 @@ const Env = z.object({
   OLLAMA_URL: z.string().default('http://ollama:11434'),
   // Web push (optional; keys are generated and stored in the DB when empty)
   VAPID_SUBJECT: z.string().default('mailto:admin@localhost'),
+  // Microsoft 365 sign-in (optional): an Entra ID app registration in the company tenant.
+  MICROSOFT_TENANT_ID: z.union([z.literal(''), z.uuid('MICROSOFT_TENANT_ID must be the tenant ID (a GUID), not "common"')]).default(''),
+  MICROSOFT_CLIENT_ID: z.string().default(''),
+  MICROSOFT_CLIENT_SECRET: z.string().default(''),
+  // Who may still sign in with a password: everyone, or only the owner (break-glass when Microsoft is on).
+  PASSWORD_SIGNIN: z.enum(['on', 'owner']).default('on'),
+  // Twilio console staff list (optional): provision members and disable leavers.
+  TWILIO_CONSOLE_URL: z
+    .string()
+    .default('')
+    .transform((v) => v.replace(/\/$/, '')),
+  TWILIO_CONSOLE_API_KEY: z.string().default(''),
+  STAFF_SYNC: z.enum(['off', 'disable', 'provision']).default('off'),
+  STAFF_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
 });
 
 const parsed = Env.safeParse(process.env);
@@ -45,6 +59,25 @@ if (!parsed.success) {
   process.exit(1);
 }
 const e = parsed.data;
+
+const microsoftEnabled = !!(e.MICROSOFT_TENANT_ID && e.MICROSOFT_CLIENT_ID && e.MICROSOFT_CLIENT_SECRET);
+const problems = [
+  (e.MICROSOFT_TENANT_ID || e.MICROSOFT_CLIENT_ID || e.MICROSOFT_CLIENT_SECRET) && !microsoftEnabled
+    ? 'Microsoft sign-in needs MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET'
+    : '',
+  microsoftEnabled && !e.APP_URL ? 'Microsoft sign-in needs APP_URL (the public https:// address, for the redirect URI)' : '',
+  e.PASSWORD_SIGNIN === 'owner' && !microsoftEnabled ? 'PASSWORD_SIGNIN=owner needs Microsoft sign-in configured' : '',
+  e.STAFF_SYNC !== 'off' && !(e.TWILIO_CONSOLE_URL && e.TWILIO_CONSOLE_API_KEY)
+    ? 'STAFF_SYNC needs TWILIO_CONSOLE_URL and TWILIO_CONSOLE_API_KEY'
+    : '',
+  e.STAFF_SYNC === 'provision' && !microsoftEnabled
+    ? 'STAFF_SYNC=provision needs Microsoft sign-in (provisioned members have no password)'
+    : '',
+].filter(Boolean);
+if (problems.length) {
+  console.error(`Invalid configuration:\n${problems.map((p) => `  ${p}`).join('\n')}`);
+  process.exit(1);
+}
 
 export const config = {
   port: e.PORT,
@@ -64,4 +97,14 @@ export const config = {
   appUrl: e.APP_URL,
   ai: { provider: e.AI_PROVIDER, model: e.AI_MODEL, anthropicKey: e.ANTHROPIC_API_KEY, ollamaUrl: e.OLLAMA_URL },
   vapidSubject: e.VAPID_SUBJECT,
+  microsoft: microsoftEnabled
+    ? { tenantId: e.MICROSOFT_TENANT_ID, clientId: e.MICROSOFT_CLIENT_ID, clientSecret: e.MICROSOFT_CLIENT_SECRET }
+    : null,
+  passwordSignin: e.PASSWORD_SIGNIN,
+  staffSync: {
+    mode: e.STAFF_SYNC,
+    url: e.TWILIO_CONSOLE_URL,
+    apiKey: e.TWILIO_CONSOLE_API_KEY,
+    minutes: e.STAFF_SYNC_MINUTES,
+  },
 } as const;

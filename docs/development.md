@@ -16,7 +16,7 @@
 | `pnpm test` | Unit tests (`apps/sidecar/test`) |
 | `pnpm build` | Build `@linkedin-console/contracts` and the web app |
 | `pnpm images` | Build all Docker images (`docker compose --profile images build`) |
-| `pnpm e2e` | End-to-end test inside the running api container (21 checks, fake bridge) |
+| `pnpm e2e` | End-to-end test inside the running api container (fake bridge, fake Twilio staff list) |
 
 ## Running the stack locally
 
@@ -30,6 +30,22 @@ open http://localhost:8088
 ```
 
 Frontend hot reload: `pnpm --filter @linkedin-console/web dev` (proxies `/api` to `localhost:4000`; publish the api port or run the api with `pnpm --filter @linkedin-console/server dev`).
+
+### Identity tests
+
+The Microsoft sign-in and staff sync tests run only when the stack points at the test's own fake staff list, so running the e2e on a real server never touches real staff. Add to `.env` (as CI does):
+
+```
+APP_URL=http://localhost:8088
+MICROSOFT_TENANT_ID=00000000-0000-4000-8000-000000000e2e
+MICROSOFT_CLIENT_ID=e2e-client
+MICROSOFT_CLIENT_SECRET=e2e-secret
+TWILIO_CONSOLE_URL=http://api:4100
+TWILIO_CONSOLE_API_KEY=e2e-staff-key
+STAFF_SYNC=provision
+```
+
+The real Microsoft round trip can't run in a test; it is covered by the redirect, state and ID-token checks.
 
 ## Working without LinkedIn: the bridge simulator
 

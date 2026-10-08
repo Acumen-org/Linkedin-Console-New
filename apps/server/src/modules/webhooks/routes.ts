@@ -32,7 +32,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
     await sql`
       INSERT INTO webhooks (id, url, secret, events, active, created_by)
       VALUES (${id}, ${body.url}, ${secret}, ${body.events}, ${body.active}, ${user.id})`;
-    await audit({ userId: user.id, action: 'webhook.created', meta: { url: body.url, events: body.events } });
+    await audit({ userId: user.id, action: 'webhook.created', meta: { url: body.url, events: body.events }, req });
     const [w] = await sql`SELECT ${COLUMNS} FROM webhooks WHERE id = ${id}`;
     return { ...w, secret }; // the secret is only returned once
   });
@@ -44,14 +44,14 @@ export default async function webhookRoutes(app: FastifyInstance) {
       UPDATE webhooks SET url = ${body.url}, events = ${body.events}, active = ${body.active}
       WHERE id = ${req.params.id} RETURNING ${COLUMNS}`;
     if (!w) throw notFound();
-    await audit({ userId: user.id, action: 'webhook.updated', meta: { id: req.params.id, ...body } });
+    await audit({ userId: user.id, action: 'webhook.updated', meta: { id: req.params.id, ...body }, req });
     return w;
   });
 
   app.delete<{ Params: { id: string } }>('/api/webhooks/:id', async (req) => {
     const user = requireAdmin(req);
     await sql`DELETE FROM webhooks WHERE id = ${req.params.id}`;
-    await audit({ userId: user.id, action: 'webhook.deleted', meta: { id: req.params.id } });
+    await audit({ userId: user.id, action: 'webhook.deleted', meta: { id: req.params.id }, req });
     return { ok: true };
   });
 

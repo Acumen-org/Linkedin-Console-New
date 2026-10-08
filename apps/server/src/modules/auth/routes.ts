@@ -12,6 +12,7 @@ import {
   SESSION_COOKIE,
   verifyPassword,
 } from '../../core/auth.ts';
+import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
@@ -44,10 +45,21 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/api/auth/login', async (req, reply) => {
     assertLoginAllowed(req.ip);
     const body = z.object({ email: z.string(), password: z.string() }).parse(req.body);
-    const [u] = await sql`SELECT id, password_hash, disabled_at FROM users WHERE email = ${body.email.toLowerCase().trim()}`;
-    if (!u || u.disabledAt || !(await verifyPassword(u.passwordHash, body.password))) {
+    const [u] = await sql`SELECT id, role, password_hash, disabled_at FROM users WHERE email = ${body.email.toLowerCase().trim()}`;
+    // With company sign-in on, passwords can be limited to the owner (emergency access).
+    if (u && !u.disabledAt && config.microsoft && (!u.passwordHash || (config.passwordSignin === 'owner' && u.role !== 'OWNER'))) {
+      await audit({
+        userId: u.id,
+        action: 'auth.login_failed',
+        meta: { email: body.email.slice(0, 200), reason: 'password sign-in not allowed' },
+        ip: req.ip,
+        req,
+      });
+      throw new HttpError(403, 'Sign in with Microsoft for this account');
+    }
+    if (!u || u.disabledAt || !u.passwordHash || !(await verifyPassword(u.passwordHash, body.password))) {
       recordLoginFailure(req.ip);
-      const reason = !u ? 'unknown email' : u.disabledAt ? 'account disabled' : 'wrong password';
+      const reason = !u ? 'unknown email' : u.disabledAt ? 'account disabled' : !u.passwordHash ? 'no password set' : 'wrong password';
       await audit({
         userId: u?.id ?? null,
         action: 'auth.login_failed',
@@ -75,6 +87,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const body = z.object({ current: z.string(), next: Password }).parse(req.body);
     const [u] = await sql`SELECT password_hash FROM users WHERE id = ${user.id}`;
+    if (!u.passwordHash) throw new HttpError(400, 'This account signs in with Microsoft and has no password');
     if (!(await verifyPassword(u.passwordHash, body.current))) throw new HttpError(400, 'Current password is wrong');
     await sql`UPDATE users SET password_hash = ${await hashPassword(body.next)} WHERE id = ${user.id}`;
     await sql`DELETE FROM sessions WHERE user_id = ${user.id}`;

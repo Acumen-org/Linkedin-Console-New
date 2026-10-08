@@ -33,7 +33,7 @@ export default async function labelRoutes(app: FastifyInstance) {
     const id = newId('lbl');
     await sql`INSERT INTO labels (id, name, color) VALUES (${id}, ${body.name}, ${body.color})`;
     await publish(EVERYONE_ROOM, 'labels.changed', {});
-    await audit({ userId: user.id, action: 'label.created', meta: { name: body.name } });
+    await audit({ userId: user.id, action: 'label.created', meta: { name: body.name }, req });
     return { id, ...body };
   });
 
@@ -49,7 +49,7 @@ export default async function labelRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/api/labels/:id', async (req) => {
     const user = requireAdmin(req);
     await sql`DELETE FROM labels WHERE id = ${req.params.id}`;
-    await audit({ userId: user.id, action: 'label.deleted', meta: { labelId: req.params.id } });
+    await audit({ userId: user.id, action: 'label.deleted', meta: { labelId: req.params.id }, req });
     return { ok: true };
   });
 }

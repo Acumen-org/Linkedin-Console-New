@@ -36,7 +36,7 @@ export default async function aiRoutes(app: FastifyInstance) {
       transcript: recent.reverse().map((m) => ({ fromSelf: m.direction === 'OUTBOUND', name: m.senderName ?? 'Contact', text: m.text })),
       instruction,
     });
-    await audit({ userId: user.id, accountId: conversation.accountId, action: 'ai.draft', meta: { conversationId: id } });
+    await audit({ userId: user.id, accountId: conversation.accountId, action: 'ai.draft', meta: { conversationId: id }, req });
     return { draft };
   });
 }

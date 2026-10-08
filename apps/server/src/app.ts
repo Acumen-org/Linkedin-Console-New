@@ -8,6 +8,7 @@ import { logger } from './lib/logger.ts';
 import accountRoutes from './modules/accounts/routes.ts';
 import aiRoutes from './modules/ai/routes.ts';
 import auditRoutes from './modules/audit/routes.ts';
+import microsoftRoutes from './modules/auth/microsoft.ts';
 import authRoutes from './modules/auth/routes.ts';
 import messageRoutes from './modules/conversations/messages.ts';
 import conversationRoutes from './modules/conversations/routes.ts';
@@ -24,6 +25,7 @@ import webhookRoutes from './modules/webhooks/routes.ts';
 const MODULES = [
   systemRoutes,
   authRoutes,
+  microsoftRoutes,
   userRoutes,
   accountRoutes,
   conversationRoutes,

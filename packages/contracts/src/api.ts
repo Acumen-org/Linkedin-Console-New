@@ -9,6 +9,33 @@ export interface User {
   role: Role;
   disabledAt?: string | null;
   createdAt?: string;
+  // Admins only:
+  disabledReason?: string | null;
+  /** 'staff_sync' = added from the Twilio console staff list. */
+  source?: 'local' | 'staff_sync';
+  hasPassword?: boolean;
+  microsoftLinked?: boolean;
+  lastSignInAt?: string | null;
+}
+
+/** Sign-in and staff directory setup (admins). */
+export interface DirectoryInfo {
+  microsoft: boolean;
+  passwordSignin: 'on' | 'owner';
+  staffSync: {
+    mode: 'off' | 'disable' | 'provision';
+    source: string | null;
+    last: {
+      at: string;
+      ok: boolean;
+      error?: string;
+      staff?: number;
+      linked?: number;
+      disabled?: number;
+      reenabled?: number;
+      provisioned?: number;
+    } | null;
+  };
 }
 
 export interface Account {

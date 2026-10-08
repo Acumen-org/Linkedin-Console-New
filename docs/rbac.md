@@ -7,6 +7,24 @@ LinkedIn Console has two layers of access:
 
 Teammates log in to LinkedIn Console, never to LinkedIn. Access checks happen on the server for every request and Socket.IO subscription, so hiding a button in the UI is never the only protection.
 
+## Signing in
+
+| Setup | How teammates sign in |
+|---|---|
+| Default | Email + password (10+ characters), 10 failed attempts per IP lock it for 15 minutes |
+| Microsoft 365 (`MICROSOFT_*`) | “Sign in with Microsoft” with their company account: the company's MFA and conditional access apply. Only people already added here get in; the first sign-in links the Microsoft account (Entra object ID), later ones must use the same account |
+| `PASSWORD_SIGNIN=owner` | Passwords only for the owner (emergency access if Microsoft is unavailable); everyone else must use Microsoft |
+
+### Following the Twilio console staff list
+
+With `STAFF_SYNC` the app reads the Twilio console's staff list every few minutes (`TWILIO_CONSOLE_URL`, `TWILIO_CONSOLE_API_KEY` = its server API key):
+
+- Teammates are linked to their staff record by email or email alias.
+- **Leavers**: anyone resigned or archived there is disabled here and signed out everywhere within one sync. If that is undone there, they are re-enabled (only those the sync disabled; someone an admin disabled stays disabled).
+- `STAFF_SYNC=provision` also adds active staff as **members with no account access** (Microsoft sign-in only). Admins still decide roles and which LinkedIn accounts each person can use; roles are never copied from the Twilio console.
+- The owner is never changed. A failed or empty list changes nothing, and a run that would disable more than a quarter of the linked team at once is refused (Team page shows the error).
+- Team page shows the sign-in setup, the last sync result and a **Sync now** button. Every change is in the audit log as done by *System*.
+
 ## Team roles
 
 | Role | Who | Can |
@@ -55,4 +73,12 @@ Changing `DEFAULT_GRANT` affects only future accounts and teammates. Existing gr
 | SDR / assistant who answers messages | `MEMBER` | `REPLY` on the accounts they work |
 | Manager / reviewer | `MEMBER` | `READ` |
 
-Keep `FULL` small: it allows driving the LinkedIn browser directly (profile, settings, posts). Everything that happens is recorded in the audit log (Settings → Audit), including who opened Live View and with which mode.
+Keep `FULL` small: it allows driving the LinkedIn browser directly (profile, settings, posts).
+
+## Audit log
+
+Settings → Audit (owner and admins) records sign-ins (also failed ones, with the reason; never passwords), sign-outs, messages sent, Live View sessions, account and access changes, team changes, staff sync actions and exports. Each entry keeps the person's name/email and the account name as they were at the time, with IP address and browser.
+
+- Filter by person, LinkedIn account, event (or a whole category) and date range.
+- **Export** the filtered log as CSV (opens in Excel with accents intact; cells that look like formulas are kept as text) or JSON. Exports have no size limit and are themselves recorded.
+- Entries can't be edited or deleted by the application (database trigger); removing a teammate or account only clears the link, the names stay.

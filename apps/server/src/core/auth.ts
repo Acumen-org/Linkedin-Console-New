@@ -27,12 +27,17 @@ export const verifyPassword = (stored: string, pw: string) => verify(stored, pw)
 
 const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
-export async function createSession(reply: FastifyReply, req: FastifyRequest, userId: string) {
+export async function createSession(
+  reply: FastifyReply,
+  req: FastifyRequest,
+  userId: string,
+  method: 'password' | 'microsoft' = 'password',
+) {
   const token = crypto.randomBytes(32).toString('base64url');
   await sql`
-    INSERT INTO sessions (id, user_id, expires_at, ip, user_agent)
+    INSERT INTO sessions (id, user_id, expires_at, ip, user_agent, method)
     VALUES (${sha256(token)}, ${userId}, now() + ${`${SESSION_DAYS} days`}::interval, ${req.ip},
-            ${String(req.headers['user-agent'] ?? '').slice(0, 300)})`;
+            ${String(req.headers['user-agent'] ?? '').slice(0, 300)}, ${method})`;
   reply.setCookie(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: config.cookieSecure,

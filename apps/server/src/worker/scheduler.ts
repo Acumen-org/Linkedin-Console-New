@@ -1,6 +1,8 @@
 import { ADMINS_ROOM, accountRoom } from '@linkedin-console/contracts';
 import { sendCommand } from '../core/bridge.ts';
+import { runStaffSync } from '../core/staff-sync.ts';
 import { emitWebhook } from '../core/webhooks.ts';
+import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
@@ -56,8 +58,15 @@ async function expireStuckSends() {
   }
 }
 
+/** Follow the Twilio console staff list every STAFF_SYNC_MINUTES (one worker at a time). */
+async function staffSync() {
+  if (config.staffSync.mode === 'off') return;
+  if (!(await redis.set('lu:staffsync:due', '1', 'EX', config.staffSync.minutes * 60 - 5, 'NX'))) return;
+  await runStaffSync();
+}
+
 export function startScheduler() {
-  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends];
+  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends, staffSync];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));
   }, 60_000);

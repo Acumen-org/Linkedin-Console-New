@@ -18,6 +18,9 @@
 | `HEAL_PROVIDER`, `HEAL_MODEL` | off | Self-healing selectors: `ollama` or `anthropic` |
 | `ANTHROPIC_API_KEY`, `OLLAMA_URL` | | Shared by AI drafts and self-healing |
 | `POD_MEMORY_MB` | `2048` | Memory limit per account browser |
+| `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET` | | Microsoft 365 sign-in (Entra app registration; redirect URI `<APP_URL>/api/auth/microsoft/callback`). Needs `APP_URL`. See [rbac.md](rbac.md) |
+| `PASSWORD_SIGNIN` | `on` | `owner`: only the owner may use a password (emergency access); others use Microsoft |
+| `STAFF_SYNC` | `off` | Follow the Twilio console staff list: `disable` (leavers) or `provision` (also adds staff as members). With `TWILIO_CONSOLE_URL`, `TWILIO_CONSOLE_API_KEY`, `STAFF_SYNC_MINUTES` (5) |
 | `SEND_MODE` | `fast` | `fast`: text replies reach LinkedIn in about half a second. `human`: typed with human pauses (10-20 s) |
 | `PARK_AFTER_MINUTES` | `10` | Unload human-facing tabs of connected accounts after this long without Live View viewers (restored on open) |
 | `SIDECAR_ENV` | | Extra sidecar env, e.g. `CAPTURE_RAW=1` |

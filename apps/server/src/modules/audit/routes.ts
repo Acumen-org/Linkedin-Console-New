@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { AUDIT_CATEGORIES, AUDIT_EXPORT_FORMATS, type AuditEntry, auditLabel } from '@linkedin-console/contracts';
+import { AUDIT_ACTIONS, AUDIT_CATEGORIES, AUDIT_EXPORT_FORMATS, type AuditEntry, auditLabel } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
@@ -20,11 +20,17 @@ const COLUMNS = sql`
   l.id, l.created_at, l.action, l.user_id, l.actor_name, l.actor_email, l.account_id, l.account_label,
   l.ip, l.user_agent, l.meta`;
 
+/** The actions of a category, from the catalog (a category's actions don't all share its prefix). */
+const actionsIn = (category: string) =>
+  Object.entries(AUDIT_ACTIONS)
+    .filter(([, a]) => a.category === category)
+    .map(([code]) => code);
+
 function where(f: Filters) {
   // 'auth' = the whole category, 'auth.login' = one action.
   const action = f.action
     ? f.action in AUDIT_CATEGORIES
-      ? sql`AND l.action LIKE ${`${f.action}.%`}`
+      ? sql`AND l.action IN ${sql(actionsIn(f.action))}`
       : sql`AND l.action = ${f.action}`
     : sql``;
   return sql`

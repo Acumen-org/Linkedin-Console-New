@@ -19,9 +19,29 @@ const redis = new Redis(config.redisUrl);
 const blocking = new Redis(config.redisUrl);
 const results: { name: string; ok: boolean; error?: string }[] = [];
 
+// Fake Twilio console staff list (GET /api/staff, GET /api/staff/:id), for the staff sync tests.
+type FakeStaff = {
+  id: string;
+  name: string;
+  email: string;
+  email_aliases?: string[];
+  resigned_at?: string | null;
+  auto_imported?: boolean;
+};
+let staffList: FakeStaff[] = [];
+const staffById = new Map<string, FakeStaff & { archived_at?: string }>();
+function fakeTwilio(req: http.IncomingMessage, res: http.ServerResponse) {
+  if (req.headers.authorization !== `Bearer ${config.staffSync.apiKey}`) return res.writeHead(401).end();
+  const one = req.url?.match(/^\/api\/staff\/([^/?]+)$/);
+  const found = one ? staffById.get(decodeURIComponent(one[1])) : null;
+  if (one && !found) return res.writeHead(404).end();
+  res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(found ?? staffList));
+}
+
 // Webhook receiver inside this process; the worker container reaches it by this container's hostname.
 const received: { event: string; signature: string; body: string }[] = [];
 const receiver = http.createServer((req, res) => {
+  if (req.url?.startsWith('/api/staff')) return fakeTwilio(req, res);
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
@@ -167,7 +187,7 @@ async function cleanup() {
   await sql`DELETE FROM webhooks WHERE url = ${WEBHOOK_URL}`;
   await sql`DELETE FROM labels WHERE name LIKE ${`e2e-${tag}%`}`;
   await sql`DELETE FROM accounts WHERE id = ${accountId}`;
-  await sql`DELETE FROM users WHERE id IN ${sql([ownerId, memberId, readerId])} OR email = ${`newbie-${tag}@e2e.test`}`;
+  await sql`DELETE FROM users WHERE id IN ${sql([ownerId, memberId, readerId])} OR email LIKE ${`%${tag}@e2e.test`}`;
   await redis.del(`li:cmd:${accountId}`, `lu:connsync:${accountId}`);
 }
 
@@ -439,7 +459,7 @@ try {
   await step('audit export: CSV for Excel, formula-safe, JSON, admins only, and itself recorded', async () => {
     // A name that a spreadsheet would run as a formula must come out as text.
     await sql`UPDATE users SET name = '=HYPERLINK("http://evil")' WHERE id = ${memberId}`;
-    await member('POST', '/api/conversations/' + janeId + '/read');
+    await member('POST', `/api/conversations/${janeId}/read`);
     await member('POST', '/api/auth/logout');
     await sql`UPDATE users SET name = 'E2E Member' WHERE id = ${memberId}`;
     await member('POST', '/api/auth/login', { email: `member-${tag}@e2e.test`, password });
@@ -451,7 +471,10 @@ try {
     assert.ok(csv.text.startsWith('Time (UTC),Person,Email,Event'), csv.text.slice(0, 80)); // fetch's text() drops the BOM
     const lines = csv.text.trim().split('\r\n');
     assert.ok(lines.some((l) => l.includes(',Sent a message,message.send,')));
-    assert.ok(lines.some((l) => l.includes(`"'=HYPERLINK(""http://evil"")"`)), 'formula escaped');
+    assert.ok(
+      lines.some((l) => l.includes(`"'=HYPERLINK(""http://evil"")"`)),
+      'formula escaped',
+    );
     assert.ok(!lines.some((l) => /(^|,)"?=HYPERLINK/.test(l)), 'no raw formula');
 
     const [exported] = await sql`SELECT user_id, meta FROM audit_log WHERE action = 'audit.exported' ORDER BY id DESC LIMIT 1`;
@@ -636,6 +659,161 @@ try {
     const r = await owner('POST', `/api/conversations/${rajId}/messages`, { text: 'x', clientId: crypto.randomUUID() });
     assert.equal(r.status, 409, 'cannot send while account needs attention');
   });
+  await step('audit category filters follow the event catalog (labels are under Settings, with IP)', async () => {
+    const r = await owner('GET', '/api/audit?action=settings');
+    const label = r.data.find((e: any) => e.action === 'label.created' && e.meta.name === `e2e-${tag}-hot`);
+    assert.ok(label, 'label.created listed under the Settings category');
+    assert.ok(label.ip, 'IP recorded');
+    assert.ok(r.data.every((e: any) => /^(label|webhook)\./.test(e.action)));
+  });
+
+  // ---------- company sign-in + Twilio staff sync (only against the test's own fake staff list) ----------
+  if (config.microsoft && config.staffSync.url === 'http://api:4100') {
+    const ms = config.microsoft;
+    const syncNow = async () => {
+      const r = await owner('POST', '/api/users/directory/sync');
+      assert.equal(r.status, 200, JSON.stringify(r.data));
+      return r.data;
+    };
+    const userByEmail = async (email: string) =>
+      (
+        await sql`SELECT id, role, source, staff_id, password_hash, disabled_at, disabled_by, disabled_reason FROM users WHERE email = ${email}`
+      )[0];
+
+    await step('Microsoft sign-in: PKCE redirect to the company tenant, bound to the browser', async () => {
+      assert.deepEqual((await owner('GET', '/api/auth/methods')).data, { microsoft: true, password: 'on' });
+      const start = await fetch(`${API}/api/auth/microsoft`, { redirect: 'manual' });
+      assert.equal(start.status, 302);
+      const to = new URL(start.headers.get('location') ?? '');
+      assert.equal(`${to.origin}${to.pathname}`, `https://login.microsoftonline.com/${ms.tenantId}/oauth2/v2.0/authorize`);
+      assert.equal(to.searchParams.get('client_id'), ms.clientId);
+      assert.equal(to.searchParams.get('redirect_uri'), `${config.appUrl}/api/auth/microsoft/callback`);
+      assert.equal(to.searchParams.get('code_challenge_method'), 'S256');
+      assert.equal(to.searchParams.get('code_challenge')?.length, 43);
+      assert.match(to.searchParams.get('scope') ?? '', /openid/);
+      const state = to.searchParams.get('state');
+      const cookie = start.headers.get('set-cookie') ?? '';
+      assert.match(cookie, new RegExp(`^lu_oidc=${state};.*HttpOnly`, 'i'));
+      // Finishing someone else's sign-in (no or different browser cookie) is refused.
+      for (const headers of [{}, { cookie: 'lu_oidc=someone-else' }]) {
+        const cb = await fetch(`${API}/api/auth/microsoft/callback?code=x&state=${state}`, { redirect: 'manual', headers });
+        assert.equal(cb.status, 302);
+        assert.match(cb.headers.get('location') ?? '', /^\/login\?error=/);
+      }
+      const denied = await fetch(`${API}/api/auth/microsoft/callback?error=access_denied`, { redirect: 'manual' });
+      assert.match(decodeURIComponent(denied.headers.get('location') ?? ''), /cancelled/);
+    });
+
+    await step('ID token checks: issuer, tenant, audience, nonce, expiry', async () => {
+      const { claimsFromIdToken } = await import('../modules/auth/microsoft.ts');
+      const good = {
+        iss: `https://login.microsoftonline.com/${ms.tenantId}/v2.0`,
+        tid: ms.tenantId,
+        aud: ms.clientId,
+        exp: Math.floor(Date.now() / 1000) + 600,
+        nonce: 'n1',
+        oid: 'oid-1',
+        email: 'a@b.test',
+      };
+      const token = (c: object) => `x.${Buffer.from(JSON.stringify(c)).toString('base64url')}.sig`;
+      const expect = { tenantId: ms.tenantId, clientId: ms.clientId, nonce: 'n1' };
+      assert.equal(claimsFromIdToken(token(good), expect).oid, 'oid-1');
+      const otherTenant = '11111111-1111-4111-8111-111111111111';
+      assert.throws(
+        () => claimsFromIdToken(token({ ...good, iss: `https://login.microsoftonline.com/${otherTenant}/v2.0` }), expect),
+        /issuer/,
+      );
+      assert.throws(() => claimsFromIdToken(token({ ...good, tid: otherTenant }), expect), /tenant/);
+      assert.throws(() => claimsFromIdToken(token({ ...good, aud: 'another-app' }), expect), /audience/);
+      assert.throws(() => claimsFromIdToken(token({ ...good, nonce: 'replayed' }), expect), /nonce/);
+      assert.throws(() => claimsFromIdToken(token({ ...good, exp: 1 }), expect), /expired/);
+    });
+
+    await step('staff sync: links teammates (also by alias), adds active staff as members, skips auto-imported', async () => {
+      staffList = [
+        { id: 'st-member', name: 'E2E Member', email: `member-${tag}@e2e.test` },
+        { id: 'st-reader', name: 'E2E Reader', email: `reader.alt-${tag}@e2e.test`, email_aliases: [`reader-${tag}@e2e.test`] },
+        { id: 'st-sam', name: 'Sam Staff', email: `sam-${tag}@e2e.test` },
+        { id: 'st-auto', name: 'Auto Import', email: `auto-${tag}@e2e.test`, auto_imported: true },
+        { id: 'st-gone', name: 'Left Long Ago', email: `gone-${tag}@e2e.test`, resigned_at: new Date().toISOString() },
+      ];
+      const r = await syncNow();
+      assert.equal(r.ok, true, r.error);
+      assert.equal(r.provisioned, 1);
+      assert.equal((await userByEmail(`member-${tag}@e2e.test`)).staffId, 'st-member');
+      assert.equal((await userByEmail(`reader-${tag}@e2e.test`)).staffId, 'st-reader');
+      const sam = await userByEmail(`sam-${tag}@e2e.test`);
+      assert.equal(sam.role, 'MEMBER');
+      assert.equal(sam.source, 'staff_sync');
+      assert.equal(sam.passwordHash, null, 'Microsoft sign-in only');
+      if (config.defaultGrant === 'NONE') assert.equal((await sql`SELECT 1 FROM account_grants WHERE user_id = ${sam.id}`).length, 0);
+      assert.equal(await userByEmail(`auto-${tag}@e2e.test`), undefined);
+      assert.equal(await userByEmail(`gone-${tag}@e2e.test`), undefined);
+      const listed = (await owner('GET', '/api/users')).data.find((u: any) => u.id === sam.id);
+      assert.equal(listed.source, 'staff_sync');
+      assert.equal(listed.hasPassword, false);
+      const pw = await client()('POST', '/api/auth/login', { email: `sam-${tag}@e2e.test`, password: 'whatever-123' });
+      assert.equal(pw.status, 403);
+      assert.match(pw.data.error, /Microsoft/);
+      assert.equal((await sql`SELECT 1 FROM audit_log WHERE action = 'user.provisioned' AND meta->>'targetUserId' = ${sam.id}`).length, 1);
+      assert.equal((await owner('POST', '/api/users/directory/sync')).status, 200);
+      assert.equal((await member('POST', '/api/users/directory/sync')).status, 403);
+    });
+
+    await step('staff sync: a resignation disables and signs out at once; undoing it re-enables', async () => {
+      assert.equal((await reader('GET', '/api/me')).status, 200);
+      staffList[1].resigned_at = new Date().toISOString();
+      const r = await syncNow();
+      assert.equal(r.disabled, 1);
+      const u = await userByEmail(`reader-${tag}@e2e.test`);
+      assert.ok(u.disabledAt);
+      assert.equal(u.disabledBy, 'staff_sync');
+      assert.equal(u.disabledReason, 'Resigned in the Twilio console');
+      assert.equal((await reader('GET', '/api/me')).status, 401, 'signed out everywhere');
+      const [a] = await sql`SELECT user_id, meta FROM audit_log WHERE action = 'user.deprovisioned' ORDER BY id DESC LIMIT 1`;
+      assert.equal(a.userId, null, 'done by the system');
+      assert.equal(a.meta.targetUserId, readerId);
+
+      staffList[1].resigned_at = null;
+      assert.equal((await syncNow()).reenabled, 1);
+      assert.equal((await userByEmail(`reader-${tag}@e2e.test`)).disabledAt, null);
+      assert.equal((await reader('POST', '/api/auth/login', { email: `reader-${tag}@e2e.test`, password })).status, 200);
+    });
+
+    await step('staff sync: an archived record is checked one by one; admin-disabled people stay disabled', async () => {
+      const memberEntry = staffList.splice(0, 1)[0];
+      staffById.set('st-member', { ...memberEntry, archived_at: new Date().toISOString() });
+      assert.equal((await syncNow()).disabled, 1);
+      assert.equal((await userByEmail(`member-${tag}@e2e.test`)).disabledReason, 'Archived in the Twilio console');
+      staffList.unshift(memberEntry);
+      staffById.clear();
+      assert.equal((await syncNow()).reenabled, 1);
+      // Someone an admin disabled is not re-enabled by the sync.
+      const sam = await userByEmail(`sam-${tag}@e2e.test`);
+      await owner('PATCH', `/api/users/${sam.id}`, { disabled: true });
+      assert.equal((await syncNow()).reenabled, 0);
+      assert.equal((await userByEmail(`sam-${tag}@e2e.test`)).disabledBy, 'admin');
+    });
+
+    await step('staff sync refuses to act on an empty list or a mass resignation', async () => {
+      const saved = staffList;
+      staffList = [];
+      const empty = await syncNow();
+      assert.equal(empty.ok, false);
+      assert.match(empty.error, /empty/);
+      // Six linked people, all suddenly resigned: refused, nobody disabled.
+      staffList = [...saved, ...[1, 2, 3].map((i) => ({ id: `st-x${i}`, name: `Extra ${i}`, email: `extra${i}-${tag}@e2e.test` }))];
+      assert.equal((await syncNow()).provisioned, 3);
+      staffList = staffList.map((s) => ({ ...s, resigned_at: new Date().toISOString() }));
+      const mass = await syncNow();
+      assert.equal(mass.ok, false);
+      assert.match(mass.error, /would disable/);
+      assert.equal((await sql`SELECT count(*)::int AS n FROM users WHERE disabled_by = 'staff_sync' AND email LIKE ${`%${tag}@e2e.test`}`)[0].n, 0);
+      staffList = saved;
+    });
+  } else {
+    console.log('  (Microsoft sign-in and staff sync tests skipped: they need the e2e identity settings, see docs/development.md)');
+  }
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
   console.log(`✘ setup failed

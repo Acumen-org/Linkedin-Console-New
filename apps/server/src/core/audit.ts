@@ -24,7 +24,7 @@ export async function audit(entry: AuditInput) {
   try {
     await sql`
       INSERT INTO audit_log (user_id, account_id, action, meta, ip, user_agent, actor_name, actor_email, account_label)
-      SELECT ${entry.userId ?? null}, a.id, ${entry.action}, ${sql.json((entry.meta ?? {}) as never)}, ${entry.ip ?? null}, ${userAgent},
+      SELECT ${entry.userId ?? null}, a.id, ${entry.action}, ${sql.json((entry.meta ?? {}) as never)}, ${entry.ip ?? entry.req?.ip ?? null}, ${userAgent},
              u.name, u.email, coalesce(${entry.accountLabel ?? null}, a.label)
       FROM (SELECT 1) one
       LEFT JOIN users u ON u.id = ${entry.userId ?? null}
