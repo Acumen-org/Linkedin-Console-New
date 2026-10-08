@@ -108,6 +108,7 @@ const emitResult = (data: unknown) =>
 //   [fast]        result first without URN, LinkedIn's copy a moment later (direct send)
 //   [late]        "could not confirm" first, LinkedIn's copy afterwards
 //   [failafter]   LinkedIn's copy first, then a failure report
+//   [anon]        direct send whose only copy names no sender (looks incoming)
 //   [silent]      nothing at all (browser offline)
 const commands: any[] = [];
 let stopBridge = false;
@@ -129,6 +130,9 @@ async function fakeBridge() {
       } else if (cmd.text.startsWith('[late]')) {
         await emitResult(failed);
         setTimeout(() => emit('messages', [echo]), 500);
+      } else if (cmd.text.startsWith('[anon]')) {
+        await emitResult(ok);
+        await emit('messages', [{ ...echo, fromSelf: false, senderUrn: null, senderName: null }]);
       } else if (cmd.text.startsWith('[failafter]')) {
         await emit('messages', [echo]);
         setTimeout(() => emitResult(failed), 500);
@@ -324,6 +328,33 @@ try {
     );
     assert.equal(r.length, 1, 'exactly one copy');
     assert.equal(r[0].error, null);
+  });
+
+  await step('LinkedIn copy without a sender is merged into the sent message, not shown as incoming', async () => {
+    await sendAndWait('[anon] can i tell you something?', (r) => !!r.message_urn, 3000);
+    const r = await sql`
+      SELECT m.direction, m.status, m.message_urn, u.name AS sent_by FROM messages m LEFT JOIN users u ON u.id = m.sent_by_user_id
+      WHERE m.conversation_id = ${janeId} AND m.text = '[anon] can i tell you something?'`;
+    assert.equal(r.length, 1, 'exactly one copy');
+    assert.equal(r[0].direction, 'OUTBOUND');
+    assert.equal(r[0].sentBy, 'E2E Member');
+    assert.ok(r[0].messageUrn);
+  });
+
+  await step('an old "?" copy of our own message is repaired when LinkedIn sends the full copy', async () => {
+    // Stored before the fix: incoming, no sender, no app message left to merge into.
+    const echo = msg('JANE', null, 'what is your name', Date.now());
+    await sql`
+      INSERT INTO messages (id, conversation_id, account_id, message_urn, direction, text, status, sent_at)
+      VALUES (${newId('msg')}, ${janeId}, ${accountId}, ${echo.urn}, 'INBOUND', ${echo.text}, 'SENT', now())`;
+    await emit('messages', [echo]);
+    const r = await until(
+      async () => sql`SELECT direction, sender_urn FROM messages WHERE message_urn = ${echo.urn}`,
+      (x) => x[0]?.direction === 'OUTBOUND',
+      'repaired as outbound',
+    );
+    assert.equal(r.length, 1);
+    assert.equal(r[0].senderUrn, SELF);
   });
 
   await step('a failure report never overrides a message LinkedIn already shows', async () => {

@@ -62,6 +62,9 @@ export function connectRealtime(qc: QueryClient) {
   };
   socket.on('message.created', onMessage);
   socket.on('message.updated', onMessage);
+  socket.on('message.deleted', (m: { id: string; conversationId: string }) => {
+    qc.setQueryData<Message[]>(['messages', m.conversationId], (list) => list?.filter((x) => x.id !== m.id));
+  });
 
   socket.on('note.created', (n: Note & { conversationId: string }) => {
     qc.setQueryData<Note[]>(['notes', n.conversationId], (list) => (list && !list.some((x) => x.id === n.id) ? [...list, n] : list));

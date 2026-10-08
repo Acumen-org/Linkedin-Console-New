@@ -132,6 +132,27 @@ test('realtime decorated message', () => {
   assert.equal(x.messages[0].text, 'Sounds great, talk tomorrow');
 });
 
+test('sender named only by a reference that is not included still identifies our own message', () => {
+  // e.g. LinkedIn's reply to a send: the sender participant isn't part of the response.
+  const x = extract(
+    {
+      data: {
+        $type: 'com.linkedin.messenger.Message',
+        entityUrn: 'urn:li:msg_message:(urn:li:fsd_profile:ACoAASELF,2-MSG3)',
+        body: { text: 'what is your name' },
+        deliveredAt: 1759500200000,
+        '*sender': `urn:li:msg_messagingParticipant:${SELF}`,
+        '*conversation': CONV,
+      },
+    },
+    SELF,
+  );
+  assert.equal(x.messages.length, 1);
+  assert.equal(x.messages[0].senderUrn, SELF);
+  assert.equal(x.messages[0].fromSelf, true);
+  assert.equal(x.messages[0].senderName, null);
+});
+
 test('group chat title + typing + seen receipts', () => {
   const x = extract({
     included: [

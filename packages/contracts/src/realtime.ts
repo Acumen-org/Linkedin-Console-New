@@ -5,6 +5,8 @@ export interface ServerToClientEvents {
   'conversation.updated': (c: Conversation) => void;
   'message.created': (m: Message) => void;
   'message.updated': (m: Message) => void;
+  /** A duplicate copy was merged away (e.g. LinkedIn's copy of a sent message that looked incoming). */
+  'message.deleted': (m: { id: string; conversationId: string }) => void;
   'note.created': (n: Note & { conversationId: string }) => void;
   'account.updated': (a: Partial<Account> & { id: string }) => void;
   'account.deleted': (a: { id: string }) => void;

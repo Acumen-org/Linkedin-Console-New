@@ -35,7 +35,8 @@ export default async function accountRoutes(app: FastifyInstance) {
     if (!ids.length) return [];
     const rows = await sql`
       SELECT ${ACCOUNT_COLUMNS}, u.name AS owner_name,
-        (SELECT coalesce(sum(unread_count), 0)::int FROM conversations c WHERE c.account_id = a.id AND NOT c.is_archived) AS unread
+        (SELECT coalesce(sum(unread_count), 0)::int FROM conversations c
+         WHERE c.account_id = a.id AND c.unread_count > 0 AND NOT c.is_archived) AS unread
       FROM accounts a JOIN users u ON u.id = a.owner_user_id
       WHERE a.id IN ${sql(ids)}
       ORDER BY a.created_at`;

@@ -61,11 +61,22 @@ export function createReader(ctx: BridgeContext) {
     await fs.writeFile(path.join(dir, `${Date.now()}-${slug}.json`), JSON.stringify(json));
   }
 
-  async function handleJson(json: unknown, source: string) {
+  /** ownSend: the response to a create-message request, so every message in it was sent by this account. */
+  async function handleJson(json: unknown, source: string, ownSend = false) {
     if (ctx.captureRaw) saveCapture(json, source).catch(() => {});
     const { emit } = ctx.streams;
     const x = extract(json, ctx.state.selfUrn);
     if (!ctx.state.selfUrn && x.selfUrn) ctx.state.selfUrn = x.selfUrn;
+    if (ownSend) {
+      // LinkedIn's reply to a send may name the sender only by reference: fill in this account.
+      const self = ctx.state.self;
+      for (const m of x.messages) {
+        m.fromSelf = true;
+        m.senderUrn ??= ctx.state.selfUrn;
+        m.senderName ??= self?.name ?? null;
+        m.senderAvatarUrl ??= self?.avatarUrl ?? null;
+      }
+    }
 
     if (x.conversations.length) {
       const items = x.conversations.map(({ messages: _messages, ...c }) => c);
@@ -124,7 +135,7 @@ export function createReader(ctx: BridgeContext) {
       if (!(res.headers()['content-type'] ?? '').includes('json')) return;
       try {
         rememberTemplate(res.request());
-        await handleJson(await res.json(), url);
+        await handleJson(await res.json(), url, isCreateMessageRequest(res.request().method(), url));
       } catch {}
     });
 

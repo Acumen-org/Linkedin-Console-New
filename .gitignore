@@ -8,3 +8,4 @@ tools/phase0-spike/files/
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.map
+captures/

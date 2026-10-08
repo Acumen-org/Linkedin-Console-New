@@ -180,18 +180,21 @@ function mapMessage(m: Json, ref: Ref, selfUrn: string | null): LiMessage | null
   if (!urn) return null;
   const conv = ref(m, 'conversation');
   const conversationUrn = typeof conv === 'string' ? conv : (conv?.entityUrn ?? m.conversationUrn ?? null);
-  const sender = mapParticipant(ref(m, 'sender') ?? ref(m, 'actor'), ref);
+  const senderRef = ref(m, 'sender') ?? ref(m, 'actor');
+  const sender = mapParticipant(senderRef, ref);
+  // A reference LinkedIn didn't include ("urn:li:msg_messagingParticipant:urn:li:fsd_profile:…") still says who sent it.
+  const senderUrn = sender?.urn ?? profileUrnFrom(senderRef);
   const self = selfUrn ?? selfFromConversationUrn(conversationUrn);
   return {
     urn,
     conversationUrn,
     text: txt(m.body),
     sentAt: m.deliveredAt ?? m.createdAt ?? null,
-    senderUrn: sender?.urn ?? null,
+    senderUrn,
     senderName: sender?.name ?? null,
     senderAvatarUrl: sender?.avatarUrl ?? null,
     senderProfileUrl: sender?.profileUrl ?? null,
-    fromSelf: !!(self && sender?.urn === self),
+    fromSelf: !!(self && senderUrn === self),
     attachments: arr(m.renderContent)
       .map(mapRenderContent)
       .filter((a): a is LiAttachment => !!a),

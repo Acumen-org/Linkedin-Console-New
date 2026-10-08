@@ -13,15 +13,15 @@ The bridge (`apps/sidecar/src/bridge/`) is the only part that depends on LinkedI
 
 ## First real account (do this once, with a non-critical account)
 
-1. Enable raw capture for pods: in `.env` set `SIDECAR_ENV=CAPTURE_RAW=1`, then `./scripts/update.sh`.
+1. Enable raw capture for pods: `./scripts/capture.sh on` (sets `CAPTURE_RAW=1` in `SIDECAR_ENV` and recreates the pods).
 2. Connect the account and log in via Live View.
 3. In Live View, open a few conversations and scroll the conversation list. Have someone send the account a message, with an image and a file.
 4. Check the results:
    - **Inbox**: conversations, names, avatars and previews appear; new messages arrive within seconds.
-   - Captures: `docker run --rm -v linkunify_files:/f alpine ls /f/capture/<accountId> | head`
+   - Captures: `./scripts/capture.sh list <accountId>` shows thread URNs; `./scripts/capture.sh extract <accountId> <urn>` saves one thread's raw conversation and messages to `captures/`.
 5. Send a test reply from the inbox to yourself or a colleague, with text and then with an image. Watch the status go to ✓, and check it on your phone.
 6. If something's missing, copy a capture locally, turn it into an anonymized fixture in `apps/sidecar/test/`, adjust `extract.ts` until `pnpm --filter @linkunify/sidecar test` passes, then `./scripts/update.sh`.
-7. Turn capture off again (`SIDECAR_ENV=`): the captures contain private messages. Delete them with `docker run --rm -v linkunify_files:/f alpine rm -rf /f/capture`.
+7. Turn capture off again: `./scripts/capture.sh off` (also deletes the captured files; they contain private messages). Delete `captures/` when done.
 
 ## Self-healing
 

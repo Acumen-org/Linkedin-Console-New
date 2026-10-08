@@ -58,10 +58,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
         ${q.before ? sql`AND c.last_message_at < ${q.before}` : sql``}
         ${
           term
-            ? sql`AND (
-          c.title ILIKE ${`%${term}%`}
-          OR c.participants::text ILIKE ${`%${term}%`}
-          OR EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND to_tsvector('simple', m.text) @@ plainto_tsquery('simple', ${term}))
+            ? // Name/title match (trigram index) or message text match (full-text index), as one id set.
+              sql`AND c.id IN (
+          SELECT id FROM conversations WHERE (coalesce(title, '') || ' ' || participants::text) ILIKE ${`%${term}%`}
+          UNION
+          SELECT conversation_id FROM messages WHERE to_tsvector('simple', text) @@ plainto_tsquery('simple', ${term})
         )`
             : sql``
         }

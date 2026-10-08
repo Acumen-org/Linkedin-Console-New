@@ -125,7 +125,14 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
     if (!m.urn || !m.conversationUrn) continue;
     const conversationId = await ensureConversation(accountId, m);
 
-    const [known] = await sql`SELECT id, attachments FROM messages WHERE message_urn = ${m.urn}`;
+    let [known] = await sql`SELECT id, conversation_id, attachments, direction, sender_urn FROM messages WHERE message_urn = ${m.urn}`;
+    if (known && m.fromSelf && known.direction === 'INBOUND' && !known.senderUrn) {
+      // An earlier copy of our own message named no sender and was stored as incoming: drop it, and
+      // handle this copy as new (it merges into the teammate's sent message, or is stored as outbound).
+      await sql`DELETE FROM messages WHERE id = ${known.id}`;
+      await publish(accountRoom(accountId), 'message.deleted', { id: known.id, conversationId: known.conversationId });
+      known = undefined;
+    }
     if (known) {
       // Fresh LinkedIn URLs (they expire), but keep our local download cache per attachment.
       const old = (known.attachments ?? []) as Record<string, unknown>[];
@@ -142,7 +149,9 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
       continue;
     }
 
-    let messageId = m.fromSelf ? await matchPendingOutbound(conversationId, m) : null;
+    // A copy without a sender can't be from the other side (theirs always name them): if it matches a
+    // message a teammate just sent, it is LinkedIn's copy of that one.
+    let messageId = m.fromSelf || !m.senderUrn ? await matchPendingOutbound(conversationId, m) : null;
     let freshInbound = false;
     let event: 'message.created' | 'message.updated' = 'message.updated';
     if (!messageId) {
