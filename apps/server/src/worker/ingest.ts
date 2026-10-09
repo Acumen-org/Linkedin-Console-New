@@ -19,7 +19,7 @@ import { newId } from '../lib/ids.ts';
 import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
-import { refreshFirstSync, startFirstSync } from './first-sync.ts';
+import { catchUp, catchUpWindow, missedWhileAway, refreshFirstSync, startFirstSync } from './first-sync.ts';
 import { notifyNewMessage } from './push.ts';
 
 const norm = (s: string | null | undefined) =>
@@ -92,16 +92,19 @@ async function ensureConversation(accountId: string, m: LiMessage) {
 
 async function requestHistory(accountId: string, conversationId: string, c: LiConversation, unread: number) {
   // Requested now; history_synced_at is set when the bridge reports it done (retried if it never does).
-  await sql`UPDATE conversations SET history_requested_at = now() WHERE id = ${conversationId}`;
+  await sql`UPDATE conversations SET history_requested_at = now(), history_synced_at = NULL WHERE id = ${conversationId}`;
   // Opening a thread marks it read on LinkedIn, so the bridge only opens already-read threads.
   await sendCommand(accountId, { type: 'sync_thread', conversationUrn: c.urn, threadId: c.threadId, allowOpen: unread === 0 });
 }
 
 export async function onConversations(accountId: string, items: LiConversation[]) {
+  const away = await catchUpWindow(accountId);
   for (const c of items) {
     if (!c.urn) continue;
     const row = await upsertConversation(accountId, c);
-    if (!row.historyRequestedAt && !row.historySyncedAt && c.threadId) await requestHistory(accountId, row.id, c, row.unreadCount);
+    const neverFetched = !row.historyRequestedAt && !row.historySyncedAt;
+    if (c.threadId && (neverFetched || missedWhileAway(away, c.lastActivityAt, row)))
+      await requestHistory(accountId, row.id, c, row.unreadCount);
     if (row.changed) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(row.id));
   }
 }
@@ -328,7 +331,8 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
     if (data.status === 'CONNECTED') {
       // First connection: the first sync loads recent chats and connections; daily connection syncs start a day later.
       await redis.set(`lu:connsync:${accountId}`, '1', 'EX', 24 * 3600, 'NX');
-      await startFirstSync(accountId);
+      // Later reconnects: fetch what came in while the account was away.
+      if (!(await startFirstSync(accountId))) await catchUp(accountId);
     }
   }
 }

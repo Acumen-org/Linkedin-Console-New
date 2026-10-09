@@ -188,6 +188,7 @@ export default async function conversationRoutes(app: FastifyInstance) {
       conversationUrn: conversation.threadUrn,
       threadId: conversation.threadId,
       allowOpen: conversation.unreadCount === 0,
+      priority: true, // someone asked for it: before the background work
     });
     return { ok: true };
   });

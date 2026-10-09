@@ -8,8 +8,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CommandResult, FileRef } from '@linkedin-console/contracts';
 import { config } from '../config.ts';
+import { logger } from '../logger.ts';
 import { IDLE_URL, jitter } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
+import { extract } from './extract.ts';
 import { encodeUrn, forgetTemplate, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import type { Command } from './streams.ts';
@@ -171,6 +173,22 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     await result(cmd, direct ?? (await sendViaUi(cmd, since)));
   }
 
+  /**
+   * Whether LinkedIn's answer is this conversation's history. The learned request names the conversation it
+   * was learned from: if swapping in ours didn't work, the answer is that other conversation's messages.
+   */
+  function isHistoryOf(text: string, conversationUrn: string) {
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return false;
+    }
+    const messages = extract(json as never, ctx.state.selfUrn).messages;
+    // No messages at all is a real (empty) conversation; only another conversation's messages are wrong.
+    return !messages.length || messages.some((m) => m.conversationUrn === conversationUrn);
+  }
+
   /** A conversation's recent history, quietly (LinkedIn's own request) or by opening it when allowed. */
   async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>): Promise<Outcome> {
     const tpl = ctx.state.templates.messages;
@@ -181,8 +199,11 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
         `conversationUrn:${encodeUrn(cmd.conversationUrn)}`,
       );
       const r = await inPageFetch(ctx, url, tpl.headers);
-      if (r.status === 200) return { ok: true, conversationUrn: cmd.conversationUrn };
-      if (!isFormatRejection(r.status)) return { ok: false, error: `LinkedIn ${r.status}`, conversationUrn: cmd.conversationUrn };
+      if (r.status === 200 && isHistoryOf(r.text, cmd.conversationUrn)) return { ok: true, conversationUrn: cmd.conversationUrn };
+      if (r.status !== 200 && !isFormatRejection(r.status))
+        return { ok: false, error: `LinkedIn ${r.status}`, conversationUrn: cmd.conversationUrn };
+      // Rejected, or answered with another conversation (ours couldn't be swapped in): its format changed.
+      if (r.status === 200) logger.warn('the learned history request returned another conversation; learning it again');
       forgetTemplate(ctx, 'messages');
     }
     // Without a template, opening the thread is the only way (it marks it read), so only when allowed. Opening

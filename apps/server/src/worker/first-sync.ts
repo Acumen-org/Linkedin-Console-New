@@ -21,8 +21,11 @@ type SyncState = AccountSync & {
   connectionsStartedAt?: string | null;
 };
 
-/** Starts the first sync once per account (a later reconnect doesn't start it again). */
-export async function startFirstSync(accountId: string) {
+/**
+ * Starts the first sync once per account. Returns false when it already ran: a reconnect catches up instead
+ * (catchUp), and someone with full access can run the whole sync again (restartFirstSync).
+ */
+export async function startFirstSync(accountId: string): Promise<boolean> {
   const state: SyncState = {
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -32,10 +35,61 @@ export async function startFirstSync(accountId: string) {
   };
   const [started] = await sql`
     UPDATE accounts SET sync_state = ${sql.json(state as never)} WHERE id = ${accountId} AND sync_state IS NULL RETURNING id`;
-  if (!started) return;
+  if (!started) return false;
   await sendCommand(accountId, { type: 'sync_inbox', target: FIRST_SYNC_CONVERSATIONS });
   await sendCommand(accountId, { type: 'sync_connections', maxScrolls: QUICK_CONNECTION_SCROLLS, progress: true });
   await publishState(accountId);
+  return true;
+}
+
+/** A first sync that is still running (an older one that never finished doesn't block a new one). */
+export async function firstSyncRunning(accountId: string) {
+  const state = await load(accountId);
+  return !!state && !state.finishedAt && Date.now() - Date.parse(state.startedAt) < 6 * 3600_000;
+}
+
+/**
+ * Runs the whole first sync again: every conversation's history counts as not loaded (chats load theirs as
+ * they come up in the list, or when someone opens them), then 100 recent chats, their history, connections.
+ */
+export async function restartFirstSync(accountId: string) {
+  await sql`UPDATE conversations SET history_requested_at = NULL, history_synced_at = NULL WHERE account_id = ${accountId}`;
+  await sql`UPDATE accounts SET sync_state = NULL WHERE id = ${accountId}`;
+  await redis.del(catchUpKey(accountId));
+  return startFirstSync(accountId);
+}
+
+const catchUpKey = (accountId: string) => `lu:catchup:${accountId}`;
+const CATCH_UP_MINUTES = 30;
+
+/**
+ * The account is back after being offline (logged out, browser restarted): messages that came in meanwhile
+ * were never seen. Reload the recent chats; the ones with activity since the newest message we have get their
+ * history fetched again (see needsCatchUp).
+ */
+export async function catchUp(accountId: string) {
+  const [c] = await sql`SELECT max(last_message_at) AS newest FROM conversations WHERE account_id = ${accountId}`;
+  const since = (c?.newest as Date | null)?.getTime() ?? 0;
+  await redis.set(catchUpKey(accountId), JSON.stringify({ since, at: Date.now() }), 'EX', CATCH_UP_MINUTES * 60);
+  await sendCommand(accountId, { type: 'sync_inbox', target: FIRST_SYNC_CONVERSATIONS });
+}
+
+export type CatchUpWindow = { since: number; at: number } | null;
+
+export async function catchUpWindow(accountId: string): Promise<CatchUpWindow> {
+  const raw = await redis.get(catchUpKey(accountId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+/** During a catch-up: this chat had activity while we were away and its history hasn't been fetched since. */
+export function missedWhileAway(
+  w: CatchUpWindow,
+  lastActivityAt: number | null,
+  row: { historyRequestedAt: Date | null; historySyncedAt: Date | null },
+) {
+  if (!w || !lastActivityAt || lastActivityAt <= w.since) return false;
+  const fetchedAt = Math.max(row.historyRequestedAt?.getTime() ?? 0, row.historySyncedAt?.getTime() ?? 0);
+  return fetchedAt < w.at;
 }
 
 async function load(accountId: string): Promise<SyncState | null> {

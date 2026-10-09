@@ -12,6 +12,7 @@ import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newAccountId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
+import { firstSyncRunning, restartFirstSync } from '../../worker/first-sync.ts';
 
 const Timezone = z.string().regex(/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+)*$/, 'Invalid timezone');
 const Language = z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$/, 'Invalid language');
@@ -164,6 +165,19 @@ export default async function accountRoutes(app: FastifyInstance) {
     if (status.chrome === 'missing' || status.sidecar === 'missing') await pods.create(id, podSpecOf(a));
     else await pods.restart(id);
     await audit({ userId: user.id, accountId: id, action: 'account.restarted', ip: req.ip });
+    return { ok: true };
+  });
+
+  // Runs the first sync again: 100 recent chats with their history, then all connections.
+  app.post('/api/accounts/:id/resync', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'FULL');
+    const [a] = await sql`SELECT status FROM accounts WHERE id = ${id}`;
+    if (a.status !== 'CONNECTED') throw new HttpError(409, 'The account must be connected to sync');
+    if (await firstSyncRunning(id)) throw new HttpError(409, 'A full sync is already running for this account');
+    await restartFirstSync(id);
+    await audit({ userId: user.id, accountId: id, action: 'account.resynced', ip: req.ip });
     return { ok: true };
   });
 

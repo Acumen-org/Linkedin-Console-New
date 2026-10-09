@@ -28,6 +28,7 @@ export const AUDIT_ACTIONS = {
   'account.updated': { label: 'Changed account settings', category: 'account' },
   'account.status': { label: 'Account status changed', category: 'account' },
   'account.restarted': { label: 'Restarted an account browser', category: 'account' },
+  'account.resynced': { label: 'Ran the full sync again (chats, history, connections)', category: 'account' },
   'account.imported': { label: 'Imported a LinkedIn data archive', category: 'account' },
   'account.auto_paused': { label: 'Sending paused automatically (LinkedIn warning)', category: 'account' },
   'account.grants_changed': { label: 'Changed who can access an account', category: 'account' },

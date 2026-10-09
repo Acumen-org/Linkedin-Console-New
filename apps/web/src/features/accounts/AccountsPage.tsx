@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LogIn, MonitorPlay, Pause, Play, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import { History, LogIn, MonitorPlay, Pause, Play, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../../App';
@@ -138,6 +138,18 @@ function AccountCard({ a, onEdit, onGrants, onImport }: { a: Account; onEdit: ()
             <button onClick={onImport} className="btn-ghost" title="Import LinkedIn data archive (connections, older chats)">
               <Upload size={16} />
             </button>
+            {a.status === 'CONNECTED' && !isSyncing(a.sync) && (
+              <button
+                onClick={() =>
+                  confirm('Load the 100 most recent chats with their history again, then all connections? This takes a few minutes.') &&
+                  action(() => api.post(`/api/accounts/${a.id}/resync`), 'Full sync started')
+                }
+                className="btn-ghost"
+                title="Sync chats, history and connections again"
+              >
+                <History size={16} />
+              </button>
+            )}
             <button
               onClick={() => action(() => api.post(`/api/accounts/${a.id}/restart`), 'Restarting browser…')}
               className="btn-ghost"
