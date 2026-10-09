@@ -61,17 +61,19 @@ export async function restartFirstSync(accountId: string) {
 
 const catchUpKey = (accountId: string) => `lu:catchup:${accountId}`;
 const CATCH_UP_MINUTES = 30;
+const CATCH_UP_SCROLLS = 2;
 
 /**
  * The account is back after being offline (logged out, browser restarted): messages that came in meanwhile
  * were never seen. Reload the recent chats; the ones with activity since the newest message we have get their
- * history fetched again (see needsCatchUp).
+ * history fetched again (see missedWhileAway).
  */
 export async function catchUp(accountId: string) {
   const [c] = await sql`SELECT max(last_message_at) AS newest FROM conversations WHERE account_id = ${accountId}`;
   const since = (c?.newest as Date | null)?.getTime() ?? 0;
   await redis.set(catchUpKey(accountId), JSON.stringify({ since, at: Date.now() }), 'EX', CATCH_UP_MINUTES * 60);
-  await sendCommand(accountId, { type: 'sync_inbox', target: FIRST_SYNC_CONVERSATIONS });
+  // Light: the most recent chats only (the full 100-chat load is for the first connection and Re-sync).
+  await sendCommand(accountId, { type: 'sync_inbox', scrolls: CATCH_UP_SCROLLS });
 }
 
 export type CatchUpWindow = { since: number; at: number } | null;
@@ -187,4 +189,82 @@ export async function onSyncResult(accountId: string, r: BridgeEventMap['result'
     if (r.type === 'sync_thread') return false; // counted from the database in the refresh below
   });
   await refreshFirstSync(accountId, r.type !== 'sync_thread');
+}
+
+/** Why a recent chat's history isn't in yet (shown in the sync report). */
+export type HistoryWait =
+  | 'no_thread' // LinkedIn gave no thread id: can't be fetched
+  | 'unread' // unread, and the quiet history request isn't learned yet: opening it would mark it read
+  | 'queued' // requested less than 10 minutes ago
+  | 'retrying' // requested earlier without an answer; retried every 10 minutes
+  | 'not_requested';
+
+/**
+ * What the first sync actually loaded, for checking it: the 100 most recent chats, which have their history,
+ * and why the others are still waiting.
+ */
+export async function syncReport(accountId: string) {
+  const [a] = await sql`SELECT sync_state, status FROM accounts WHERE id = ${accountId}`;
+  const templates = JSON.parse((await redis.get(`li:tpl:${accountId}`)) ?? '{}') as { messages?: unknown; send?: unknown };
+  const learned = !!templates.messages;
+  const rows = await sql`
+    SELECT c.id, c.title, c.participants, c.last_message_at, c.unread_count, c.thread_id,
+           c.history_requested_at, c.history_synced_at,
+           (SELECT count(*)::int FROM messages m WHERE m.conversation_id = c.id) AS messages
+    FROM conversations c WHERE c.account_id = ${accountId}
+    ORDER BY c.last_message_at DESC NULLS LAST LIMIT ${FIRST_SYNC_CONVERSATIONS}`;
+  const [{ total, connections }] = await sql`
+    SELECT (SELECT count(*)::int FROM conversations WHERE account_id = ${accountId}) AS total,
+           (SELECT count(*)::int FROM contacts WHERE account_id = ${accountId} AND is_connection) AS connections`;
+  const waitOf = (r: (typeof rows)[number]): HistoryWait | null => {
+    if (r.historySyncedAt) return null;
+    if (!r.threadId) return 'no_thread';
+    if (!r.historyRequestedAt) return 'not_requested';
+    if (r.unreadCount > 0 && !learned) return 'unread';
+    return Date.now() - r.historyRequestedAt.getTime() < 10 * 60_000 ? 'queued' : 'retrying';
+  };
+  const chats = rows.map((r) => ({
+    id: r.id as string,
+    name: (r.title as string | null) ?? ((r.participants as { name: string }[])?.map((p) => p.name).join(', ') || 'LinkedIn Member'),
+    lastMessageAt: r.lastMessageAt as Date | null,
+    unread: r.unreadCount as number,
+    messages: r.messages as number,
+    historyAt: r.historySyncedAt as Date | null,
+    waiting: waitOf(r),
+  }));
+  return {
+    status: a?.status as string,
+    sync: a?.syncState ?? null,
+    historyRequestLearned: learned,
+    sendRequestLearned: !!templates.send,
+    conversations: total as number,
+    connections: connections as number,
+    recent: {
+      count: chats.length,
+      withHistory: chats.filter((c) => !c.waiting).length,
+      waiting: chats.filter((c) => c.waiting).length,
+    },
+    chats,
+  };
+}
+
+/** Asks again for the history of the recent chats that don't have it yet. Returns how many were asked for. */
+export async function retryMissingHistory(accountId: string) {
+  const due = await sql`
+    UPDATE conversations c SET history_requested_at = now()
+    FROM (
+      SELECT id FROM conversations WHERE account_id = ${accountId}
+      ORDER BY last_message_at DESC NULLS LAST LIMIT ${FIRST_SYNC_CONVERSATIONS}
+    ) recent
+    WHERE c.id = recent.id AND c.history_synced_at IS NULL AND c.thread_id IS NOT NULL
+    RETURNING c.thread_urn, c.thread_id, c.unread_count`;
+  for (const c of due) {
+    await sendCommand(accountId, {
+      type: 'sync_thread',
+      conversationUrn: c.threadUrn,
+      threadId: c.threadId,
+      allowOpen: c.unreadCount === 0,
+    });
+  }
+  return due.length;
 }

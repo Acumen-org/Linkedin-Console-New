@@ -11,6 +11,7 @@ import { toast } from '../../lib/toast';
 import type { Account, Level } from '../../types';
 import { ExportChatsMenu, ImportModal } from './DataTools';
 import { isSyncing, SyncProgress } from './SyncProgress';
+import { SyncReportModal } from './SyncReport';
 
 export function AccountsPage() {
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api.get<Account[]>('/api/accounts') });
@@ -18,6 +19,7 @@ export function AccountsPage() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [granting, setGranting] = useState<Account | null>(null);
   const [importing, setImporting] = useState<Account | null>(null);
+  const [reporting, setReporting] = useState<Account | null>(null);
   const me = useMe();
 
   return (
@@ -41,18 +43,38 @@ export function AccountsPage() {
       )}
       <div className="space-y-3">
         {accounts.data?.map((a) => (
-          <AccountCard key={a.id} a={a} onEdit={() => setEditing(a)} onGrants={() => setGranting(a)} onImport={() => setImporting(a)} />
+          <AccountCard
+            key={a.id}
+            a={a}
+            onEdit={() => setEditing(a)}
+            onGrants={() => setGranting(a)}
+            onImport={() => setImporting(a)}
+            onReport={() => setReporting(a)}
+          />
         ))}
       </div>
       {adding && <AddAccountModal onClose={() => setAdding(false)} />}
       {editing && <EditAccountModal a={editing} onClose={() => setEditing(null)} />}
       {granting && <GrantsModal a={granting} onClose={() => setGranting(null)} />}
       {importing && <ImportModal a={importing} onClose={() => setImporting(null)} />}
+      {reporting && <SyncReportModal account={reporting} onClose={() => setReporting(null)} />}
     </PageScroll>
   );
 }
 
-function AccountCard({ a, onEdit, onGrants, onImport }: { a: Account; onEdit: () => void; onGrants: () => void; onImport: () => void }) {
+function AccountCard({
+  a,
+  onEdit,
+  onGrants,
+  onImport,
+  onReport,
+}: {
+  a: Account;
+  onEdit: () => void;
+  onGrants: () => void;
+  onImport: () => void;
+  onReport: () => void;
+}) {
   const me = useMe();
   const qc = useQueryClient();
   const full = a.level === 'FULL';
@@ -103,6 +125,11 @@ function AccountCard({ a, onEdit, onGrants, onImport }: { a: Account; onEdit: ()
           </div>
         )}
         {isSyncing(a.sync) && <SyncProgress sync={a.sync} />}
+        {a.level !== 'READ' && a.status === 'CONNECTED' && (
+          <button onClick={onReport} className="mt-1 text-xs text-brand hover:underline">
+            Sync report: recent chats and their history
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {needsLogin && canLogin && (

@@ -12,7 +12,7 @@ import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newAccountId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
-import { firstSyncRunning, restartFirstSync } from '../../worker/first-sync.ts';
+import { firstSyncRunning, restartFirstSync, retryMissingHistory, syncReport } from '../../worker/first-sync.ts';
 
 const Timezone = z.string().regex(/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+)*$/, 'Invalid timezone');
 const Language = z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$/, 'Invalid language');
@@ -179,6 +179,24 @@ export default async function accountRoutes(app: FastifyInstance) {
     await restartFirstSync(id);
     await audit({ userId: user.id, accountId: id, action: 'account.resynced', ip: req.ip });
     return { ok: true };
+  });
+
+  // What the first sync loaded: the 100 most recent chats, which have their history, why others wait.
+  app.get('/api/accounts/:id/sync-report', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'REPLY');
+    return syncReport(id);
+  });
+
+  app.post('/api/accounts/:id/sync-report/retry', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'FULL');
+    const [a] = await sql`SELECT status FROM accounts WHERE id = ${id}`;
+    if (a.status !== 'CONNECTED') throw new HttpError(409, 'The account must be connected to sync');
+    if (!(await redis.set(`lu:historyretry:${id}`, '1', 'EX', 60, 'NX'))) throw new HttpError(429, 'Just asked; try again in a minute');
+    return { requested: await retryMissingHistory(id) };
   });
 
   app.post('/api/accounts/:id/sync', async (req) => {

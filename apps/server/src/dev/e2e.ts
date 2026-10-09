@@ -343,6 +343,37 @@ try {
     assert.equal(finished.connections.done, true);
   });
 
+  await step('sync report: recent chats, which have their history, why the others wait, retry', async () => {
+    const report = async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data;
+    const done = await report();
+    assert.equal(done.recent.count, 2);
+    assert.equal(done.recent.withHistory, 2, JSON.stringify(done.chats));
+    assert.equal(done.connections >= 0, true);
+    assert.ok(done.sync.finishedAt, 'first sync finished');
+    assert.deepEqual(
+      done.chats.map((c: any) => c.waiting),
+      [null, null],
+    );
+    assert.equal((await reader('GET', `/api/accounts/${accountId}/sync-report`)).status, 403, 'READ access cannot see it');
+
+    // Raj's history never came: the report says why, and a retry asks LinkedIn again (once a minute at most).
+    await sql`UPDATE conversations SET history_synced_at = NULL, history_requested_at = now() - interval '20 minutes' WHERE id = ${rajId}`;
+    const waiting = await report();
+    assert.equal(waiting.recent.waiting, 1);
+    assert.equal(waiting.chats.find((c: any) => c.id === rajId).waiting, 'retrying');
+    assert.equal((await member('POST', `/api/accounts/${accountId}/sync-report/retry`)).status, 403, 'full access only');
+    const before = commands.length;
+    const retry = await owner('POST', `/api/accounts/${accountId}/sync-report/retry`);
+    assert.equal(retry.data.requested, 1);
+    await until(
+      async () => commands.slice(before).find((c) => c.type === 'sync_thread' && c.conversationUrn === conv('RAJ')),
+      Boolean,
+      'history asked again',
+    );
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/sync-report/retry`)).status, 429);
+    await until(report, (x) => x.recent.waiting === 0, 'history back in');
+  });
+
   await step('opening a conversation whose history is not in yet fetches it first', async () => {
     await sql`UPDATE conversations SET history_synced_at = NULL WHERE id = ${rajId}`;
     await redis.del(`lu:prioritysync:${rajId}`);
@@ -947,52 +978,59 @@ try {
     assert.equal((await member('POST', `/api/conversations/${janeId}/draft`, {})).status, 404, 'AI drafts off by default');
   });
 
-  await step('reconnect: recent chats reload, chats with activity while away fetch their history again', async () => {
-    const self = { urn: SELF, name: 'E2E Self', headline: 'Tester', publicId: 'e2e', avatarUrl: null };
-    await emit('session', { status: 'NEEDS_ATTENTION', self: null });
-    await until(
-      () => owner('GET', `/api/accounts/${accountId}`),
-      (r) => r.data?.status === 'NEEDS_ATTENTION',
-      'away',
-    );
-    await sql`UPDATE conversations SET history_synced_at = now(), history_requested_at = now() WHERE account_id = ${accountId}`;
-    const [{ newest }] = await sql`SELECT max(last_message_at) AS newest FROM conversations WHERE account_id = ${accountId}`;
-    const before = commands.length;
-    await emit('session', { status: 'CONNECTED', self });
-    await until(async () => commands.slice(before).find((c) => c.type === 'sync_inbox' && c.target === 100), Boolean, 'catch-up list');
-    assert.ok(!commands.slice(before).some((c) => c.type === 'sync_connections'), 'not the whole first sync again');
+  await step(
+    'reconnect: the most recent chats reload (not all 100), chats with activity while away fetch their history again',
+    async () => {
+      const self = { urn: SELF, name: 'E2E Self', headline: 'Tester', publicId: 'e2e', avatarUrl: null };
+      await emit('session', { status: 'NEEDS_ATTENTION', self: null });
+      await until(
+        () => owner('GET', `/api/accounts/${accountId}`),
+        (r) => r.data?.status === 'NEEDS_ATTENTION',
+        'away',
+      );
+      await sql`UPDATE conversations SET history_synced_at = now(), history_requested_at = now() WHERE account_id = ${accountId}`;
+      const [{ newest }] = await sql`SELECT max(last_message_at) AS newest FROM conversations WHERE account_id = ${accountId}`;
+      const before = commands.length;
+      await emit('session', { status: 'CONNECTED', self });
+      await until(
+        async () => commands.slice(before).find((c) => c.type === 'sync_inbox' && !c.target && c.scrolls <= 3),
+        Boolean,
+        'light catch-up of the recent chats only',
+      );
+      assert.ok(!commands.slice(before).some((c) => c.type === 'sync_connections'), 'not the whole first sync again');
 
-    const stub = (who: string, person: typeof jane, at: number) => ({
-      urn: conv(who),
-      threadId: `2-${who}${tag}`,
-      title: null,
-      isGroup: false,
-      unreadCount: 0,
-      lastActivityAt: at,
-      folder: 'focused',
-      participants: [person],
-    });
-    // Jane wrote while the account was away; Raj's chat didn't change.
-    const list = [stub('JANE', jane, newest.getTime() + 60_000), stub('RAJ', raj, newest.getTime() - 3_600_000)];
-    await emit('conversations', list);
-    const fetched = await until(
-      async () => commands.slice(before).filter((c) => c.type === 'sync_thread'),
-      (l) => l.length > 0,
-      'history of the changed chat',
-    );
-    await emit(
-      'conversations',
-      list.map((c) => ({ ...c, unreadCount: 1 })),
-    ); // the same list again
-    await sleep(1500);
-    const all = commands.slice(before).filter((c) => c.type === 'sync_thread');
-    assert.deepEqual(
-      all.map((c) => c.conversationUrn),
-      [conv('JANE')],
-      'only the chat that changed, once',
-    );
-    assert.equal(fetched[0].conversationUrn, conv('JANE'));
-  });
+      const stub = (who: string, person: typeof jane, at: number) => ({
+        urn: conv(who),
+        threadId: `2-${who}${tag}`,
+        title: null,
+        isGroup: false,
+        unreadCount: 0,
+        lastActivityAt: at,
+        folder: 'focused',
+        participants: [person],
+      });
+      // Jane wrote while the account was away; Raj's chat didn't change.
+      const list = [stub('JANE', jane, newest.getTime() + 60_000), stub('RAJ', raj, newest.getTime() - 3_600_000)];
+      await emit('conversations', list);
+      const fetched = await until(
+        async () => commands.slice(before).filter((c) => c.type === 'sync_thread'),
+        (l) => l.length > 0,
+        'history of the changed chat',
+      );
+      await emit(
+        'conversations',
+        list.map((c) => ({ ...c, unreadCount: 1 })),
+      ); // the same list again
+      await sleep(1500);
+      const all = commands.slice(before).filter((c) => c.type === 'sync_thread');
+      assert.deepEqual(
+        all.map((c) => c.conversationUrn),
+        [conv('JANE')],
+        'only the chat that changed, once',
+      );
+      assert.equal(fetched[0].conversationUrn, conv('JANE'));
+    },
+  );
 
   await step('full sync again: chats, history and connections, full access only, one at a time, recorded', async () => {
     assert.equal((await member('POST', `/api/accounts/${accountId}/resync`)).status, 403);
