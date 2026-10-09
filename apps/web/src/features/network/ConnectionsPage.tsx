@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { Contact as ContactIcon, RefreshCw, Search, Send } from 'lucide-react';
+import { Contact as ContactIcon, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { PageScroll } from '../../components/Layout';
-import { Avatar, Empty, Modal, PageHeader } from '../../components/ui';
+import { Avatar, Empty, PageHeader } from '../../components/ui';
 import { api, qs } from '../../lib/api';
 import { toast } from '../../lib/toast';
 import type { Account, Contact } from '../../types';
@@ -15,7 +15,6 @@ export function ConnectionsPage() {
   const current = accounts.data?.find((a) => a.id === accountId) ?? accounts.data?.[0];
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
-  const [messaging, setMessaging] = useState<Contact | null>(null);
   useEffect(() => {
     const t = setTimeout(() => setQ(search.trim()), 300);
     return () => clearTimeout(t);
@@ -91,54 +90,16 @@ export function ConnectionsPage() {
                   <div className="truncate text-sm text-slate-600">{c.headline}</div>
                 </div>
                 {current.level !== 'READ' && (
-                  <button onClick={() => setMessaging(c)} className="btn-outline">
+                  // Opens the chat with them in the inbox (or a new one there).
+                  <Link to={`/inbox?account=${current.id}&newChat=${c.id}`} className="btn-outline">
                     Message
-                  </button>
+                  </Link>
                 )}
               </div>
             ))}
           </div>
         </div>
       )}
-      {messaging && current && <MessageModal account={current} contact={messaging} onClose={() => setMessaging(null)} />}
     </PageScroll>
-  );
-}
-
-function MessageModal({ account, contact, onClose }: { account: Account; contact: Contact; onClose: () => void }) {
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const send = async () => {
-    setBusy(true);
-    try {
-      await api.post(`/api/accounts/${account.id}/connections/${contact.id}/message`, { text });
-      toast('Queued. It will appear in the inbox once LinkedIn confirms.', 'success');
-      onClose();
-    } catch (e) {
-      toast((e as Error).message, 'error');
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal title={`Message ${contact.name}`} onClose={onClose}>
-      <div className="mb-2 text-xs text-slate-500">
-        Sent from <b>{account.label}</b>
-      </div>
-      <textarea
-        className="input min-h-32"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        autoFocus
-        placeholder="Write a message…"
-      />
-      <div className="mt-3 flex justify-end gap-2">
-        <button onClick={onClose} className="btn-ghost">
-          Cancel
-        </button>
-        <button onClick={send} disabled={!text.trim() || busy} className="btn-primary">
-          <Send size={14} /> Send
-        </button>
-      </div>
-    </Modal>
   );
 }

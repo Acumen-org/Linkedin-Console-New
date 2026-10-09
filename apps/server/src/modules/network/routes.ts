@@ -26,6 +26,30 @@ export default async function networkRoutes(app: FastifyInstance) {
     return { total, items: rows };
   });
 
+  /**
+   * A connection and the existing 1:1 chat with them, if any (Message opens that chat in the inbox instead of
+   * starting a new one). Matched by LinkedIn member URN, profile URL, or else by name.
+   */
+  app.get<{ Params: { id: string; contactId: string } }>('/api/accounts/:id/connections/:contactId', async (req) => {
+    const user = requireUser(req);
+    const { id, contactId } = req.params;
+    await assertAccount(user, id, 'READ');
+    const [contact] = await sql`
+      SELECT id, public_id, member_urn, name, headline, avatar_url, profile_url FROM contacts
+      WHERE id = ${contactId} AND account_id = ${id}`;
+    if (!contact) throw notFound('Connection not found');
+    const [conversation] = await sql`
+      SELECT c.id FROM conversations c
+      WHERE c.account_id = ${id} AND NOT c.is_group AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(c.participants) p
+        WHERE p->>'urn' = ${contact.memberUrn ?? ''}
+           OR rtrim(p->>'profileUrl', '/') ILIKE ${`%/in/${contact.publicId}`}
+           OR lower(p->>'name') = lower(${contact.name}))
+      ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`;
+    const { memberUrn: _urn, ...rest } = contact;
+    return { contact: rest, conversationId: (conversation?.id as string | undefined) ?? null };
+  });
+
   app.post<{ Params: { id: string; contactId: string } }>('/api/accounts/:id/connections/:contactId/message', async (req) => {
     const user = requireUser(req);
     const { id, contactId } = req.params;

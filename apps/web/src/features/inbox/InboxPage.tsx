@@ -23,6 +23,7 @@ import { conversationTitle, timeAgo } from '../../lib/format';
 import { useLabels } from '../../lib/queries';
 import type { Account, Conversation } from '../../types';
 import { isSyncing, SyncProgress } from '../accounts/SyncProgress';
+import { NewChat } from './NewChat';
 import { Thread } from './Thread';
 
 const VIEWS = [
@@ -43,6 +44,9 @@ export function InboxPage() {
   const accountId = params.get('account') ?? '';
   const view = params.get('view') ?? 'all';
   const labelId = params.get('label') ?? '';
+  // Message from the Network page: a first message to a connection (?account=…&newChat=<contactId>).
+  const newChat = !conversationId && accountId ? params.get('newChat') : null;
+  const threadOpen = !!conversationId || !!newChat;
   const labels = useLabels();
   const [search, setSearch] = useState(params.get('q') ?? '');
   const [q, setQ] = useState(search);
@@ -148,7 +152,7 @@ export function InboxPage() {
 
       {/* Conversation list */}
       <section
-        className={`w-full shrink-0 flex-col border-r border-slate-200 bg-white md:flex md:w-[360px] ${conversationId ? 'hidden' : 'flex'}`}
+        className={`w-full shrink-0 flex-col border-r border-slate-200 bg-white md:flex md:w-[360px] ${threadOpen ? 'hidden' : 'flex'}`}
       >
         <div className="border-b border-slate-200 p-3">
           <div className="relative">
@@ -194,9 +198,11 @@ export function InboxPage() {
       </section>
 
       {/* Thread */}
-      <section className={`min-w-0 flex-1 bg-white ${conversationId ? 'flex' : 'hidden md:flex'}`}>
+      <section className={`min-w-0 flex-1 bg-white ${threadOpen ? 'flex' : 'hidden md:flex'}`}>
         {conversationId ? (
           <Thread key={conversationId} conversationId={conversationId} />
+        ) : newChat ? (
+          <NewChat key={newChat} accountId={accountId} contactId={newChat} />
         ) : (
           <Empty icon={<MessagesSquare size={44} />} title="Select a conversation">
             Messages from all connected LinkedIn accounts appear here.
