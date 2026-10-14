@@ -2,6 +2,7 @@
 //   docker compose exec api node src/dev/e2e.ts
 // Creates temporary users/account and removes them afterwards. Exit code 0 = all passed.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
@@ -643,6 +644,54 @@ try {
     const [e] = await sql`SELECT id FROM audit_log ORDER BY id DESC LIMIT 1`;
     await assert.rejects(sql`UPDATE audit_log SET action = 'auth.login' WHERE id = ${e.id}`, /append-only/);
     await assert.rejects(sql`DELETE FROM audit_log WHERE id = ${e.id}`, /append-only/);
+  });
+
+  await step('staff cannot connect LinkedIn accounts (admins assign them)', async () => {
+    const r = await member('POST', '/api/accounts', { label: 'Staff tries' });
+    assert.equal(r.status, 403);
+    assert.equal((await sql`SELECT count(*)::int AS n FROM accounts WHERE label = 'Staff tries'`)[0].n, 0);
+  });
+
+  await step('ownership: handed over on the server and in the app, always exactly one owner, recorded', async () => {
+    const [previous] = await sql`SELECT id FROM users WHERE role = 'OWNER'`;
+    const keeperEmail = `keeper-${tag}@e2e.test`;
+    const setOwner = (email: string, pw: string) =>
+      new Promise<{ code: number | null; out: string }>((resolve) => {
+        const p = spawn(process.execPath, ['src/cli/set-owner.ts'], { env: { ...process.env, EMAIL: email, NAME: 'Keeper E2E' } });
+        let out = '';
+        p.stdout.on('data', (d) => (out += d));
+        p.stderr.on('data', (d) => (out += d));
+        p.on('close', (code) => resolve({ code, out }));
+        p.stdin.end(pw);
+      });
+    // New person without a password: refused. With one: created and made owner.
+    assert.equal((await setOwner(keeperEmail, '')).code, 1);
+    const made = await setOwner(keeperEmail, password);
+    assert.equal(made.code, 0, made.out);
+    const owners = await sql`SELECT email FROM users WHERE role = 'OWNER'`;
+    assert.deepEqual(
+      owners.map((o) => o.email),
+      [keeperEmail],
+    );
+    if (previous)
+      assert.equal((await sql`SELECT role FROM users WHERE id = ${previous.id}`)[0].role, 'ADMIN', 'previous owner is an admin');
+
+    // In the app: only the owner can hand it over; the new owner can then hand it back.
+    const keeper = client();
+    assert.equal((await keeper('POST', '/api/auth/login', { email: keeperEmail, password })).status, 200);
+    const back = previous?.id ?? ownerId;
+    assert.equal((await owner('POST', `/api/users/${back}/owner`)).status, 403, 'an admin cannot');
+    assert.equal((await keeper('POST', `/api/users/${back}/owner`)).status, 200);
+    const after =
+      await sql`SELECT id, role FROM users WHERE id IN ${sql([back, (await sql`SELECT id FROM users WHERE email = ${keeperEmail}`)[0].id])}`;
+    assert.deepEqual(after.find((u) => u.id === back)?.role, 'OWNER');
+    assert.deepEqual(after.find((u) => u.id !== back)?.role, 'ADMIN');
+    await assert.rejects(sql`UPDATE users SET role = 'OWNER' WHERE email = ${keeperEmail}`, /users_single_owner/);
+    const logged =
+      await sql`SELECT count(*)::int AS n FROM audit_log WHERE action = 'user.owner_transferred' AND created_at > now() - interval '1 minute'`;
+    assert.ok(logged[0].n >= 2, 'both handovers recorded');
+    // Leave things as they were.
+    if (!previous) await sql`UPDATE users SET role = 'ADMIN' WHERE id = ${ownerId}`;
   });
 
   await step('new users get exactly DEFAULT_GRANT (nothing when NONE)', async () => {

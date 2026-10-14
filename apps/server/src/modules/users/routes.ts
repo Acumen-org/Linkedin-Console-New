@@ -3,12 +3,19 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
 import { hashPassword, requireAdmin, requireUser } from '../../core/auth.ts';
+import { transferOwnership } from '../../core/owner.ts';
 import { lastStaffSync, runStaffSync } from '../../core/staff-sync.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
 import { publish } from '../../lib/redis.ts';
+
+/** With PASSWORD_SIGNIN=owner, staff sign in with Microsoft 365 only: no passwords to hand out. */
+const assertPasswordAllowed = (role: string) => {
+  if (config.passwordSignin === 'owner' && role !== 'OWNER')
+    throw new HttpError(400, 'Only the owner signs in with a password; everyone else uses Microsoft 365');
+};
 
 export default async function userRoutes(app: FastifyInstance) {
   // Everyone can see the team list (for "sent by", assignment, presence).
@@ -52,6 +59,7 @@ export default async function userRoutes(app: FastifyInstance) {
         role: z.enum(['ADMIN', 'MEMBER', 'AUDITOR']).default('MEMBER'),
       })
       .parse(req.body);
+    if (body.password) assertPasswordAllowed(body.role);
     const id = newId('usr');
     const [exists] = await sql`SELECT 1 FROM users WHERE email = ${body.email.toLowerCase()}`;
     if (exists) throw new HttpError(409, 'A user with this email already exists');
@@ -81,6 +89,7 @@ export default async function userRoutes(app: FastifyInstance) {
     if (!target) throw new HttpError(404, 'User not found');
     if (target.role === 'OWNER' && (body.role || body.disabled)) throw new HttpError(400, 'The owner cannot be demoted or disabled');
     if (target.role === 'OWNER' && admin.role !== 'OWNER') throw new HttpError(403, 'Only the owner can change the owner');
+    if (body.password) assertPasswordAllowed(target.role);
 
     if (body.name) await sql`UPDATE users SET name = ${body.name} WHERE id = ${id}`;
     if (body.role) await sql`UPDATE users SET role = ${body.role} WHERE id = ${id}`;
@@ -104,6 +113,20 @@ export default async function userRoutes(app: FastifyInstance) {
       meta: { targetUserId: id, ...body, password: body.password ? '***' : undefined },
       ip: req.ip,
     });
+    return { ok: true };
+  });
+
+  // The owner hands ownership to a teammate and stays on as an admin.
+  app.post('/api/users/:id/owner', async (req) => {
+    const me = requireUser(req);
+    if (me.role !== 'OWNER') throw new HttpError(403, 'Only the owner can hand over ownership');
+    const { id } = req.params as { id: string };
+    const [target] = await sql`SELECT password_hash IS NOT NULL AS has_password FROM users WHERE id = ${id}`;
+    if (!target) throw new HttpError(404, 'User not found');
+    // The owner is the one who can still sign in when Microsoft is unavailable.
+    if (config.passwordSignin === 'owner' && !target.hasPassword)
+      throw new HttpError(409, 'Set a password for them first (scripts/set-owner.sh on the server does both)');
+    await transferOwnership(id, me, req.ip);
     return { ok: true };
   });
 }

@@ -29,13 +29,19 @@ With `STAFF_SYNC` the app reads the Twilio console's staff list every few minute
 
 | Role | Who | Can |
 |---|---|---|
-| `OWNER` | The first account created at setup (exactly one) | Everything. Cannot be demoted or disabled; only the owner can edit the owner |
-| `ADMIN` | Team leads | Everything on every LinkedIn account (implicit `FULL`), manage teammates, audit log, webhooks, label editing |
-| `MEMBER` | Everyone else | Only the LinkedIn accounts they were granted, at the granted level |
+| `OWNER` | Exactly one (database rule): the first account created at setup, or whoever ownership was handed to | Everything. Cannot be demoted or disabled; only the owner can edit the owner. Keeps password sign-in with `PASSWORD_SIGNIN=owner` |
+| `ADMIN` | Team leads | Everything on every LinkedIn account (implicit `FULL`), connect LinkedIn accounts, assign staff, manage the team, audit log, webhooks, label editing |
+| `MEMBER` (shown as **Staff**) | Everyone who works the inbox | Only the LinkedIn accounts an admin assigned them, at the assigned level. Every message they send is recorded with their name |
+| `AUDITOR` | Compliance | Reads and exports the audit log; no inbox, no accounts |
 
 Admins and the owner do not need grants; they always see every account.
 
-## Account grants (MEMBERs)
+### Handing over ownership
+
+- **Team page → Make owner** (owner only): the teammate becomes the owner, you stay on as an admin. With `PASSWORD_SIGNIN=owner` they need a password first, because the owner is the one who can still sign in when Microsoft is unavailable.
+- **On the server**, when the owner can't sign in or is someone outside the company tenant (e.g. a Gmail address): `./scripts/set-owner.sh person@example.com "Their Name"`. It asks for the password (hidden), creates the person if needed, and makes them the owner. Recorded in the audit log as done by *System*.
+
+## Account grants (Staff)
 
 Levels are ordered: `READ` < `REPLY` < `FULL`. A higher level includes everything below it.
 
@@ -49,7 +55,8 @@ Levels are ordered: `READ` < `REPLY` < `FULL`. A higher level includes everythin
 Extra rules:
 - Disconnecting (deleting) an account needs `FULL` **and** being the account's owner or an admin.
 - The member who connected an account is its owner and gets `FULL` on it. While the account is not connected yet (login, 2FA, checkpoint), its owner can always control Live View to finish logging in.
-- Any logged-in teammate can connect a new LinkedIn account and create labels. Editing/deleting labels, users, webhooks and reading the audit log is admin-only.
+- Only admins and the owner connect new LinkedIn accounts; staff work the accounts assigned to them. Anyone can create labels. Editing/deleting labels, users, webhooks and reading the audit log is admin-only.
+- With `PASSWORD_SIGNIN=owner`, staff and admins sign in with Microsoft 365 only: the app refuses to give them a password.
 - Pausing and the daily send cap apply to everyone, including new chats started from Network.
 
 ## Default access for new accounts and new teammates
@@ -69,9 +76,9 @@ Changing `DEFAULT_GRANT` affects only future accounts and teammates. Existing gr
 |---|---|---|
 | You | `OWNER` | (all) |
 | Team lead / ops | `ADMIN` | (all) |
-| Account's real owner (the person whose LinkedIn it is) | `MEMBER` | `FULL` on their own account |
-| SDR / assistant who answers messages | `MEMBER` | `REPLY` on the accounts they work |
-| Manager / reviewer | `MEMBER` | `READ` |
+| Account's real owner (the person whose LinkedIn it is) | Staff | `FULL` on their own account |
+| SDR / assistant who answers messages | Staff | `REPLY` on the accounts they work |
+| Manager / reviewer | Staff | `READ` |
 
 Keep `FULL` small: it allows driving the LinkedIn browser directly (profile, settings, posts).
 

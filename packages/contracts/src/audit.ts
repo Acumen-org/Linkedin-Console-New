@@ -34,6 +34,7 @@ export const AUDIT_ACTIONS = {
   'account.grants_changed': { label: 'Changed who can access an account', category: 'account' },
   'user.created': { label: 'Added a teammate', category: 'user' },
   'user.updated': { label: 'Changed a teammate', category: 'user' },
+  'user.owner_transferred': { label: 'Handed over ownership', category: 'user' },
   'user.provisioned': { label: 'Added from the Twilio staff list', category: 'user' },
   'user.deprovisioned': { label: 'Disabled: left per the Twilio staff list', category: 'user' },
   'user.reenabled': { label: 'Re-enabled per the Twilio staff list', category: 'user' },

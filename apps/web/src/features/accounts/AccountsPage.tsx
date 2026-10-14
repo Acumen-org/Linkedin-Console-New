@@ -26,9 +26,11 @@ export function AccountsPage() {
     <PageScroll>
       <PageHeader title="LinkedIn accounts">
         {isAdmin(me) && !!accounts.data?.length && <ExportChatsMenu accounts={accounts.data} />}
-        <button onClick={() => setAdding(true)} className="btn-primary">
-          <Plus size={16} /> Connect LinkedIn account
-        </button>
+        {isAdmin(me) && (
+          <button onClick={() => setAdding(true)} className="btn-primary">
+            <Plus size={16} /> Connect LinkedIn account
+          </button>
+        )}
       </PageHeader>
       <p className="mb-5 text-sm text-slate-600">
         Each account runs in its own secure browser on your server. You log in once through a live window (including 2FA). After that your
@@ -37,7 +39,13 @@ export function AccountsPage() {
       {accounts.data?.length === 0 && (
         <div className="card">
           <Empty title="No LinkedIn accounts yet">
-            Click <b>Connect LinkedIn account</b> to add the first one.
+            {isAdmin(me) ? (
+              <>
+                Click <b>Connect LinkedIn account</b> to add the first one.
+              </>
+            ) : (
+              'An admin assigns you the LinkedIn accounts you work on.'
+            )}
           </Empty>
         </div>
       )}

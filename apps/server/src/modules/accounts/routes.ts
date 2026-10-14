@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
-import { requireUser } from '../../core/auth.ts';
+import { requireAdmin, requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
 import { effectiveCapSql, rampDaysLeftSql } from '../../core/send-limits.ts';
 import { config } from '../../lib/config.ts';
@@ -60,7 +60,8 @@ export default async function accountRoutes(app: FastifyInstance) {
 
   // "Connect LinkedIn account": create the account + its pod; the user then logs in via Live View.
   app.post('/api/accounts', async (req) => {
-    const user = requireUser(req);
+    // Admins connect accounts; staff work only the ones an admin assigns them.
+    const user = requireAdmin(req);
     const body = z
       .object({
         label: z.string().min(1).max(80),

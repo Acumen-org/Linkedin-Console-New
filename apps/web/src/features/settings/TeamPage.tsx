@@ -69,7 +69,7 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
           <>
             <p className="text-slate-600">
               {sync.mode === 'provision'
-                ? 'Adds staff as members (no account access until granted) and disables leavers.'
+                ? 'Adds staff (no account access until an admin assigns it) and disables leavers.'
                 : 'Disables leavers.'}
             </p>
             {last && (
@@ -96,6 +96,18 @@ export function TeamPage() {
   const [resetting, setResetting] = useState<User | null>(null);
   const passwordsUsed = !directory.data?.microsoft || directory.data.passwordSignin === 'on';
 
+  const makeOwner = async (u: User) => {
+    if (!confirm(`Make ${u.name} the owner? You stay on as an admin, and only they can hand ownership back.`)) return;
+    try {
+      await api.post(`/api/users/${u.id}/owner`);
+      toast(`${u.name} is now the owner`, 'success');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['me'] });
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+
   const update = async (u: User, body: Record<string, unknown>, ok: string) => {
     try {
       await api.patch(`/api/users/${u.id}`, body);
@@ -110,12 +122,12 @@ export function TeamPage() {
     <PageScroll>
       <PageHeader title="Team">
         <button type="button" onClick={() => setAdding(true)} className="btn-primary">
-          <UserPlus size={16} /> Add teammate
+          <UserPlus size={16} /> Add staff
         </button>
       </PageHeader>
       <p className="mb-4 text-sm text-slate-600">
-        Teammates sign in to this app, never to LinkedIn. New members see no LinkedIn accounts until you grant access per account under
-        Accounts → Team access. Admins always see everything.
+        Teammates sign in to this app, never to LinkedIn. Staff see no LinkedIn accounts until an admin assigns them under Accounts → Team
+        access, and every message they send is recorded. Admins and the owner see everything.
       </p>
       {directory.data && <DirectoryCard info={directory.data} />}
       <div className="card divide-y divide-slate-100">
@@ -150,10 +162,15 @@ export function TeamPage() {
                 disabled={u.id === me.id}
                 onChange={(e) => update(u, { role: e.target.value }, 'Role updated')}
               >
-                <option value="MEMBER">Member</option>
+                <option value="MEMBER">Staff</option>
                 <option value="AUDITOR">Auditor</option>
                 <option value="ADMIN">Admin</option>
               </select>
+            )}
+            {me.role === 'OWNER' && u.role !== 'OWNER' && !u.disabledAt && (
+              <button type="button" onClick={() => makeOwner(u)} className="btn-ghost text-xs">
+                Make owner
+              </button>
             )}
             {u.role !== 'OWNER' && u.id !== me.id && (
               <>
@@ -174,7 +191,7 @@ export function TeamPage() {
           </div>
         ))}
       </div>
-      {adding && <AddUserModal microsoft={!!directory.data?.microsoft} onClose={() => setAdding(false)} />}
+      {adding && <AddUserModal microsoft={!!directory.data?.microsoft} passwords={passwordsUsed} onClose={() => setAdding(false)} />}
       {resetting && <ResetModal user={resetting} onClose={() => setResetting(null)} />}
     </PageScroll>
   );
@@ -183,7 +200,7 @@ export function TeamPage() {
 const randomPassword = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[b % 55]).join('');
 
-function AddUserModal({ microsoft, onClose }: { microsoft: boolean; onClose: () => void }) {
+function AddUserModal({ microsoft, passwords, onClose }: { microsoft: boolean; passwords: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: '', email: '', password: randomPassword(), role: 'MEMBER' });
   // With Microsoft sign-in, new teammates use their company account by default (no password to share).
@@ -232,7 +249,7 @@ function AddUserModal({ microsoft, onClose }: { microsoft: boolean; onClose: () 
           <label className="label">{microsoft ? 'Work email (their Microsoft 365 account)' : 'Email'}</label>
           <input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </div>
-        {microsoft && (
+        {microsoft && passwords && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={withPassword} onChange={(e) => setWithPassword(e.target.checked)} />
             Also give a password (only if they can't use Microsoft sign-in)
@@ -247,7 +264,7 @@ function AddUserModal({ microsoft, onClose }: { microsoft: boolean; onClose: () 
         <div>
           <label className="label">Role</label>
           <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            <option value="MEMBER">Member: works in the inbox with the access you grant</option>
+            <option value="MEMBER">Staff: works the LinkedIn accounts an admin assigns them</option>
             <option value="AUDITOR">Auditor: reads and exports the audit log only (no inbox, no accounts)</option>
             <option value="ADMIN">Admin: full access to everything, manages the team</option>
           </select>
