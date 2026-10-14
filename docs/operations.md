@@ -49,6 +49,20 @@ After changing `.env`, run `docker compose up -d`. For pod-related settings (`HE
 
 `./scripts/push-images.sh` pushes the locally built images to Harbor (`h4rb0r.acm.acumen-strategy.com/linkedin-outreach`, tags `latest` and the commit): server → `worker`, web/Caddy → `frontend`, plus `sidecar`, `chrome`, `pod-agent`. Log in first with `docker login`; `REGISTRY` and `PROJECT` override the target.
 
+## Account browsers stay on
+
+Every LinkedIn account runs in its own browser (Chrome + bridge). It is kept running without anyone watching:
+
+- **Restarted by itself.** When a browser stops reporting for 4 minutes, or its containers are missing or stopped (server reboot, failed update, removed by hand), the worker restarts it within a minute, and creates it again if it is gone. The LinkedIn session lives in the account's profile volume and is kept. If it doesn't come back, it tries again after 2, 5, 15, 30 minutes, then every hour. Each restart is in the audit log ("Restarted an account browser automatically").
+- **Admins are alerted** (email, with SMTP set up) only when three restarts in a row (about 20 minutes) didn't bring it back, not on a short hiccup.
+- **A hung browser restarts itself.** The bridge checks every minute that its LinkedIn tab still answers; after three misses in a row it exits and Docker starts it again. A crashed tab or a lost Chrome connection does the same at once.
+- **After an update**, `./scripts/update.sh` waits up to 3 minutes and lists every account as back or not yet.
+- **Accounts page:** how long each browser has been up, and its last automatic restart with the reason.
+
+What can't be fixed automatically: LinkedIn logging an account out or asking for a security check. That account shows **Needs attention** (its browser keeps running) and someone with full access logs in again through **Reconnect**.
+
+`AUTO_RECOVERY=off` switches the restarts off; only for test stacks whose accounts have no real browser.
+
 ## Monitoring checklist
 
 - `api` and `worker` containers healthy (`docker compose ps`); the worker restarts itself if its event processing stalls

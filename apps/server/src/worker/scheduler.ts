@@ -11,17 +11,19 @@ import { alertAccountStatus } from './alerts.ts';
 import { autoFollowups } from './auto-followups.ts';
 import { crmSyncTick } from './crm-sync.ts';
 import { notifyDueReminders } from './push.ts';
+import { recoverAccounts } from './recovery.ts';
 import { reminderSyncTick } from './reminder-sync.ts';
 
 /** Mark pods that stopped reporting as OFFLINE (the bridge heartbeats every ~60s). */
 async function detectOfflinePods() {
   const offline = await sql`
-    UPDATE accounts SET status = 'OFFLINE'
+    UPDATE accounts SET status = 'OFFLINE', online_since = NULL
     WHERE status IN ('CONNECTED', 'AWAITING_LOGIN', 'NEEDS_ATTENTION', 'PROVISIONING') AND last_seen_at < now() - interval '4 minutes'
     RETURNING id, status, display_name, avatar_url, headline, public_id`;
   for (const a of offline) {
     await publish([accountRoom(a.id), ADMINS_ROOM], 'account.updated', a as never);
-    await alertAccountStatus(a.id, 'OFFLINE');
+    // With automatic recovery the admins hear about it only if restarting doesn't bring it back (recovery.ts).
+    if (!config.autoRecovery) await alertAccountStatus(a.id, 'OFFLINE');
     await emitWebhook('account.status', { accountId: a.id, to: 'OFFLINE' });
   }
 }
@@ -97,6 +99,7 @@ async function staffSync() {
 export function startScheduler() {
   const jobs = [
     detectOfflinePods,
+    recoverAccounts,
     scheduleConnectionSync,
     wakeSnoozed,
     expireStuckSends,

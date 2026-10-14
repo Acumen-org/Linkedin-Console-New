@@ -63,6 +63,9 @@ const Env = z.object({
   // Log prospects and their LinkedIn messages in Twenty (people + notes), from the moment this is switched on.
   CRM_SYNC: z.enum(['off', 'on']).default('off'),
   STAFF_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
+  // Restart account browsers that stop reporting or whose containers are gone (off for test stacks: their
+  // accounts have no real browser).
+  AUTO_RECOVERY: z.enum(['on', 'off']).default('on'),
 });
 
 const parsed = Env.safeParse(process.env);
@@ -122,6 +125,7 @@ export const config = {
     : null,
   passwordSignin: e.PASSWORD_SIGNIN,
   crmSync: e.CRM_SYNC === 'on',
+  autoRecovery: e.AUTO_RECOVERY === 'on',
   twenty: e.TWENTY_API_URL && e.TWENTY_API_KEY ? { url: e.TWENTY_API_URL, apiKey: e.TWENTY_API_KEY } : null,
   staffSync: {
     mode: e.STAFF_SYNC,

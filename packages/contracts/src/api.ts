@@ -92,6 +92,13 @@ export interface Account {
   followupDays?: number;
   hasProxy: boolean;
   lastSeenAt: string | null;
+  /** Since when the browser has been reporting without a break (null while it is down). */
+  onlineSince?: string | null;
+  /** The last automatic restart, and why. */
+  lastRestartAt?: string | null;
+  lastRestartReason?: string | null;
+  /** Automatic restarts in a row that haven't brought it back yet. */
+  recoverAttempts?: number;
   lastError: string | null;
   createdAt: string;
   unread?: number;

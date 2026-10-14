@@ -6,7 +6,7 @@ import { isAdmin, useMe } from '../../App';
 import { PageScroll } from '../../components/Layout';
 import { Avatar, Empty, Modal, PageHeader, StatusBadge } from '../../components/ui';
 import { api } from '../../lib/api';
-import { TIMEZONES, timeAgo } from '../../lib/format';
+import { durationSince, TIMEZONES, timeAgo } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import type { Account, Level } from '../../types';
 import { ExportChatsMenu, ImportModal } from './DataTools';
@@ -136,6 +136,14 @@ function AccountCard({
           {a.rampDaysLeft ? ` (ramping up to ${a.dailySendCap} in ${a.rampDaysLeft} day${a.rampDaysLeft === 1 ? '' : 's'})` : ''}
           {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
+        </div>
+        <div className="text-xs text-slate-500">
+          {a.onlineSince ? `Browser up for ${durationSince(a.onlineSince)}` : 'Browser not reporting'}
+          {a.lastRestartAt &&
+            ` · restarted automatically ${timeAgo(a.lastRestartAt)}${a.lastRestartReason ? ` (${a.lastRestartReason.toLowerCase()})` : ''}`}
+          {!!a.recoverAttempts &&
+            !a.onlineSince &&
+            ` · ${a.recoverAttempts} automatic restart${a.recoverAttempts === 1 ? '' : 's'} so far, still trying`}
         </div>
         {a.lastError && <div className="mt-1 text-xs text-red-600">{a.lastError}</div>}
         {a.pausedReason && (

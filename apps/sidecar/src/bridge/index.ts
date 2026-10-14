@@ -4,7 +4,7 @@
 //  - READ (reader.ts): LinkedIn's own JSON + realtime stream → normalized events → Redis
 //  - WRITE (commands.ts): app commands; sends first and fast, background syncs one at a time at human pace
 //  - HEALTH (session.ts): CONNECTED / AWAITING_LOGIN / NEEDS_ATTENTION heartbeat
-import { chromium } from 'patchright';
+import { chromium, type Page } from 'patchright';
 import { config } from '../config.ts';
 import type { SharedState } from '../liveview/server.ts';
 import { logger } from '../logger.ts';
@@ -71,4 +71,34 @@ export async function startBridge(streams: Streams, shared: SharedState) {
   const session = createSessionMonitor(ctx);
   session.start();
   streams.consume(createCommandHandler(ctx, reader, session.check));
+  watchdog(page);
+}
+
+/** A check every minute; this many failures in a row = stuck. */
+const STUCK_AFTER = 3;
+
+/**
+ * A browser can hang without crashing (frozen tab, Chrome not answering): then nothing syncs and nothing sends
+ * while the container still looks fine. The bridge window must answer a trivial script within 15 seconds; after
+ * three misses in a row the bridge exits, the container restarts, and the app's automatic recovery restarts
+ * Chrome too if this doesn't bring the account back.
+ */
+function watchdog(page: Page) {
+  let misses = 0;
+  setInterval(async () => {
+    try {
+      await Promise.race([
+        page.evaluate(() => 1),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('no answer in 15 s')), 15_000)),
+      ]);
+      misses = 0;
+    } catch (err) {
+      misses++;
+      logger.warn({ err: (err as Error).message, misses }, 'bridge window did not answer');
+      if (misses >= STUCK_AFTER) {
+        logger.error('bridge window stuck, exiting so the container restarts');
+        process.exit(1);
+      }
+    }
+  }, 60_000).unref();
 }

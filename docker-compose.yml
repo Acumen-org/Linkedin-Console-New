@@ -55,6 +55,7 @@ x-server-env: &server-env
   TWENTY_API_URL: ${TWENTY_API_URL:-}
   TWENTY_API_KEY: ${TWENTY_API_KEY:-}
   CRM_SYNC: ${CRM_SYNC:-off}
+  AUTO_RECOVERY: ${AUTO_RECOVERY:-on}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:

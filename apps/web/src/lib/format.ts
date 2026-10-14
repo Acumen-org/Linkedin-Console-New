@@ -1,5 +1,15 @@
 import type { AccountStatus, Conversation } from '../types';
 
+/** "3 days", "5 hours", "12 minutes": how long since then. */
+export function durationSince(iso: string) {
+  const min = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (min < 60) return `${min} minute${min === 1 ? '' : 's'}`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `${h} hour${h === 1 ? '' : 's'}`;
+  const d = Math.floor(h / 24);
+  return `${d} days`;
+}
+
 export function timeAgo(iso: string | null | undefined) {
   if (!iso) return '';
   const d = new Date(iso);

@@ -36,25 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure test environment
-        run: |
-          cp .env.example .env
-          sed -i "s#^SITE_ADDRESS=.*#SITE_ADDRESS=:80#; s#^COOKIE_SECURE=.*#COOKIE_SECURE=false#; s#^HTTP_PORT=.*#HTTP_PORT=8088#; s#^HTTPS_PORT=.*#HTTPS_PORT=8443#" .env
-          for key in POSTGRES_PASSWORD POD_AGENT_TOKEN LIVE_SECRET REDIS_PASSWORD; do
-            sed -i "s#^${key}=\$#${key}=$(openssl rand -hex 24)#" .env
-          done
-          # Identity tests: a fake tenant, and the test's own fake Twilio staff list (served by the test on api:4100).
-          cat >> .env <<'ENV'
-          APP_URL=http://localhost:8088
-          MICROSOFT_TENANT_ID=00000000-0000-4000-8000-000000000e2e
-          MICROSOFT_CLIENT_ID=e2e-client
-          MICROSOFT_CLIENT_SECRET=e2e-secret
-          TWILIO_CONSOLE_URL=http://api:4100
-          TWILIO_CONSOLE_API_KEY=e2e-staff-key
-          STAFF_SYNC=provision
-          TWENTY_API_URL=http://api:4100/graphql
-          TWENTY_API_KEY=e2e-twenty-key
-          CRM_SYNC=on
-          ENV
+        run: ./scripts/e2e-env.sh
       - name: Build images
         run: docker compose --profile images build
       - name: Start stack

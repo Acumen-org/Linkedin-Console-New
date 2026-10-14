@@ -25,4 +25,6 @@ CHROME_REFRESH=$(date +%G-W%V) docker compose --profile images build --pull
 docker compose up -d
 echo "Recreating account pods with the new images…"
 docker compose exec -T api node src/dev/recreate-pods.ts
+echo "Waiting for every account to come back (up to 3 minutes)…"
+docker compose exec -T api node src/cli/accounts-health.ts || true
 echo "✅ Updated."

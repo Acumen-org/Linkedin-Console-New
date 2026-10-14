@@ -16,6 +16,7 @@ import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
 import { notifyDueReminders } from '../worker/push.ts';
+import { recoverAccounts } from '../worker/recovery.ts';
 import { reminderSyncTick } from '../worker/reminder-sync.ts';
 
 const API = `http://localhost:${config.port}`;
@@ -1625,6 +1626,93 @@ try {
     assert.equal((await owner('POST', `/api/accounts/${accountId}/resync`)).status, 409, 'already running');
     const [log] = await sql`SELECT user_id FROM audit_log WHERE account_id = ${accountId} AND action = 'account.resynced'`;
     assert.equal(log?.userId, ownerId);
+  });
+
+  await step('browsers never stay off: restarted automatically, recreated when gone, retried with pauses', async () => {
+    assert.equal(config.autoRecovery, false, 'the test stack must not start real browsers (AUTO_RECOVERY=off)');
+    // A fake pod-agent: this account's pod exists and runs unless a test says otherwise; others are left alone.
+    const calls: { op: string; id: string }[] = [];
+    let ourPod: { chrome: string; sidecar: string; running: boolean } | null = { chrome: 'running', sidecar: 'running', running: true };
+    const fakePods = {
+      list: async () => {
+        const all = await sql`SELECT id FROM accounts`;
+        return all
+          .map((a) =>
+            a.id === accountId
+              ? ourPod
+                ? { id: a.id, ...ourPod }
+                : null
+              : { id: a.id, chrome: 'running', sidecar: 'running', running: true },
+          )
+          .filter(Boolean) as any[];
+      },
+      create: async (id: string) => {
+        calls.push({ op: 'create', id });
+        return { id, chrome: 'running', sidecar: 'running', running: true };
+      },
+      restart: async (id: string) => {
+        calls.push({ op: 'restart', id });
+        return { id, chrome: 'running', sidecar: 'running', running: true };
+      },
+    };
+    const account = async () =>
+      (
+        await sql`SELECT status, recover_attempts, recover_next_at, last_restart_reason, online_since FROM accounts WHERE id = ${accountId}`
+      )[0];
+
+    // Not a brand-new account (those get a few minutes to start).
+    await sql`UPDATE accounts SET created_at = now() - interval '1 hour' WHERE id = ${accountId}`;
+    // Healthy and running: nothing happens.
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls, []);
+
+    // Stopped reporting: restarted, shown as starting, next try in a few minutes.
+    await sql`UPDATE accounts SET status = 'OFFLINE', online_since = NULL, recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls, [{ op: 'restart', id: accountId }]);
+    let a = await account();
+    assert.equal(a.status, 'PROVISIONING');
+    assert.equal(a.recoverAttempts, 1);
+    assert.ok(a.recoverNextAt > new Date(), 'a pause before the next try');
+    assert.equal(a.lastRestartReason, 'Browser stopped reporting');
+    await recoverAccounts({ pods: fakePods });
+    assert.equal(calls.length, 1, 'not again before the pause is over');
+    const [log] =
+      await sql`SELECT meta FROM audit_log WHERE action = 'account.auto_restarted' AND account_id = ${accountId} ORDER BY id DESC LIMIT 1`;
+    assert.equal(log?.meta.attempt, 1);
+
+    // Still down after the pause: tried again, with a longer pause.
+    await sql`UPDATE accounts SET status = 'OFFLINE', recover_next_at = now() - interval '1 second' WHERE id = ${accountId}`;
+    await recoverAccounts({ pods: fakePods });
+    a = await account();
+    assert.equal(a.recoverAttempts, 2);
+    assert.ok(a.recoverNextAt.getTime() - Date.now() > 4 * 60_000, 'longer pause');
+
+    // It reports again: all reset.
+    await emit('session', {
+      status: 'CONNECTED',
+      self: { urn: SELF, name: 'E2E Self', headline: 'Tester', publicId: 'e2e', avatarUrl: null },
+    });
+    a = await until(account, (x) => x.recoverAttempts === 0 && x.status === 'CONNECTED', 'back online');
+    assert.ok(a.onlineSince, 'up since now');
+    assert.equal(a.recoverNextAt, null);
+
+    // Its containers vanish while it still says CONNECTED: recreated straight away (the LinkedIn session is kept).
+    ourPod = null;
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls.at(-1), { op: 'create', id: accountId });
+    assert.equal((await account()).lastRestartReason, 'Browser containers were missing');
+    ourPod = { chrome: 'exited', sidecar: 'running', running: false };
+    await sql`UPDATE accounts SET recover_next_at = NULL WHERE id = ${accountId}`;
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls.at(-1), { op: 'restart', id: accountId });
+    assert.equal((await account()).lastRestartReason, 'Browser containers were stopped');
+
+    // The account page shows it.
+    const shown = (await owner('GET', `/api/accounts/${accountId}`)).data;
+    assert.ok(shown.lastRestartAt);
+    assert.equal(shown.lastRestartReason, 'Browser containers were stopped');
+    await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
   });
 
   await step('NEEDS_ATTENTION status reaches the account', async () => {

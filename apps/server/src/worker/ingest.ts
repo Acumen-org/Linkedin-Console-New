@@ -314,6 +314,9 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
   await sql`
     UPDATE accounts SET
       status = ${data.status}, last_seen_at = now(), last_error = NULL,
+      -- It reports: it is up (automatic recovery starts over next time).
+      online_since = coalesce(online_since, now()), recover_attempts = 0,
+      recover_next_at = CASE WHEN recover_next_at = 'infinity' THEN recover_next_at END, -- (infinity = being deleted)
       profile_urn = coalesce(${s?.urn ?? null}, profile_urn),
       display_name = coalesce(${s?.name ?? null}, display_name),
       headline = coalesce(${s?.headline ?? null}, headline),

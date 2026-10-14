@@ -28,7 +28,7 @@ export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
   (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync,
-  a.new_chat_cap, a.followup_days, a.paused_reason, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
+  a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;
@@ -152,6 +152,8 @@ export default async function accountRoutes(app: FastifyInstance) {
     const [a] = await sql`SELECT owner_user_id, label FROM accounts WHERE id = ${id}`;
     if (!isAdminRole(user.role) && a.ownerUserId !== user.id)
       throw new HttpError(403, 'Only the account owner or an admin can disconnect it');
+    // Keep the automatic recovery away while the browser is being removed.
+    await sql`UPDATE accounts SET recover_next_at = 'infinity' WHERE id = ${id}`;
     await pods.remove(id, true).catch((e) => console.error('[accounts] pod remove', e.message));
     await sql`DELETE FROM accounts WHERE id = ${id}`;
     await redis.del(`li:cmd:${id}`, `li:tpl:${id}`, `li:ever:${id}`, `li:bridge-target:${id}`);
