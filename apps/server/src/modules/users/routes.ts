@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
 import { hashPassword, requireAdmin, requireUser } from '../../core/auth.ts';
+import { applyGrants, assertStaff } from '../../core/grants.ts';
 import { transferOwnership } from '../../core/owner.ts';
 import { lastStaffSync, runStaffSync } from '../../core/staff-sync.ts';
 import { config } from '../../lib/config.ts';
@@ -17,6 +18,8 @@ const assertPasswordAllowed = (role: string) => {
     throw new HttpError(400, 'Only the owner signs in with a password; everyone else uses Microsoft 365');
 };
 
+const Level = z.enum(['READ', 'REPLY', 'FULL']);
+
 export default async function userRoutes(app: FastifyInstance) {
   // Everyone can see the team list (for "sent by", assignment, presence).
   app.get('/api/users', async (req) => {
@@ -24,19 +27,25 @@ export default async function userRoutes(app: FastifyInstance) {
     const rows = await sql`
       SELECT u.id, u.name, u.email, u.role, u.disabled_at, u.disabled_reason, u.created_at, u.source,
              u.password_hash IS NOT NULL AS has_password, u.microsoft_oid IS NOT NULL AS microsoft_linked,
+             (SELECT count(*)::int FROM account_grants g WHERE g.user_id = u.id) AS account_count,
              (SELECT max(l.created_at) FROM audit_log l WHERE l.user_id = u.id AND l.action = 'auth.login') AS last_sign_in_at
       FROM users u ORDER BY u.created_at`;
     // Members see names only (for assignment and "sent by"); admins see the security details.
     return isAdminRole(me.role) ? rows : rows.map(({ id, name, role, disabledAt }) => ({ id, name, role, disabledAt }));
   });
 
-  /** How sign-in and the Twilio staff sync are set up, and the last sync result. */
+  /** How sign-in and the staff sync are set up, and the last sync result. */
   app.get('/api/users/directory', async (req) => {
     requireAdmin(req);
     return {
       microsoft: !!config.microsoft,
       passwordSignin: config.passwordSignin,
-      staffSync: { mode: config.staffSync.mode, source: config.staffSync.url || null, last: await lastStaffSync() },
+      staffSync: {
+        mode: config.staffSync.mode,
+        kind: config.staffSync.source,
+        source: config.staffSync.source === 'twenty' ? (config.twenty?.url ?? null) : config.staffSync.url || null,
+        last: await lastStaffSync(),
+      },
     };
   });
 
@@ -114,6 +123,47 @@ export default async function userRoutes(app: FastifyInstance) {
       ip: req.ip,
     });
     return { ok: true };
+  });
+
+  // One staff member's LinkedIn accounts (Team → Accounts): every account, with their level or none.
+  app.get('/api/users/:id/access', async (req) => {
+    requireAdmin(req);
+    const { id } = req.params as { id: string };
+    await assertStaff([id]);
+    return sql`
+      SELECT a.id AS account_id, a.label, a.display_name, a.status, g.level
+      FROM accounts a LEFT JOIN account_grants g ON g.account_id = a.id AND g.user_id = ${id}
+      ORDER BY a.label`;
+  });
+
+  app.put('/api/users/:id/access', async (req) => {
+    const admin = requireAdmin(req);
+    const { id } = req.params as { id: string };
+    const body = z
+      .array(z.object({ accountId: z.string(), level: Level.nullable() }))
+      .max(500)
+      .parse(req.body);
+    await assertStaff([id]);
+    return applyGrants(
+      body.map((b) => ({ accountId: b.accountId, userId: id, level: b.level })),
+      admin,
+      req.ip,
+    );
+  });
+
+  // Many at once: every chosen staff member gets the level (or loses access) on every chosen account.
+  app.post('/api/users/access/bulk', async (req) => {
+    const admin = requireAdmin(req);
+    const body = z
+      .object({
+        userIds: z.array(z.string()).min(1).max(500),
+        accountIds: z.array(z.string()).min(1).max(200),
+        level: Level.nullable(),
+      })
+      .parse(req.body);
+    await assertStaff(body.userIds);
+    const changes = body.userIds.flatMap((userId) => body.accountIds.map((accountId) => ({ accountId, userId, level: body.level })));
+    return applyGrants(changes, admin, req.ip);
   });
 
   // The owner hands ownership to a teammate and stays on as an admin.

@@ -33,7 +33,7 @@ Frontend hot reload: `pnpm --filter @linkedin-console/web dev` (proxies `/api` t
 
 ### Identity tests
 
-The Microsoft sign-in and staff sync tests run only when the stack points at the test's own fake staff list, so running the e2e on a real server never touches real staff. Add to `.env` (as CI does):
+The Microsoft sign-in, staff sync and Twenty tests run only when the stack points at the test's own fake staff list and fake Twenty, so running the e2e on a real server never touches real staff. Add to `.env` (as CI does):
 
 ```
 APP_URL=http://localhost:8088
@@ -43,6 +43,8 @@ MICROSOFT_CLIENT_SECRET=e2e-secret
 TWILIO_CONSOLE_URL=http://api:4100
 TWILIO_CONSOLE_API_KEY=e2e-staff-key
 STAFF_SYNC=provision
+TWENTY_API_URL=http://api:4100/graphql
+TWENTY_API_KEY=e2e-twenty-key
 ```
 
 The real Microsoft round trip can't run in a test; it is covered by the redirect, state and ID-token checks.

@@ -15,7 +15,16 @@ Teammates log in to LinkedIn Console, never to LinkedIn. Access checks happen on
 | Microsoft 365 (`MICROSOFT_*`) | “Sign in with Microsoft” with their company account: the company's MFA and conditional access apply. Only people already added here get in; the first sign-in links the Microsoft account (Entra object ID), later ones must use the same account |
 | `PASSWORD_SIGNIN=owner` | Passwords only for the owner (emergency access if Microsoft is unavailable); everyone else must use Microsoft |
 
-### Following the Twilio console staff list
+### Following the staff list (Twenty CRM or the Twilio console)
+
+`STAFF_SOURCE` picks the list:
+
+- `twenty`: the members of your **Twenty CRM workspace** (`TWENTY_API_URL` = its `/graphql` address, `TWENTY_API_KEY` = an API key from Twenty; the same values the Twilio console uses). Someone removed from the workspace is disabled and signed out here at the next sync; added back, they are re-enabled. Every page of members is read, and an error or an empty workspace changes nothing.
+- `twilio` (default): the Twilio console's staff list, described below.
+
+Links are kept per source, so switching `STAFF_SOURCE` never mistakes someone linked through the other list for a leaver.
+
+#### The Twilio console staff list
 
 With `STAFF_SYNC` the app reads the Twilio console's staff list every few minutes (`TWILIO_CONSOLE_URL`, `TWILIO_CONSOLE_API_KEY` = its server API key):
 
@@ -40,6 +49,14 @@ Admins and the owner do not need grants; they always see every account.
 
 - **Team page → Make owner** (owner only): the teammate becomes the owner, you stay on as an admin. With `PASSWORD_SIGNIN=owner` they need a password first, because the owner is the one who can still sign in when Microsoft is unavailable.
 - **On the server**, when the owner can't sign in or is someone outside the company tenant (e.g. a Gmail address): `./scripts/set-owner.sh person@example.com "Their Name"`. It asks for the password (hidden), creates the person if needed, and makes them the owner. Recorded in the audit log as done by *System*.
+
+## Assigning staff to accounts
+
+- **Team → Assign** on a staff member: every LinkedIn account with a level (No access, Read, Reply, Full) for that person.
+- **Several at once:** tick staff on the Team page → **Assign accounts** → pick accounts and a level (or Remove access).
+- **Accounts → Team access**: the same, per account.
+
+Only admins and the owner assign; only staff get assignments (admins see everything, auditors nothing). Full asks for confirmation. Changes apply at once, also to people who are signed in, and each change is recorded in the audit log under the account (only real changes, not saves that change nothing).
 
 ## Account grants (Staff)
 

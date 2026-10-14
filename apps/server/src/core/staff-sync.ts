@@ -1,6 +1,7 @@
-// Follows the Twilio console's staff list (GET /api/staff, server API key):
+// Follows a staff list: the Twilio console's (GET /api/staff, server API key) or the members of the Twenty CRM
+// workspace (STAFF_SOURCE=twenty):
 //  - links teammates to their staff record (by email or email alias),
-//  - disables and signs out anyone resigned or archived there, and re-enables them if that's undone,
+//  - disables and signs out anyone resigned, archived or removed there, and re-enables them if that's undone,
 //  - with STAFF_SYNC=provision, adds active staff as members (no account access until granted,
 //    Microsoft sign-in only).
 // Never touches the owner and never changes roles. Refuses to act on an empty or failed list, or when a
@@ -11,6 +12,7 @@ import { sql } from '../lib/db.ts';
 import { newId } from '../lib/ids.ts';
 import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
+import { workspaceMembers } from '../lib/twenty.ts';
 import { audit } from './audit.ts';
 
 const Staff = z.object({
@@ -38,6 +40,15 @@ export interface StaffSyncStatus {
 const STATUS_KEY = 'lu:staffsync:status';
 const norm = (e: string | null | undefined) => (e ?? '').trim().toLowerCase();
 
+/** A staff list. Its ids are recognisable, so links made from another source are never mistaken for leavers. */
+interface Source {
+  label: string;
+  owns: (staffId: string) => boolean;
+  list: () => Promise<Staff[]>;
+  lookupMissing: (staffId: string) => Promise<{ staff: Staff | null; archived: boolean }>;
+  reasons: { resigned: string; archived: string };
+}
+
 async function twilio(path: string) {
   const res = await fetch(`${config.staffSync.url}${path}`, {
     headers: { authorization: `Bearer ${config.staffSync.apiKey}`, accept: 'application/json' },
@@ -63,6 +74,32 @@ async function lookupMissing(staffId: string): Promise<{ staff: Staff | null; ar
   return { staff, archived: !!staff.archived_at };
 }
 
+const TWENTY = 'twenty:';
+
+const sources: Record<'twilio' | 'twenty', Source> = {
+  twilio: {
+    label: 'Twilio staff list',
+    owns: (id) => !id.startsWith(TWENTY),
+    list: fetchStaff,
+    lookupMissing,
+    reasons: { resigned: 'Resigned in the Twilio console', archived: 'Archived in the Twilio console' },
+  },
+  twenty: {
+    label: 'Twenty workspace',
+    owns: (id) => id.startsWith(TWENTY),
+    async list() {
+      const members = await workspaceMembers();
+      if (!members.length) throw new Error('Twenty CRM returned no workspace members');
+      if (!members.some((m) => m.email)) throw new Error("This Twenty CRM version doesn't share members' emails; nothing changed");
+      return members.map((m) => ({ id: TWENTY + m.id, name: m.name, email: m.email }));
+    },
+    // The list is complete (every page): someone linked but not in it was removed from the workspace.
+    lookupMissing: async () => ({ staff: null, archived: true }),
+    reasons: { resigned: 'Removed from the Twenty workspace', archived: 'Removed from the Twenty workspace' },
+  },
+};
+type SourceKind = keyof typeof sources;
+
 async function grantDefault(userId: string) {
   if (config.defaultGrant === 'NONE') return;
   await sql`INSERT INTO account_grants (account_id, user_id, level) SELECT id, ${userId}, ${config.defaultGrant} FROM accounts ON CONFLICT DO NOTHING`;
@@ -70,42 +107,45 @@ async function grantDefault(userId: string) {
 
 const LOCK_KEY = 'lu:staffsync:lock';
 
-/** One run at a time across api ("Sync now") and worker (schedule). */
-export async function runStaffSync(): Promise<StaffSyncStatus> {
+/** One run at a time across api ("Sync now") and worker (schedule). `source` overrides STAFF_SOURCE (tests). */
+export async function runStaffSync(opts: { source?: SourceKind } = {}): Promise<StaffSyncStatus> {
   if (!(await redis.set(LOCK_KEY, '1', 'EX', 300, 'NX'))) {
     return { at: new Date().toISOString(), ok: false, error: 'A sync is already running; try again in a moment' };
   }
   try {
-    return await syncOnce();
+    return await syncOnce(sources[opts.source ?? config.staffSync.source]);
   } finally {
     await redis.del(LOCK_KEY);
   }
 }
 
-async function syncOnce(): Promise<StaffSyncStatus> {
+async function syncOnce(src: Source): Promise<StaffSyncStatus> {
   const status: StaffSyncStatus = { at: new Date().toISOString(), ok: false };
   try {
-    const staff = await fetchStaff();
+    const staff = await src.list();
     const byId = new Map(staff.map((s) => [s.id, s]));
     const byEmail = new Map<string, Staff>();
     for (const s of staff) for (const e of [s.email, ...(s.email_aliases ?? [])]) if (norm(e)) byEmail.set(norm(e), s);
 
     const users = await sql`SELECT id, email, name, role, staff_id, disabled_at, disabled_by FROM users`;
-    const takenStaffIds = new Set(users.map((u) => u.staffId).filter(Boolean));
+    // Links made from the other source (after switching STAFF_SOURCE) are ignored, not treated as leavers.
+    const own = (id: string | null) => (id && src.owns(id) ? id : null);
+    const takenStaffIds = new Set(users.map((u) => own(u.staffId)).filter(Boolean));
     const plan: { user: (typeof users)[number]; staff: Staff | null; leaver: string | null; link: string | null }[] = [];
 
     for (const u of users) {
       if (u.role === 'OWNER') continue;
-      let s = (u.staffId && byId.get(u.staffId)) || byEmail.get(norm(u.email)) || null;
+      const linkedId = own(u.staffId);
+      let s = (linkedId && byId.get(linkedId)) || byEmail.get(norm(u.email)) || null;
       let leaver: string | null = null;
-      if (!s && u.staffId) {
-        const found = await lookupMissing(u.staffId);
+      if (!s && linkedId) {
+        const found = await src.lookupMissing(linkedId);
         s = found.staff;
-        if (found.archived) leaver = 'Archived in the Twilio console';
+        if (found.archived) leaver = src.reasons.archived;
       }
       if (!s && !leaver) continue; // not on the staff list: managed here only
-      if (s?.resigned_at) leaver = 'Resigned in the Twilio console';
-      const link = s && s.id !== u.staffId && !takenStaffIds.has(s.id) ? s.id : null;
+      if (s?.resigned_at) leaver = src.reasons.resigned;
+      const link = s && s.id !== linkedId && !takenStaffIds.has(s.id) ? s.id : null;
       if (link) takenStaffIds.add(link);
       plan.push({ user: u, staff: s, leaver, link });
     }
@@ -114,7 +154,7 @@ async function syncOnce(): Promise<StaffSyncStatus> {
     const limit = Math.max(3, Math.ceil(plan.length * 0.25));
     if (toDisable.length > limit) {
       throw new Error(
-        `would disable ${toDisable.length} of ${plan.length} linked teammates at once; nothing changed (check the Twilio staff list)`,
+        `would disable ${toDisable.length} of ${plan.length} linked teammates at once; nothing changed (check the ${src.label})`,
       );
     }
 

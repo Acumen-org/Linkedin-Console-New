@@ -9,6 +9,7 @@ import { api } from '../../lib/api';
 import { fullTime } from '../../lib/format';
 import { toast } from '../../lib/toast';
 import type { User } from '../../types';
+import { BulkAssignModal, StaffAccessModal } from './StaffAccess';
 
 const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?: 'slate' | 'blue' | 'red' }) => (
   <span
@@ -20,7 +21,7 @@ const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?:
   </span>
 );
 
-/** How teammates sign in, and the Twilio console staff sync. */
+/** How teammates sign in, and the staff list they follow (Twilio console or Twenty workspace). */
 function DirectoryCard({ info }: { info: DirectoryInfo }) {
   const qc = useQueryClient();
   const [running, setRunning] = useState(false);
@@ -56,7 +57,7 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between gap-2">
-          <span className="font-semibold">Twilio console staff list</span>
+          <span className="font-semibold">{sync.kind === 'twenty' ? 'Twenty CRM workspace' : 'Twilio console staff list'}</span>
           {sync.mode !== 'off' && (
             <button type="button" onClick={runNow} disabled={running} className="btn-ghost text-xs">
               <RefreshCw size={13} className={running ? 'animate-spin' : ''} /> Sync now
@@ -94,6 +95,17 @@ export function TeamPage() {
   const directory = useQuery({ queryKey: ['directory'], queryFn: () => api.get<DirectoryInfo>('/api/users/directory') });
   const [adding, setAdding] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
+  const [assigning, setAssigning] = useState<User | null>(null);
+  // Staff picked for assigning accounts to several at once.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState(false);
+  const isStaff = (u: User) => u.role === 'MEMBER' && !u.disabledAt;
+  const togglePick = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  };
   const passwordsUsed = !directory.data?.microsoft || directory.data.passwordSignin === 'on';
 
   const makeOwner = async (u: User) => {
@@ -126,13 +138,33 @@ export function TeamPage() {
         </button>
       </PageHeader>
       <p className="mb-4 text-sm text-slate-600">
-        Teammates sign in to this app, never to LinkedIn. Staff see no LinkedIn accounts until an admin assigns them under Accounts → Team
-        access, and every message they send is recorded. Admins and the owner see everything.
+        Teammates sign in to this app, never to LinkedIn. Staff see no LinkedIn accounts until an admin assigns them (Assign on each person,
+        or tick several), and every message they send is recorded. Admins and the owner see everything.
       </p>
       {directory.data && <DirectoryCard info={directory.data} />}
+      {picked.size > 0 && (
+        <div className="card mb-3 flex items-center gap-3 px-4 py-2 text-sm">
+          <span className="flex-1">
+            {picked.size} staff member{picked.size === 1 ? '' : 's'} selected
+          </span>
+          <button type="button" onClick={() => setPicked(new Set())} className="btn-ghost text-xs">
+            Clear
+          </button>
+          <button type="button" onClick={() => setBulk(true)} className="btn-primary">
+            Assign accounts
+          </button>
+        </div>
+      )}
       <div className="card divide-y divide-slate-100">
         {users.data?.map((u) => (
           <div key={u.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <input
+              type="checkbox"
+              className={isStaff(u) ? '' : 'invisible'}
+              checked={picked.has(u.id)}
+              onChange={() => togglePick(u.id)}
+              title="Select to assign accounts to several staff at once"
+            />
             <div className={u.disabledAt ? 'opacity-50' : ''}>
               <Avatar name={u.name} size={38} />
             </div>
@@ -142,7 +174,7 @@ export function TeamPage() {
                 {u.id === me.id && <span className="text-xs text-slate-500">(you)</span>}
                 {u.microsoftLinked && <Badge tone="blue">Microsoft</Badge>}
                 {u.hasPassword === false && !u.microsoftLinked && <Badge>Microsoft sign-in</Badge>}
-                {u.source === 'staff_sync' && <Badge>From Twilio staff list</Badge>}
+                {u.source === 'staff_sync' && <Badge>From the staff list</Badge>}
                 {u.disabledAt && <Badge tone="red">{u.disabledReason ?? 'Disabled'}</Badge>}
               </div>
               <div className="text-sm text-slate-600">
@@ -166,6 +198,11 @@ export function TeamPage() {
                 <option value="AUDITOR">Auditor</option>
                 <option value="ADMIN">Admin</option>
               </select>
+            )}
+            {isStaff(u) && (
+              <button type="button" onClick={() => setAssigning(u)} className="btn-outline text-xs">
+                {u.accountCount ? `${u.accountCount} account${u.accountCount === 1 ? '' : 's'}` : 'No accounts'} · Assign
+              </button>
             )}
             {me.role === 'OWNER' && u.role !== 'OWNER' && !u.disabledAt && (
               <button type="button" onClick={() => makeOwner(u)} className="btn-ghost text-xs">
@@ -193,6 +230,17 @@ export function TeamPage() {
       </div>
       {adding && <AddUserModal microsoft={!!directory.data?.microsoft} passwords={passwordsUsed} onClose={() => setAdding(false)} />}
       {resetting && <ResetModal user={resetting} onClose={() => setResetting(null)} />}
+      {assigning && <StaffAccessModal user={assigning} onClose={() => setAssigning(null)} />}
+      {bulk && (
+        <BulkAssignModal
+          users={users.data?.filter((u) => picked.has(u.id)) ?? []}
+          onClose={() => setBulk(false)}
+          onDone={() => {
+            setBulk(false);
+            setPicked(new Set());
+          }}
+        />
+      )}
     </PageScroll>
   );
 }

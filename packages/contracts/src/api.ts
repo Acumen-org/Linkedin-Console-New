@@ -11,11 +11,13 @@ export interface User {
   createdAt?: string;
   // Admins only:
   disabledReason?: string | null;
-  /** 'staff_sync' = added from the Twilio console staff list. */
+  /** 'staff_sync' = added from the staff list (Twilio console or Twenty workspace). */
   source?: 'local' | 'staff_sync';
   hasPassword?: boolean;
   microsoftLinked?: boolean;
   lastSignInAt?: string | null;
+  /** Staff: how many LinkedIn accounts they are assigned. */
+  accountCount?: number;
 }
 
 /** First sync of a newly connected account (shown until done). */
@@ -44,6 +46,8 @@ export interface DirectoryInfo {
   passwordSignin: 'on' | 'owner';
   staffSync: {
     mode: 'off' | 'disable' | 'provision';
+    /** Where the list comes from. */
+    kind: 'twilio' | 'twenty';
     source: string | null;
     last: {
       at: string;

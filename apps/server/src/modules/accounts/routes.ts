@@ -6,6 +6,7 @@ import { accessibleAccountIds, assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireAdmin, requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
+import { applyGrants } from '../../core/grants.ts';
 import { effectiveCapSql, rampDaysLeftSql } from '../../core/send-limits.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
@@ -233,19 +234,11 @@ export default async function accountRoutes(app: FastifyInstance) {
     // Auditors never get account access (they only read the audit log).
     const auditors = await sql`SELECT id FROM users WHERE role = 'AUDITOR' AND id IN ${sql(grants.map((g) => g.userId).concat(''))}`;
     if (auditors.length) throw new HttpError(400, 'Auditors cannot be given access to LinkedIn accounts');
-    await sql.begin(async (tx) => {
-      for (const g of grants) {
-        if (g.level) {
-          await tx`
-            INSERT INTO account_grants (account_id, user_id, level) VALUES (${id}, ${g.userId}, ${g.level as Level})
-            ON CONFLICT (account_id, user_id) DO UPDATE SET level = excluded.level`;
-        } else {
-          await tx`DELETE FROM account_grants WHERE account_id = ${id} AND user_id = ${g.userId}`;
-        }
-      }
-    });
-    await audit({ userId: user.id, accountId: id, action: 'account.grants_changed', meta: { grants }, ip: req.ip });
-    for (const g of grants) await publish(`user:${g.userId}`, 'grants.changed', {});
+    await applyGrants(
+      grants.map((g) => ({ accountId: id, userId: g.userId, level: g.level as Level | null })),
+      user,
+      req.ip,
+    );
     return { ok: true };
   });
 }

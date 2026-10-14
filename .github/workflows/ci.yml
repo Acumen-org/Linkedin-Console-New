@@ -51,6 +51,8 @@ jobs:
           TWILIO_CONSOLE_URL=http://api:4100
           TWILIO_CONSOLE_API_KEY=e2e-staff-key
           STAFF_SYNC=provision
+          TWENTY_API_URL=http://api:4100/graphql
+          TWENTY_API_KEY=e2e-twenty-key
           ENV
       - name: Build images
         run: docker compose --profile images build

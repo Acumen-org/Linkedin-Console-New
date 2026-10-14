@@ -55,6 +55,11 @@ const Env = z.object({
     .transform((v) => v.replace(/\/$/, '')),
   TWILIO_CONSOLE_API_KEY: z.string().default(''),
   STAFF_SYNC: z.enum(['off', 'disable', 'provision']).default('off'),
+  // Where the staff list comes from: the Twilio console, or the members of the Twenty CRM workspace.
+  STAFF_SOURCE: z.enum(['twilio', 'twenty']).default('twilio'),
+  // Twenty CRM (optional): GraphQL endpoint (https://…/graphql) and an API key (Settings → APIs in Twenty).
+  TWENTY_API_URL: z.union([z.literal(''), z.url()]).default(''),
+  TWENTY_API_KEY: z.string().default(''),
   STAFF_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
 });
 
@@ -73,9 +78,13 @@ const problems = [
     : '',
   microsoftEnabled && !e.APP_URL ? 'Microsoft sign-in needs APP_URL (the public https:// address, for the redirect URI)' : '',
   e.PASSWORD_SIGNIN === 'owner' && !microsoftEnabled ? 'PASSWORD_SIGNIN=owner needs Microsoft sign-in configured' : '',
-  e.STAFF_SYNC !== 'off' && !(e.TWILIO_CONSOLE_URL && e.TWILIO_CONSOLE_API_KEY)
+  e.STAFF_SYNC !== 'off' && e.STAFF_SOURCE === 'twilio' && !(e.TWILIO_CONSOLE_URL && e.TWILIO_CONSOLE_API_KEY)
     ? 'STAFF_SYNC needs TWILIO_CONSOLE_URL and TWILIO_CONSOLE_API_KEY'
     : '',
+  e.STAFF_SYNC !== 'off' && e.STAFF_SOURCE === 'twenty' && !(e.TWENTY_API_URL && e.TWENTY_API_KEY)
+    ? 'STAFF_SOURCE=twenty needs TWENTY_API_URL and TWENTY_API_KEY'
+    : '',
+  !!e.TWENTY_API_URL !== !!e.TWENTY_API_KEY ? 'Twenty CRM needs both TWENTY_API_URL and TWENTY_API_KEY' : '',
   e.STAFF_SYNC === 'provision' && !microsoftEnabled
     ? 'STAFF_SYNC=provision needs Microsoft sign-in (provisioned members have no password)'
     : '',
@@ -109,8 +118,10 @@ export const config = {
     ? { tenantId: e.MICROSOFT_TENANT_ID, clientId: e.MICROSOFT_CLIENT_ID, clientSecret: e.MICROSOFT_CLIENT_SECRET }
     : null,
   passwordSignin: e.PASSWORD_SIGNIN,
+  twenty: e.TWENTY_API_URL && e.TWENTY_API_KEY ? { url: e.TWENTY_API_URL, apiKey: e.TWENTY_API_KEY } : null,
   staffSync: {
     mode: e.STAFF_SYNC,
+    source: e.STAFF_SOURCE,
     url: e.TWILIO_CONSOLE_URL,
     apiKey: e.TWILIO_CONSOLE_API_KEY,
     minutes: e.STAFF_SYNC_MINUTES,

@@ -8,6 +8,7 @@ import http from 'node:http';
 import os from 'node:os';
 import { Redis } from 'ioredis';
 import { hashPassword } from '../core/auth.ts';
+import { runStaffSync } from '../core/staff-sync.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
@@ -39,10 +40,39 @@ function fakeTwilio(req: http.IncomingMessage, res: http.ServerResponse) {
   res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(found ?? staffList));
 }
 
+// Fake Twenty CRM (POST /graphql): workspace members, two per page (the sync must read every page).
+let twentyMembers: { id: string; name: string; email: string }[] = [];
+let twentyFails = false;
+function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
+  if (req.headers.authorization !== `Bearer ${config.twenty?.apiKey}`) return res.writeHead(401).end();
+  let body = '';
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    const { query, variables } = JSON.parse(body);
+    const json = (data: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(data));
+    if (twentyFails) return json({ errors: [{ message: 'Forbidden resource' }] });
+    if (!String(query).includes('workspaceMembers')) return json({ errors: [{ message: 'unknown query' }] });
+    const start = variables?.after ? Number(variables.after) : 0;
+    const page = twentyMembers.slice(start, start + 2);
+    json({
+      data: {
+        workspaceMembers: {
+          edges: page.map((m) => {
+            const [firstName, lastName] = m.name.split(' ');
+            return { node: { id: m.id, name: { firstName, lastName }, userEmail: m.email } };
+          }),
+          pageInfo: { hasNextPage: start + 2 < twentyMembers.length, endCursor: String(start + 2) },
+        },
+      },
+    });
+  });
+}
+
 // Webhook receiver inside this process; the worker container reaches it by this container's hostname.
 const received: { event: string; signature: string; legacySignature: string; body: string }[] = [];
 const receiver = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/staff')) return fakeTwilio(req, res);
+  if (req.url === '/graphql') return fakeTwenty(req, res);
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
@@ -694,6 +724,41 @@ try {
     if (!previous) await sql`UPDATE users SET role = 'ADMIN' WHERE id = ${ownerId}`;
   });
 
+  await step('assign staff: per person and many at once, admins only, staff only, only real changes recorded', async () => {
+    const access = await owner('GET', `/api/users/${memberId}/access`);
+    assert.equal(access.status, 200);
+    assert.equal(access.data.find((a: any) => a.accountId === accountId)?.level, 'REPLY');
+    assert.equal((await member('GET', `/api/users/${memberId}/access`)).status, 403, 'admins only');
+    assert.equal((await owner('GET', `/api/users/${ownerId}/access`)).status, 400, 'admins see everything already');
+
+    const logs = async () =>
+      (await sql`SELECT count(*)::int AS n FROM audit_log WHERE action = 'account.grants_changed' AND account_id = ${accountId}`)[0].n;
+    const before = await logs();
+    assert.equal((await owner('PUT', `/api/users/${memberId}/access`, [{ accountId, level: 'READ' }])).data.changed, 1);
+    const memberLevel = async () => ((await member('GET', '/api/accounts')).data as any[]).find((a) => a.id === accountId)?.level;
+    assert.equal(await memberLevel(), 'READ', 'READ now (they see it at once)');
+    assert.equal((await owner('PUT', `/api/users/${memberId}/access`, [{ accountId, level: 'READ' }])).data.changed, 0, 'no-op');
+    assert.equal(await logs(), before + 1, 'one entry, only for the real change');
+
+    // Two new staff members and the member at once; then the two lose access again.
+    const ids: string[] = [];
+    for (const n of ['one', 'two']) {
+      const r = await owner('POST', '/api/users', { name: `Bulk ${n}`, email: `bulk-${n}-${tag}@e2e.test`, password, role: 'MEMBER' });
+      ids.push(r.data.id);
+    }
+    const bulk = await owner('POST', '/api/users/access/bulk', { userIds: [...ids, memberId], accountIds: [accountId], level: 'REPLY' });
+    assert.equal(bulk.data.changed, 3);
+    assert.equal((await owner('GET', '/api/users')).data.find((u: any) => u.id === ids[0]).accountCount, 1);
+    assert.equal(
+      (await owner('POST', '/api/users/access/bulk', { userIds: [ownerId], accountIds: [accountId], level: 'READ' })).status,
+      400,
+    );
+    assert.equal((await member('POST', '/api/users/access/bulk', { userIds: ids, accountIds: [accountId], level: 'FULL' })).status, 403);
+    assert.equal((await owner('POST', '/api/users/access/bulk', { userIds: ids, accountIds: [accountId], level: null })).data.changed, 2);
+    assert.equal((await sql`SELECT count(*)::int AS n FROM account_grants WHERE user_id IN ${sql(ids)}`)[0].n, 0);
+    assert.equal(await memberLevel(), 'REPLY', 'REPLY again');
+  });
+
   await step('new users get exactly DEFAULT_GRANT (nothing when NONE)', async () => {
     const created = await owner('POST', '/api/users', { name: 'Newbie', email: `newbie-${tag}@e2e.test`, password, role: 'MEMBER' });
     assert.equal(created.status, 200, JSON.stringify(created.data));
@@ -1329,6 +1394,51 @@ try {
       );
       staffList = saved;
     });
+    if (config.twenty?.url === 'http://api:4100/graphql') {
+      const twentySync = () => runStaffSync({ source: 'twenty' });
+      await step('staff from Twenty: workspace members become staff (every page), removal disables, return re-enables', async () => {
+        twentyMembers = [
+          { id: `m1-${tag}`, name: 'E2E Member', email: `member-${tag}@e2e.test` },
+          { id: `m2-${tag}`, name: 'Tina Twenty', email: `tina-${tag}@e2e.test` },
+          { id: `m3-${tag}`, name: 'Theo Twenty', email: `theo-${tag}@e2e.test` },
+        ];
+        const first = await twentySync();
+        assert.equal(first.ok, true, first.error);
+        assert.equal(first.staff, 3, 'all pages read');
+        assert.equal(first.provisioned, 2);
+        const tina = await userByEmail(`tina-${tag}@e2e.test`);
+        assert.equal(tina.role, 'MEMBER');
+        assert.equal(tina.staffId, `twenty:m2-${tag}`);
+        assert.equal(tina.passwordHash, null, 'Microsoft 365 only');
+        assert.equal((await userByEmail(`member-${tag}@e2e.test`)).staffId, `twenty:m1-${tag}`, 'linked by email');
+        // Linked to the Twilio list before and not in Twenty: left alone (another source is not a removal).
+        assert.equal((await userByEmail(`reader-${tag}@e2e.test`)).disabledAt, null);
+
+        twentyMembers = twentyMembers.filter((m) => m.id !== `m2-${tag}`);
+        assert.equal((await twentySync()).disabled, 1);
+        const gone = await userByEmail(`tina-${tag}@e2e.test`);
+        assert.ok(gone.disabledAt);
+        assert.equal(gone.disabledReason, 'Removed from the Twenty workspace');
+        twentyMembers.push({ id: `m2-${tag}`, name: 'Tina Twenty', email: `tina-${tag}@e2e.test` });
+        assert.equal((await twentySync()).reenabled, 1);
+        assert.equal((await userByEmail(`tina-${tag}@e2e.test`)).disabledAt, null);
+      });
+      await step('staff from Twenty: an error or an empty workspace changes nothing', async () => {
+        twentyFails = true;
+        const failed = await twentySync();
+        assert.equal(failed.ok, false);
+        assert.match(failed.error ?? '', /Forbidden/);
+        twentyFails = false;
+        const saved = twentyMembers;
+        twentyMembers = [];
+        const empty = await twentySync();
+        assert.equal(empty.ok, false);
+        assert.equal((await userByEmail(`tina-${tag}@e2e.test`)).disabledAt, null);
+        twentyMembers = saved;
+      });
+    } else {
+      console.log('  (Twenty staff tests skipped: they need TWENTY_API_URL=http://api:4100/graphql, see docs/development.md)');
+    }
   } else {
     console.log('  (Microsoft sign-in and staff sync tests skipped: they need the e2e identity settings, see docs/development.md)');
   }
