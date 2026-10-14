@@ -6,7 +6,7 @@ import { conversationForUser } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser, type SessionUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
-import { assertCanSend } from '../../core/send-limits.ts';
+import { assertCanSend, assertStaffCanSend, watchStaffVolume } from '../../core/send-limits.ts';
 import { sql } from '../../lib/db.ts';
 import { badRequest, conflict } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
@@ -83,6 +83,7 @@ export default async function messageRoutes(app: FastifyInstance) {
       throw conflict(`${holder?.name ?? 'Someone'} is replying to this conversation`);
     }
     if (!conversation.threadId) throw conflict('This conversation cannot be replied to yet (still syncing)');
+    await assertStaffCanSend(user);
     await assertCanSend(conversation.accountId);
     const uploads = await uploadsFor(user, body.uploadIds);
 
@@ -124,6 +125,7 @@ export default async function messageRoutes(app: FastifyInstance) {
       meta: { conversationId: id, messageId, chars: body.text.length, files: uploads.length },
       ip: req.ip,
     });
+    watchStaffVolume(user).catch((err) => req.log.warn({ err }, 'volume check failed'));
     return msg;
   });
 }

@@ -18,6 +18,10 @@ export interface User {
   lastSignInAt?: string | null;
   /** Staff: how many LinkedIn accounts they are assigned. */
   accountCount?: number;
+  /** Their own send limit per 24 hours (null = the team default, 0 = none). */
+  dailySendCap?: number | null;
+  /** Messages and new chats they sent in the last 24 hours. */
+  sent24h?: number;
 }
 
 /** First sync of a newly connected account (shown until done). */
@@ -84,6 +88,8 @@ export interface Account {
   rampDaysLeft?: number | null;
   /** New chats (cold outreach) per day, within the daily cap. */
   newChatCap?: number;
+  /** Automatic follow-up after this many business days without a reply (0 = off). */
+  followupDays?: number;
   hasProxy: boolean;
   lastSeenAt: string | null;
   lastError: string | null;

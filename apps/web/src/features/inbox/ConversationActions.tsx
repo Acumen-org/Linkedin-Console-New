@@ -105,6 +105,17 @@ function nextMorning(daysAhead: number) {
   d.setHours(9, 0, 0, 0);
   return d;
 }
+/** 9:00 on the n-th business day from today (weekends don't count). */
+function businessMorning(days: number) {
+  const d = new Date();
+  let left = days;
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) left--;
+  }
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
 function nextMonday() {
   const d = new Date();
   d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
@@ -241,10 +252,10 @@ export function ReminderMenu({
     }
   };
   const options: [string, () => Date][] = [
-    ['Tomorrow 9:00', () => nextMorning(1)],
-    ['In 3 days, 9:00', () => nextMorning(3)],
+    ['Next business day, 9:00', () => businessMorning(1)],
+    ['In 3 business days', () => businessMorning(3)],
     ['Next Monday 9:00', nextMonday],
-    ['In 2 weeks', () => nextMorning(14)],
+    ['In 2 weeks (10 business days)', () => businessMorning(10)],
   ];
   const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600' : 'text-brand') : '';
 

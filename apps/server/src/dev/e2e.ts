@@ -6,12 +6,15 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import os from 'node:os';
+import { AUDIT_ACTIONS } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { hashPassword } from '../core/auth.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
+import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
+import { autoFollowups } from '../worker/auto-followups.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { reminderSyncTick } from '../worker/reminder-sync.ts';
 
@@ -1439,6 +1442,107 @@ try {
     });
   }
 
+  await step('automatic follow-ups: after N business days of silence (never on a weekend), closed when they reply', async () => {
+    const quiet = person(`urn:li:fsd_profile:QUIET${tag}`, 'Quiet E2E');
+    const sentAt = Date.now() - 20 * 86400_000; // 20 days ago: more than 10 business days
+    await emit('conversations', [
+      {
+        urn: conv('QUIET'),
+        threadId: `2-QUIET${tag}`,
+        title: null,
+        isGroup: false,
+        unreadCount: 0,
+        lastActivityAt: sentAt,
+        folder: 'focused',
+        participants: [quiet],
+      },
+    ]);
+    await emit('messages', [msg('QUIET', null, 'Hi Quiet, any thoughts on my note?', sentAt)]);
+    const [c] = await until(
+      () => sql`SELECT id, last_message_at, last_message_from_self FROM conversations WHERE thread_urn = ${conv('QUIET')}`,
+      (r) => r.length > 0 && r[0].lastMessageFromSelf,
+      'quiet chat',
+    );
+    const tz = 'America/Chicago';
+    // A weekday "now" (the test may run on a weekend) and a Saturday one.
+    let weekday = new Date();
+    while (isWeekend(weekday, tz)) weekday = new Date(weekday.getTime() + 86400_000);
+    let saturday = new Date();
+    while (new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(saturday) !== 'Sat')
+      saturday = new Date(saturday.getTime() + 86400_000);
+
+    const reminderOf = async () => (await sql`SELECT * FROM reminders WHERE conversation_id = ${c.id} ORDER BY created_at DESC`)[0];
+    await autoFollowups(saturday);
+    assert.equal(await reminderOf(), undefined, 'nothing on a weekend');
+
+    await owner('PATCH', `/api/accounts/${accountId}`, { followupDays: 0 });
+    await autoFollowups(weekday);
+    assert.equal(await reminderOf(), undefined, 'off for the account');
+    assert.equal((await member('PATCH', `/api/accounts/${accountId}`, { followupDays: 5 })).status, 403, 'full access only');
+    await owner('PATCH', `/api/accounts/${accountId}`, { followupDays: 10 });
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.followupDays, 10);
+
+    await autoFollowups(weekday);
+    const r = await reminderOf();
+    assert.ok(r, 'created');
+    assert.equal(r.source, 'auto');
+    assert.equal(r.status, 'OPEN');
+    assert.equal(r.dueAt.getTime(), addBusinessDays(c.lastMessageAt, 10, tz).getTime(), '9:00 on the 10th business day');
+    assert.equal(isWeekend(r.dueAt, tz), false);
+    assert.match(r.note, /No reply for 10 business days/);
+    assert.equal((await autoFollowups(weekday)).created, 0, 'one per silence');
+
+    // They reply: the automatic follow-up closes itself, and no new one while the last word is theirs.
+    await emit('messages', [msg('QUIET', quiet, 'Sorry, busy weeks. Yes, interested!', Date.now())]);
+    await until(
+      async () => {
+        await autoFollowups(weekday);
+        return (await reminderOf()).status;
+      },
+      (st) => st === 'DONE',
+      'closed after the reply',
+    );
+    assert.equal((await reminderOf()).closedVia, 'auto');
+    assert.equal((await autoFollowups(weekday)).created, 0);
+  });
+
+  await step('staff send limits: per person or team default, admins only, alert on a burst', async () => {
+    // The account's own limit must not be what stops these sends.
+    await owner('PATCH', `/api/accounts/${accountId}`, { sendPaused: false, dailySendCap: 500 });
+    const [quietConv] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('QUIET')}`;
+    const send = (text: string) =>
+      member('POST', `/api/conversations/${quietConv.id}/messages`, { text: `[fast] ${text}`, clientId: crypto.randomUUID() });
+    assert.equal((await member('PUT', '/api/settings/staff-limits', { dailyCap: 1, burstPerHour: 0 })).status, 403);
+    const before = (await owner('GET', '/api/users')).data.find((u: any) => u.id === memberId);
+    assert.equal(typeof before.sent24h, 'number');
+
+    // Their own limit: exactly what they already sent, so the next one is refused.
+    await owner('PATCH', `/api/users/${memberId}`, { dailySendCap: before.sent24h });
+    const refused = await send('over my limit');
+    assert.equal(refused.status, 429, JSON.stringify(refused.data));
+    assert.match(refused.data.error, /your limit/);
+    // Back to the team default (none), and admins are alerted about a burst.
+    await owner('PATCH', `/api/users/${memberId}`, { dailySendCap: null });
+    assert.equal((await owner('PUT', '/api/settings/staff-limits', { dailyCap: 0, burstPerHour: 1 })).status, 200);
+    await redis.del(`lu:volume:${memberId}:burst`);
+    assert.equal((await send('one')).status, 200);
+    assert.equal((await send('two')).status, 200);
+    await until(
+      async () =>
+        (await sql`SELECT meta FROM audit_log WHERE action = 'user.volume_alert' AND user_id = ${memberId} ORDER BY id DESC LIMIT 1`)[0],
+      (row) => row?.meta.reason === 'burst',
+      'burst alert',
+    );
+    // Admins have no personal limit.
+    await owner('PUT', '/api/settings/staff-limits', { dailyCap: 1, burstPerHour: 30 });
+    assert.notEqual(
+      (await owner('POST', `/api/conversations/${quietConv.id}/messages`, { text: '[fast] admin', clientId: crypto.randomUUID() })).status,
+      429,
+    );
+    assert.equal((await send('three')).status, 429, 'team default applies to staff');
+    await owner('PUT', '/api/settings/staff-limits', { dailyCap: 0, burstPerHour: 30 });
+  });
+
   await step('config + push subscription endpoints', async () => {
     const cfg = await member('GET', '/api/config');
     assert.ok(cfg.data.vapidPublicKey, 'VAPID key generated');
@@ -1561,7 +1665,7 @@ try {
     const label = r.data.find((e: any) => e.action === 'label.created' && e.meta.name === `e2e-${tag}-hot`);
     assert.ok(label, 'label.created listed under the Settings category');
     assert.ok(label.ip, 'IP recorded');
-    assert.ok(r.data.every((e: any) => /^(label|webhook)\./.test(e.action)));
+    assert.ok(r.data.every((e: any) => AUDIT_ACTIONS[e.action as keyof typeof AUDIT_ACTIONS]?.category === 'settings'));
   });
 
   // ---------- company sign-in + Twilio staff sync (only against the test's own fake staff list) ----------

@@ -98,6 +98,64 @@ interface CrmStatus {
   last?: { at: string; ok: boolean; error?: string } | null;
 }
 
+/** Send limits for staff: the team default per 24 hours, and when admins are alerted about a burst. */
+function StaffLimitsCard() {
+  const qc = useQueryClient();
+  const limits = useQuery({
+    queryKey: ['staff-limits'],
+    queryFn: () => api.get<{ dailyCap: number; burstPerHour: number }>('/api/settings/staff-limits'),
+  });
+  const [form, setForm] = useState<{ dailyCap: number; burstPerHour: number } | null>(null);
+  const v = form ?? limits.data;
+  if (!v) return null;
+  const save = async () => {
+    try {
+      await api.put('/api/settings/staff-limits', v);
+      toast('Send limits saved', 'success');
+      setForm(null);
+      qc.invalidateQueries({ queryKey: ['staff-limits'] });
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <div className="card mb-4 flex flex-wrap items-end gap-4 p-4 text-sm">
+      <div className="min-w-56 flex-1">
+        <div className="font-semibold">Staff send limits</div>
+        <p className="text-slate-600">
+          Each staff member's messages and new chats per 24 hours, over all accounts, on top of each account's own limit. Admins are
+          notified when someone gets close to it or sends a burst.
+        </p>
+      </div>
+      <label>
+        <span className="label">Per person per 24 hours (0 = no limit)</span>
+        <input
+          className="input w-40"
+          type="number"
+          min={0}
+          max={1000}
+          value={v.dailyCap}
+          onChange={(e) => setForm({ ...v, dailyCap: Number(e.target.value) })}
+        />
+      </label>
+      <label>
+        <span className="label">Alert above, in one hour (0 = never)</span>
+        <input
+          className="input w-40"
+          type="number"
+          min={0}
+          max={500}
+          value={v.burstPerHour}
+          onChange={(e) => setForm({ ...v, burstPerHour: Number(e.target.value) })}
+        />
+      </label>
+      <button type="button" onClick={save} disabled={!form} className="btn-primary">
+        Save
+      </button>
+    </div>
+  );
+}
+
 /** Twenty CRM sync of prospects and their messages (only shown when CRM_SYNC is on). */
 function CrmCard() {
   const status = useQuery({
@@ -195,6 +253,7 @@ export function TeamPage() {
       </p>
       {directory.data && <DirectoryCard info={directory.data} />}
       <CrmCard />
+      <StaffLimitsCard />
       {picked.size > 0 && (
         <div className="card mb-3 flex items-center gap-3 px-4 py-2 text-sm">
           <span className="flex-1">
@@ -256,6 +315,12 @@ export function TeamPage() {
               <button type="button" onClick={() => setAssigning(u)} className="btn-outline text-xs">
                 {u.accountCount ? `${u.accountCount} account${u.accountCount === 1 ? '' : 's'}` : 'No accounts'} · Assign
               </button>
+            )}
+            {isStaff(u) && (
+              <span className="text-xs text-slate-500" title="Messages and new chats in the last 24 hours, and this person's limit">
+                {u.sent24h ?? 0} sent today
+                {u.dailySendCap === null || u.dailySendCap === undefined ? '' : u.dailySendCap ? ` / ${u.dailySendCap}` : ' · no limit'}
+              </span>
             )}
             {me.role === 'OWNER' && u.role !== 'OWNER' && !u.disabledAt && (
               <button type="button" onClick={() => makeOwner(u)} className="btn-ghost text-xs">

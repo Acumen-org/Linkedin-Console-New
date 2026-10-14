@@ -5,6 +5,7 @@ import { audit } from '../../core/audit.ts';
 import { hashPassword, requireAdmin, requireUser } from '../../core/auth.ts';
 import { applyGrants, assertStaff } from '../../core/grants.ts';
 import { transferOwnership } from '../../core/owner.ts';
+import { setStaffLimits, staffLimits } from '../../core/send-limits.ts';
 import { lastStaffSync, runStaffSync } from '../../core/staff-sync.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
@@ -27,7 +28,9 @@ export default async function userRoutes(app: FastifyInstance) {
     const rows = await sql`
       SELECT u.id, u.name, u.email, u.role, u.disabled_at, u.disabled_reason, u.created_at, u.source,
              u.password_hash IS NOT NULL AS has_password, u.microsoft_oid IS NOT NULL AS microsoft_linked,
-             (SELECT count(*)::int FROM account_grants g WHERE g.user_id = u.id) AS account_count,
+             (SELECT count(*)::int FROM account_grants g WHERE g.user_id = u.id) AS account_count, u.daily_send_cap,
+             (SELECT count(*)::int FROM audit_log l WHERE l.user_id = u.id AND l.action IN ('message.send', 'message.start_chat')
+                AND l.created_at > now() - interval '24 hours') AS sent_24h,
              (SELECT max(l.created_at) FROM audit_log l WHERE l.user_id = u.id AND l.action = 'auth.login') AS last_sign_in_at
       FROM users u ORDER BY u.created_at`;
     // Members see names only (for assignment and "sent by"); admins see the security details.
@@ -92,6 +95,8 @@ export default async function userRoutes(app: FastifyInstance) {
         role: z.enum(['ADMIN', 'MEMBER', 'AUDITOR']).optional(),
         disabled: z.boolean().optional(),
         password: z.string().min(10).max(200).optional(),
+        /** Their own send limit per 24 hours; null = the team default, 0 = none. */
+        dailySendCap: z.number().int().min(0).max(1000).nullable().optional(),
       })
       .parse(req.body);
     const [target] = await sql`SELECT id, role FROM users WHERE id = ${id}`;
@@ -101,6 +106,7 @@ export default async function userRoutes(app: FastifyInstance) {
     if (body.password) assertPasswordAllowed(target.role);
 
     if (body.name) await sql`UPDATE users SET name = ${body.name} WHERE id = ${id}`;
+    if (body.dailySendCap !== undefined) await sql`UPDATE users SET daily_send_cap = ${body.dailySendCap} WHERE id = ${id}`;
     if (body.role) await sql`UPDATE users SET role = ${body.role} WHERE id = ${id}`;
     if (body.role === 'AUDITOR') await sql`DELETE FROM account_grants WHERE user_id = ${id}`; // auditors read the log only
     if (body.password) {
@@ -164,6 +170,20 @@ export default async function userRoutes(app: FastifyInstance) {
     await assertStaff(body.userIds);
     const changes = body.userIds.flatMap((userId) => body.accountIds.map((accountId) => ({ accountId, userId, level: body.level })));
     return applyGrants(changes, admin, req.ip);
+  });
+
+  // Staff send limits: the team default per 24 hours (0 = none) and when to alert admins about a burst.
+  app.get('/api/settings/staff-limits', async (req) => {
+    requireAdmin(req);
+    return staffLimits();
+  });
+
+  app.put('/api/settings/staff-limits', async (req) => {
+    const admin = requireAdmin(req);
+    const body = z.object({ dailyCap: z.number().int().min(0).max(1000), burstPerHour: z.number().int().min(0).max(500) }).parse(req.body);
+    await setStaffLimits(body);
+    await audit({ userId: admin.id, action: 'settings.staff_limits', meta: body, ip: req.ip });
+    return body;
   });
 
   // The owner hands ownership to a teammate and stays on as an admin.

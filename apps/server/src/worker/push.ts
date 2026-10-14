@@ -6,7 +6,7 @@ import { logger } from '../lib/logger.ts';
 import { vapidKeys } from '../lib/vapid.ts';
 
 /** Sends a notification to these teammates' browsers (those that enabled notifications). */
-async function pushTo(userIds: string[], payload: { title: string; body: string; url: string; tag: string }) {
+export async function pushToUsers(userIds: string[], payload: { title: string; body: string; url: string; tag: string }) {
   if (!userIds.length) return;
   const subs = await sql`SELECT id, endpoint, keys FROM push_subscriptions WHERE user_id IN ${sql(userIds)}`;
   if (!subs.length) return;
@@ -34,7 +34,7 @@ export async function notifyNewMessage(
   msg: { senderName: string | null; text: string; attachments: unknown[] },
 ) {
   const [account] = await sql`SELECT label FROM accounts WHERE id = ${accountId}`;
-  await pushTo(await accountReaders(accountId), {
+  await pushToUsers(await accountReaders(accountId), {
     title: `${msg.senderName ?? 'New message'} · ${account?.label ?? 'LinkedIn'}`,
     body: msg.text?.slice(0, 160) || (msg.attachments.length ? '📎 Attachment' : ''),
     url: `/inbox/${conversationId}`,
@@ -63,7 +63,7 @@ export async function notifyDueReminders() {
         WHERE u.disabled_at IS NULL AND (u.role IN ('OWNER', 'ADMIN') OR g.level IN ('REPLY', 'FULL'))`;
       to = rows.map((u) => u.id as string);
     }
-    await pushTo(to, {
+    await pushToUsers(to, {
       title: `Follow up: ${r.prospect}${r.replied ? '' : ' (no reply yet)'}`,
       body: r.note?.slice(0, 160) || 'Reminder due now',
       url: `/inbox/${r.conversationId}`,

@@ -8,6 +8,7 @@ import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
+import { autoFollowups } from './auto-followups.ts';
 import { crmSyncTick } from './crm-sync.ts';
 import { notifyDueReminders } from './push.ts';
 import { reminderSyncTick } from './reminder-sync.ts';
@@ -101,6 +102,7 @@ export function startScheduler() {
     expireStuckSends,
     staffSync,
     retryPendingHistory,
+    autoFollowups,
     notifyDueReminders,
   ];
   setInterval(() => {

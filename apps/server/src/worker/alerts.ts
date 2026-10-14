@@ -5,6 +5,7 @@ import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { redis } from '../lib/redis.ts';
+import { pushToUsers } from './push.ts';
 
 const transport = config.smtpUrl ? nodemailer.createTransport(config.smtpUrl) : null;
 
@@ -47,5 +48,27 @@ export async function alertAccountStatus(accountId: string, status: string) {
     });
   } catch (e) {
     logger.error({ err: e }, 'alert email failed');
+  }
+}
+
+/** A notice for the owner and admins: a notification in their browsers and, with SMTP set up, an email. */
+export async function alertAdmins(subject: string, body: string, path: string) {
+  const admins = await sql`SELECT id, email FROM users WHERE disabled_at IS NULL AND role IN ('OWNER', 'ADMIN')`;
+  if (!admins.length) return;
+  await pushToUsers(
+    admins.map((a) => a.id as string),
+    { title: subject, body: body.slice(0, 160), url: path, tag: `admin-${subject}` },
+  ).catch((err) => logger.warn({ err }, 'admin push failed'));
+  if (!transport) return;
+  const link = config.appUrl ? `\n\n${config.appUrl}${path}\n` : '';
+  try {
+    await transport.sendMail({
+      from: config.alertFrom,
+      to: admins.map((a) => a.email).join(', '),
+      subject: `LinkedIn Console: ${subject}`,
+      text: `${body}${link}`,
+    });
+  } catch (e) {
+    logger.error({ err: e }, 'admin alert email failed');
   }
 }

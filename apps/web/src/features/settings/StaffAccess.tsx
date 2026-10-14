@@ -23,6 +23,43 @@ interface Access {
 const confirmFull = (who: string) =>
   confirm(`Full access lets ${who} drive the LinkedIn browser and change account settings. Give Full access?`);
 
+/** This person's own send limit per 24 hours: the team default (blank), a number, or 0 for none. */
+function PersonalLimit({ user }: { user: User }) {
+  const qc = useQueryClient();
+  const [value, setValue] = useState(user.dailySendCap === null || user.dailySendCap === undefined ? '' : String(user.dailySendCap));
+  const save = async () => {
+    try {
+      await api.patch(`/api/users/${user.id}`, { dailySendCap: value === '' ? null : Number(value) });
+      toast('Limit saved', 'success');
+      qc.invalidateQueries({ queryKey: ['users'] });
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <div className="mb-4 flex items-end gap-2 rounded-md bg-slate-50 p-3">
+      <label className="flex-1">
+        <span className="label">Send limit per 24 hours</span>
+        <input
+          className="input"
+          type="number"
+          min={0}
+          max={1000}
+          placeholder="Team default"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <span className="mt-1 block text-xs text-slate-500">
+          {user.sent24h ?? 0} sent in the last 24 hours. Blank = the team default, 0 = no limit.
+        </span>
+      </label>
+      <button type="button" onClick={save} className="btn-outline">
+        Save limit
+      </button>
+    </div>
+  );
+}
+
 /** One staff member's LinkedIn accounts: tick what they work on and at which level. */
 export function StaffAccessModal({ user, onClose }: { user: User; onClose: () => void }) {
   const qc = useQueryClient();
@@ -55,6 +92,7 @@ export function StaffAccessModal({ user, onClose }: { user: User; onClose: () =>
 
   return (
     <Modal title={`LinkedIn accounts · ${user.name}`} onClose={onClose} wide>
+      <PersonalLimit user={user} />
       <p className="mb-3 text-sm text-slate-600">
         {user.name} sees only the accounts given here. Changes apply at once, also if they are signed in, and are recorded in the audit log.
       </p>

@@ -130,3 +130,20 @@ Each prospect (conversation) can have one open follow-up reminder: the bell in t
 - **When it comes due**, they get a notification (once; moving it notifies again).
 - **Inbox → Follow-ups** lists every prospect with an open reminder, soonest first, overdue in red. Every conversation in the list shows its reminder date and who it is for. **Replied** and **No reply yet** show whether the prospect has answered.
 - **In Twenty CRM** (with `CRM_SYNC=on`): each reminder is a **task** on the prospect's person, due at the same time and assigned to the teammate's Twenty workspace member (staff from `STAFF_SOURCE=twenty`). Moving or closing it here updates the task; marking the task done (or deleting it) in Twenty closes the reminder here, and a new due date there moves it here.
+
+### Automatic follow-ups
+
+Per LinkedIn account (Accounts → settings, default **10**, 0 = off): when our message is the last one in a 1:1 conversation and the prospect stays silent for that many **business days** (weekends don't count), a follow-up reminder is created for the teammate responsible, due at **9:00 in the account's timezone** on that weekday, with the note "No reply for N business days since our last message". It notifies, shows under Follow-ups and becomes a Twenty task like any reminder.
+
+- Nothing is created on a weekend (in the account's timezone).
+- One per silence: not when the prospect already has a reminder for it (open, or set or closed since our last message).
+- Not for a prospect marked **Close prospect**, until they write again.
+- When the prospect replies, an open automatic reminder closes itself.
+- Silences older than the account's days plus two weeks are left alone, so switching it on doesn't flood the team.
+- The quick picks for manual reminders skip weekends too (next business day, in 3 business days, next Monday, in 2 weeks).
+
+## Staff send limits
+
+Team page → **Staff send limits**: a limit per staff member per 24 hours (messages and new chats together, over all accounts), on top of each account's own limit; 0 = none. Each staff member can have their own (**Assign** → Send limit; blank = the team default, 0 = none). The Team page shows how many each sent in the last 24 hours. Admins and the owner have no personal limit.
+
+A staff member at their limit gets "You reached your limit…" and can't send until older sends fall out of the 24 hours. Admins (owner and admins) are notified, once a day per person and reason, in their browser and by email when SMTP is set up, when someone reaches 80 % of their limit or sends more than the alert threshold (default 30) within an hour. Each alert is in the audit log.

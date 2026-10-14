@@ -41,6 +41,8 @@ export const AUDIT_ACTIONS = {
   'user.deprovisioned': { label: 'Disabled: left per the staff list', category: 'user' },
   'user.reenabled': { label: 'Re-enabled per the staff list', category: 'user' },
   'user.sync_run': { label: 'Ran the staff sync', category: 'user' },
+  'user.volume_alert': { label: 'Unusual sending volume (admins alerted)', category: 'user' },
+  'settings.staff_limits': { label: 'Changed the staff send limits', category: 'settings' },
   'label.created': { label: 'Created a label', category: 'settings' },
   'label.deleted': { label: 'Deleted a label', category: 'settings' },
   'webhook.created': { label: 'Added a webhook', category: 'settings' },

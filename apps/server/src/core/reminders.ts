@@ -39,16 +39,20 @@ export async function setReminder(
   return r.id as string;
 }
 
-/** Closes the prospect's open reminder. `by` is null when it was closed in Twenty. */
+/**
+ * Closes the prospect's open reminder. `by` is null when it was closed in Twenty, or automatically (`via: 'auto'`,
+ * e.g. the prospect replied to an automatic follow-up).
+ */
 export async function closeReminder(
   where: { conversationId?: string; reminderId?: string },
   status: Exclude<ReminderStatus, 'OPEN'>,
   by: { id: string } | null,
   ip?: string,
+  via: 'app' | 'twenty' | 'auto' = by ? 'app' : 'twenty',
 ) {
   const [r] = await sql`
     UPDATE reminders SET status = ${status}, closed_at = now(), closed_by = ${by?.id ?? null},
-      closed_via = ${by ? 'app' : 'twenty'}, updated_at = now()
+      closed_via = ${via}, updated_at = now()
     WHERE status = 'OPEN' AND ${where.reminderId ? sql`id = ${where.reminderId}` : sql`conversation_id = ${where.conversationId ?? ''}`}
     RETURNING id, conversation_id, account_id`;
   if (!r) return null;
@@ -56,7 +60,7 @@ export async function closeReminder(
     userId: by?.id ?? null,
     accountId: r.accountId,
     action: 'reminder.closed',
-    meta: { conversationId: r.conversationId, status, via: by ? 'app' : 'twenty' },
+    meta: { conversationId: r.conversationId, status, via },
     ip,
   });
   await changed(r.accountId, r.conversationId);

@@ -4,7 +4,7 @@ import { assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
-import { assertCanSend } from '../../core/send-limits.ts';
+import { assertCanSend, assertStaffCanSend, watchStaffVolume } from '../../core/send-limits.ts';
 import { sql } from '../../lib/db.ts';
 import { notFound } from '../../lib/errors.ts';
 import { redis } from '../../lib/redis.ts';
@@ -58,6 +58,7 @@ export default async function networkRoutes(app: FastifyInstance) {
     const [c] = await sql`SELECT * FROM contacts WHERE id = ${contactId} AND account_id = ${id}`;
     if (!c?.profileUrl) throw notFound('Connection not found');
     // Same rules as replies: connected, not paused, within the daily cap.
+    await assertStaffCanSend(user);
     await assertCanSend(id, 'new_chat');
     // The new conversation arrives through the bridge; remember who sent it for "sent by".
     const key = `li:pending:${id}`;
@@ -69,6 +70,7 @@ export default async function networkRoutes(app: FastifyInstance) {
       .exec();
     const cmdId = await sendCommand(id, { type: 'start_chat', profileUrl: c.profileUrl, text }, user.id);
     await audit({ userId: user.id, accountId: id, action: 'message.start_chat', meta: { contactId, chars: text.length }, ip: req.ip });
+    watchStaffVolume(user).catch((err) => req.log.warn({ err }, 'volume check failed'));
     return { ok: true, cmdId };
   });
 }

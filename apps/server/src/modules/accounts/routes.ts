@@ -28,7 +28,7 @@ export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
   (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync,
-  a.new_chat_cap, a.paused_reason, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
+  a.new_chat_cap, a.followup_days, a.paused_reason, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;
@@ -106,6 +106,7 @@ export default async function accountRoutes(app: FastifyInstance) {
         sendPaused: z.boolean().optional(),
         dailySendCap: z.number().int().min(1).max(500).optional(),
         newChatCap: z.number().int().min(0).max(200).optional(),
+        followupDays: z.number().int().min(0).max(60).optional(),
         /** An established LinkedIn account: use the full cap from day one. */
         skipRamp: z.literal(true).optional(),
         timezone: Timezone.optional(),
@@ -121,6 +122,7 @@ export default async function accountRoutes(app: FastifyInstance) {
         paused_reason = ${body.sendPaused === false ? null : before.pausedReason},
         daily_send_cap = ${body.dailySendCap ?? before.dailySendCap},
         new_chat_cap = ${body.newChatCap ?? before.newChatCap},
+        followup_days = ${body.followupDays ?? before.followupDays},
         ramp_started_at = ${body.skipRamp ? null : before.rampStartedAt},
         timezone = ${body.timezone ?? before.timezone},
         language = ${body.language ?? before.language},

@@ -294,12 +294,13 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
   const [label, setLabel] = useState(a.label);
   const [cap, setCap] = useState(a.dailySendCap);
   const [newChatCap, setNewChatCap] = useState(a.newChatCap ?? 20);
+  const [followupDays, setFollowupDays] = useState(a.followupDays ?? 10);
   const [skipRamp, setSkipRamp] = useState(false);
   const [timezone, setTimezone] = useState(a.timezone);
   const [proxyServer, setProxy] = useState<string | undefined>(undefined);
   const save = async () => {
     try {
-      const body: Record<string, unknown> = { label, dailySendCap: cap, newChatCap };
+      const body: Record<string, unknown> = { label, dailySendCap: cap, newChatCap, followupDays };
       if (skipRamp) body.skipRamp = true;
       if (timezone !== a.timezone) body.timezone = timezone;
       if (proxyServer !== undefined) body.proxyServer = proxyServer;
@@ -333,6 +334,21 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
             onChange={(e) => setNewChatCap(Number(e.target.value))}
           />
           <p className="mt-1 text-xs text-slate-500">Cold outreach is what LinkedIn watches most; replies in existing chats are safer.</p>
+        </div>
+        <div>
+          <label className="label">Automatic follow-up after (business days without a reply)</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={60}
+            value={followupDays}
+            onChange={(e) => setFollowupDays(Number(e.target.value))}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            When our message is the last one and the prospect stays silent this long (weekends don't count), a follow-up reminder is created
+            for the teammate responsible, at 9:00 in this account's timezone. 0 = off.
+          </p>
         </div>
         {!!a.rampDaysLeft && (
           <label className="flex items-start gap-2 text-sm">
