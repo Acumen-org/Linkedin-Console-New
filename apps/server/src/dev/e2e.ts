@@ -975,6 +975,44 @@ try {
     );
   });
 
+  await step('outreach views: Replied (they wrote back) and No reply yet (only our messages)', async () => {
+    const solo = person(`urn:li:fsd_profile:SOLO${tag}`, 'Solo E2E');
+    await emit('conversations', [
+      {
+        urn: conv('SOLO'),
+        threadId: `2-SOLO${tag}`,
+        title: null,
+        isGroup: false,
+        unreadCount: 0,
+        lastActivityAt: Date.now(),
+        folder: 'focused',
+        participants: [solo],
+      },
+    ]);
+    await emit('messages', [msg('SOLO', null, 'Hi Solo, outreach', Date.now())]);
+    const view = async (v: string) =>
+      ((await owner('GET', `/api/conversations?accountId=${accountId}&view=${v}`)).data as any[]).map((c) => c.id);
+    const noReply = await until(
+      () => view('no_reply'),
+      (ids) => ids.length > 0,
+      'no reply yet',
+    );
+    const [{ id: soloId }] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('SOLO')}`;
+    assert.ok(noReply.includes(soloId), 'we wrote, they never answered');
+    assert.ok(!noReply.includes(janeId), 'Jane answered');
+    const replied = await view('replied');
+    assert.ok(replied.includes(janeId));
+    assert.ok(!replied.includes(soloId));
+    // The prospect answers: it moves from No reply yet to Replied.
+    await emit('messages', [msg('SOLO', solo, 'Thanks, interested', Date.now() + 1000)]);
+    await until(
+      () => view('replied'),
+      (ids) => ids.includes(soloId),
+      'moved to Replied',
+    );
+    assert.ok(!(await view('no_reply')).includes(soloId));
+  });
+
   await step('snooze hides a conversation until a reply arrives', async () => {
     const until = new Date(Date.now() + 3600_000).toISOString();
     assert.equal((await owner('PATCH', `/api/conversations/${janeId}`, { snoozedUntil: until })).status, 200);

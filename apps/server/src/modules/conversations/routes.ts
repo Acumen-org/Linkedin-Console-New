@@ -47,6 +47,12 @@ export default async function conversationRoutes(app: FastifyInstance) {
     const awake = sql`(c.snoozed_until IS NULL OR c.snoozed_until <= now())`;
     const view = {
       all: sql`AND NOT c.is_archived AND c.folder NOT IN ('archived', 'spam') AND ${awake}`,
+      // Outreach: the prospect wrote back at least once / we wrote and they never answered.
+      replied: sql`AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')
+        AND NOT c.is_archived AND c.folder NOT IN ('archived', 'spam') AND ${awake}`,
+      no_reply: sql`AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'OUTBOUND')
+        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')
+        AND NOT c.is_archived AND c.folder NOT IN ('archived', 'spam') AND ${awake}`,
       unread: sql`AND c.unread_count > 0 AND NOT c.is_archived AND ${awake}`,
       awaiting: sql`AND c.last_message_from_self = false AND NOT c.is_archived AND c.folder NOT IN ('archived', 'spam') AND ${awake}`,
       starred: sql`AND c.is_starred`,

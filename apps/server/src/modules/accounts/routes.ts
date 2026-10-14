@@ -165,6 +165,11 @@ export default async function accountRoutes(app: FastifyInstance) {
     const status = await pods.status(id);
     if (status.chrome === 'missing' || status.sidecar === 'missing') await pods.create(id, podSpecOf(a));
     else await pods.restart(id);
+    // Reconnect of a stopped browser: shown as starting; back to OFFLINE if it doesn't report within 4 minutes.
+    if (a.status === 'OFFLINE' || a.status === 'ERROR') {
+      await sql`UPDATE accounts SET status = 'PROVISIONING', last_seen_at = now(), last_error = NULL WHERE id = ${id}`;
+      await publish([`acc:${id}`, ADMINS_ROOM], 'account.updated', await loadAccount(id));
+    }
     await audit({ userId: user.id, accountId: id, action: 'account.restarted', ip: req.ip });
     return { ok: true };
   });

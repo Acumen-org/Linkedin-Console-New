@@ -9,7 +9,9 @@ import {
   Mail,
   MessagesSquare,
   Plus,
+  Reply,
   Search,
+  SendHorizontal,
   Star,
   Tag,
   UserCheck,
@@ -28,6 +30,8 @@ import { Thread } from './Thread';
 
 const VIEWS = [
   { id: 'all', label: 'All', icon: InboxIcon },
+  { id: 'replied', label: 'Replied', icon: Reply },
+  { id: 'no_reply', label: 'No reply yet', icon: SendHorizontal },
   { id: 'unread', label: 'Unread', icon: Mail },
   { id: 'awaiting', label: 'Awaiting reply', icon: Hourglass },
   { id: 'starred', label: 'Starred', icon: Star },

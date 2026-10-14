@@ -13,7 +13,7 @@ import { alertAccountStatus } from './alerts.ts';
 async function detectOfflinePods() {
   const offline = await sql`
     UPDATE accounts SET status = 'OFFLINE'
-    WHERE status IN ('CONNECTED', 'AWAITING_LOGIN', 'NEEDS_ATTENTION') AND last_seen_at < now() - interval '4 minutes'
+    WHERE status IN ('CONNECTED', 'AWAITING_LOGIN', 'NEEDS_ATTENTION', 'PROVISIONING') AND last_seen_at < now() - interval '4 minutes'
     RETURNING id, status, display_name, avatar_url, headline, public_id`;
   for (const a of offline) {
     await publish([accountRoom(a.id), ADMINS_ROOM], 'account.updated', a as never);

@@ -24,7 +24,19 @@ export type MessageStatus = (typeof MESSAGE_STATUSES)[number];
 export const FOLDERS = ['focused', 'other', 'requests', 'inmail', 'archived', 'spam'] as const;
 export type Folder = (typeof FOLDERS)[number];
 
-export const CONVERSATION_VIEWS = ['all', 'unread', 'awaiting', 'starred', 'mine', 'snoozed', 'other', 'requests', 'archived'] as const;
+export const CONVERSATION_VIEWS = [
+  'all',
+  'replied',
+  'no_reply',
+  'unread',
+  'awaiting',
+  'starred',
+  'mine',
+  'snoozed',
+  'other',
+  'requests',
+  'archived',
+] as const;
 export type ConversationView = (typeof CONVERSATION_VIEWS)[number];
 
 /** 12 chars [a-z0-9]: account ids double as container names (pod-<id>). */

@@ -72,13 +72,22 @@ export function ConnectPage() {
               <>
                 <ShieldAlert size={32} className="text-red-500" />
                 <div>The account's browser isn't running. {a.lastError}</div>
-                <button className="btn-primary" onClick={() => api.post(`/api/accounts/${a.id}/restart`).then(() => toast('Restarting…'))}>
-                  Restart browser
+                <button
+                  className="btn-primary"
+                  onClick={() =>
+                    api
+                      .post(`/api/accounts/${a.id}/restart`)
+                      .then(() => account.refetch())
+                      .catch((e: Error) => toast(e.message, 'error'))
+                  }
+                >
+                  Reconnect
                 </button>
               </>
             ) : (
               <>
-                <Loader2 className="animate-spin" size={32} /> Starting a secure browser for this account…
+                <Loader2 className="animate-spin" size={32} /> Starting the account's secure browser… If LinkedIn still knows it, it
+                reconnects by itself; otherwise log in here.
               </>
             )}
           </div>

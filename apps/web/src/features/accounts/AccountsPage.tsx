@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, LogIn, MonitorPlay, Pause, Play, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import { History, LogIn, MonitorPlay, Pause, Play, Plug, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../../App';
@@ -88,6 +88,17 @@ function AccountCard({
   const full = a.level === 'FULL';
   const needsLogin = a.status === 'AWAITING_LOGIN' || a.status === 'NEEDS_ATTENTION';
   const canLogin = full || a.ownerUserId === me.id;
+  // The account's browser stopped (server restart, crash, update): start it again, then log in if LinkedIn asks.
+  const browserDown = a.status === 'OFFLINE' || a.status === 'ERROR';
+  const nav = useNavigate();
+  const reconnect = async () => {
+    try {
+      await api.post(`/api/accounts/${a.id}/restart`);
+      nav(`/accounts/${a.id}/connect`);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
 
   const action = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -142,8 +153,13 @@ function AccountCard({
       <div className="flex flex-wrap gap-2">
         {needsLogin && canLogin && (
           <Link to={`/accounts/${a.id}/connect`} className="btn-primary">
-            <LogIn size={16} /> {a.status === 'AWAITING_LOGIN' ? 'Log in' : 'Re-login'}
+            <LogIn size={16} /> {a.status === 'AWAITING_LOGIN' ? 'Log in' : 'Reconnect'}
           </Link>
+        )}
+        {browserDown && full && (
+          <button onClick={reconnect} className="btn-primary">
+            <Plug size={16} /> Reconnect
+          </button>
         )}
         {(full || a.level === 'REPLY') && a.status === 'CONNECTED' && (
           <Link to={`/accounts/${a.id}/live`} className="btn-outline">
