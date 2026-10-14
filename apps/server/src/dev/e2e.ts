@@ -43,6 +43,8 @@ function fakeTwilio(req: http.IncomingMessage, res: http.ServerResponse) {
 // Fake Twenty CRM (POST /graphql): workspace members, two per page (the sync must read every page).
 let twentyMembers: { id: string; name: string; email: string }[] = [];
 let twentyFails = false;
+const twentyPeople: { id: string; firstName: string; lastName: string; linkedin: string | null; jobTitle?: string | null }[] = [];
+let twentyNotes: { id: string; title: string; markdown: string; personId: string | null }[] = [];
 function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.headers.authorization !== `Bearer ${config.twenty?.apiKey}`) return res.writeHead(401).end();
   let body = '';
@@ -51,7 +53,52 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
     const { query, variables } = JSON.parse(body);
     const json = (data: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(data));
     if (twentyFails) return json({ errors: [{ message: 'Forbidden resource' }] });
-    if (!String(query).includes('workspaceMembers')) return json({ errors: [{ message: 'unknown query' }] });
+    const q = String(query);
+    if (q.includes('LinkedInConsoleFindPeople')) {
+      const f = variables.filter;
+      const link = f.linkedinLink?.primaryLinkUrl?.ilike?.replaceAll('%', '').toLowerCase();
+      const first = f.and?.[0]?.name?.firstName?.eq;
+      const last = f.and?.[1]?.name?.lastName?.eq;
+      const hits = twentyPeople.filter((x) =>
+        link ? (x.linkedin ?? '').toLowerCase().includes(link) : x.firstName === first && x.lastName === last,
+      );
+      return json({ data: { people: { edges: hits.map((x) => ({ node: { id: x.id, linkedinLink: { primaryLinkUrl: x.linkedin } } })) } } });
+    }
+    if (q.includes('LinkedInConsoleCreatePerson')) {
+      const i = variables.input;
+      const person = {
+        id: crypto.randomUUID(),
+        firstName: i.name.firstName,
+        lastName: i.name.lastName,
+        linkedin: i.linkedinLink?.primaryLinkUrl ?? null,
+        jobTitle: i.jobTitle ?? null,
+      };
+      twentyPeople.push(person);
+      return json({ data: { createPerson: { id: person.id } } });
+    }
+    if (q.includes('LinkedInConsoleCreateNote')) {
+      const note = {
+        id: crypto.randomUUID(),
+        title: variables.input.title,
+        markdown: variables.input.bodyV2.markdown,
+        personId: null as string | null,
+      };
+      twentyNotes.push(note);
+      return json({ data: { createNote: { id: note.id } } });
+    }
+    if (q.includes('LinkedInConsoleLinkNote')) {
+      const { noteId, targetPersonId } = variables.input;
+      if (!twentyPeople.some((x) => x.id === targetPersonId))
+        return json({ errors: [{ message: 'insert or update on table "noteTarget" violates foreign key constraint' }] });
+      const note = twentyNotes.find((n) => n.id === noteId);
+      if (note) note.personId = targetPersonId;
+      return json({ data: { createNoteTarget: { id: crypto.randomUUID() } } });
+    }
+    if (q.includes('LinkedInConsoleDeleteNote')) {
+      twentyNotes = twentyNotes.filter((n) => n.id !== variables.id);
+      return json({ data: { deleteNote: { id: variables.id } } });
+    }
+    if (!q.includes('workspaceMembers')) return json({ errors: [{ message: 'unknown query' }] });
     const start = variables?.after ? Number(variables.after) : 0;
     const page = twentyMembers.slice(start, start + 2);
     json({
@@ -212,6 +259,9 @@ async function fakeBridge() {
     }
   }
 }
+
+const rajInTwenty = crypto.randomUUID();
+twentyPeople.push({ id: rajInTwenty, firstName: 'Raj', lastName: 'E2E', linkedin: null });
 
 async function setup() {
   const hash = await hashPassword(password);
@@ -1119,6 +1169,125 @@ try {
     assert.equal(hit!.legacySignature, expected, 'also under the former header name (receivers set up before the rename)');
     assert.equal(JSON.parse(hit!.body).data.message.text, 'Webhook me');
   });
+
+  await step('staff activity: per teammate (messages only), drill-down, export; admins and auditors only', async () => {
+    const r = await owner('GET', `/api/activity/staff?accountId=${accountId}`);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    const m = r.data.staff.find((x: any) => x.id === memberId);
+    assert.ok(m && m.sent >= 1, JSON.stringify(r.data.staff));
+    assert.ok(m.conversations >= 1);
+    assert.ok(m.lastActiveAt);
+    assert.equal((await member('GET', '/api/activity/staff')).status, 403, 'staff cannot see it');
+    assert.equal((await reader('GET', '/api/activity/staff')).status, 403);
+
+    const sent = await owner('GET', `/api/activity/staff/${memberId}/messages?accountId=${accountId}`);
+    assert.ok(sent.data.length >= 1);
+    assert.ok(sent.data.every((x: any) => x.accountLabel === 'E2E account' && x.prospect));
+    // Only what this teammate sent from the app: nothing the prospect wrote, nothing a colleague sent.
+    const ids = sent.data.map((x: any) => x.id);
+    const others =
+      await sql`SELECT count(*)::int AS n FROM messages WHERE id IN ${sql(ids)} AND (direction <> 'OUTBOUND' OR sent_by_user_id <> ${memberId})`;
+    assert.equal(others[0].n, 0);
+
+    const csv = await owner('GET', `/api/activity/export?userId=${memberId}`);
+    assert.equal(csv.status, 200);
+    assert.ok(
+      csv.text.startsWith('Time (UTC),Staff,Staff email,LinkedIn account,Prospect,Status,Message,Error,Conversation'),
+      csv.text.slice(0, 80),
+    ); // fetch's text() drops the BOM
+    assert.ok(csv.text.includes('E2E Member'));
+    assert.equal((await member('GET', '/api/activity/export')).status, 403);
+    const [log] =
+      await sql`SELECT meta FROM audit_log WHERE action = 'activity.exported' AND user_id = ${ownerId} ORDER BY id DESC LIMIT 1`;
+    assert.equal(log?.meta.staffUserId, memberId);
+  });
+
+  if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {
+    await step('Twenty CRM: prospects become people (by LinkedIn link, by name, or new), messages become notes on them', async () => {
+      const personOf = async (id: string) =>
+        (await sql`SELECT twenty_person_id FROM conversations WHERE id = ${id}`)[0].twentyPersonId as string | null;
+      const janeTwentyId = await until(() => personOf(janeId), Boolean, 'Jane linked in Twenty', 60_000);
+      const janeInTwenty = twentyPeople.find((x) => x.id === janeTwentyId);
+      assert.equal(janeInTwenty?.firstName, 'Jane');
+      assert.equal(
+        await until(() => personOf(rajId), Boolean, 'Raj linked in Twenty', 60_000),
+        rajInTwenty,
+        'existing person found by name',
+      );
+      const notes = await until(
+        async () => twentyNotes.filter((n) => n.personId === janeTwentyId),
+        (l) => l.some((n) => n.title.includes('replied')) && l.some((n) => n.title.includes('message to')),
+        'notes on Jane',
+        60_000,
+      );
+      const sentNote = notes.find((n) => n.title.includes('message to'));
+      assert.match(sentNote?.markdown ?? '', /Sent by .+ · LinkedIn account E2E account/);
+      assert.ok(
+        notes.every((n) => n.personId),
+        'no note left without a person',
+      );
+      const [state] = await sql`SELECT count(*)::int AS n FROM messages WHERE conversation_id = ${janeId} AND crm_note_id IS NOT NULL`;
+      assert.ok(state.n >= 2);
+
+      // A connection we know (profile link from the connections list) and one already in Twenty by that link.
+      const chatWith = async (who: string, prospect: typeof jane, profileUrl: string) => {
+        await emit('contacts', {
+          connections: true,
+          items: [
+            {
+              urn: prospect.urn,
+              publicId: `${who.toLowerCase()}-${tag}`,
+              name: prospect.name,
+              headline: 'Buyer',
+              avatarUrl: null,
+              profileUrl,
+            },
+          ],
+        });
+        await until(
+          async () => (await sql`SELECT 1 FROM contacts WHERE member_urn = ${prospect.urn}`).length,
+          Boolean,
+          `${who} connection`,
+        );
+        await emit('conversations', [
+          {
+            urn: conv(who),
+            threadId: `2-${who}${tag}`,
+            title: null,
+            isGroup: false,
+            unreadCount: 1,
+            lastActivityAt: Date.now(),
+            folder: 'focused',
+            participants: [prospect],
+          },
+        ]);
+        await emit('messages', [msg(who, prospect, `Hello from ${prospect.name}`, Date.now())]);
+        const [c] = await until(
+          () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv(who)}`,
+          (r) => r.length > 0,
+          `${who} chat`,
+        );
+        return until(() => personOf(c.id), Boolean, `${who} in Twenty`, 60_000);
+      };
+      const lina = person(`urn:li:fsd_profile:LINA${tag}`, 'Lina E2E');
+      const linaUrl = `https://www.linkedin.com/in/lina-${tag}/`;
+      const linaId = await chatWith('LINA', lina, linaUrl);
+      assert.equal(twentyPeople.find((x) => x.id === linaId)?.linkedin, linaUrl, 'created with the LinkedIn profile link');
+      assert.equal(twentyPeople.find((x) => x.id === linaId)?.jobTitle, 'Buyer');
+      const omarInTwenty = crypto.randomUUID();
+      const omarUrl = `https://www.linkedin.com/in/omar-${tag}`;
+      twentyPeople.push({ id: omarInTwenty, firstName: 'Someone', lastName: 'Else', linkedin: `${omarUrl}?trk=x` });
+      const omar = person(`urn:li:fsd_profile:OMAR${tag}`, 'Omar E2E');
+      assert.equal(await chatWith('OMAR', omar, `${omarUrl}/`), omarInTwenty, 'found by LinkedIn link, whatever the name in Twenty');
+
+      const status = await owner('GET', '/api/crm/status');
+      assert.equal(status.data.enabled, true);
+      assert.ok(status.data.people >= 2);
+      assert.equal((await member('GET', '/api/crm/status')).status, 403);
+    });
+  } else {
+    console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
+  }
 
   await step('config + push subscription endpoints', async () => {
     const cfg = await member('GET', '/api/config');

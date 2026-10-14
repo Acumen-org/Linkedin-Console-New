@@ -106,3 +106,18 @@ Settings → Audit (owner and admins) records sign-ins (also failed ones, with t
 - Filter by person, LinkedIn account, event (or a whole category) and date range.
 - **Export** the filtered log as CSV (opens in Excel with accents intact; cells that look like formulas are kept as text) or JSON. Exports have no size limit and are themselves recorded.
 - Entries can't be edited or deleted by the application (database trigger); removing a teammate or account only clears the link, the names stay.
+
+## Staff activity
+
+**Activity** (owner, admins and auditors) shows, per teammate and period (today, 7, 30 or 90 days) and optionally per LinkedIn account: messages sent, new chats started, conversations handled, typical reply time (median time from the prospect's message to the reply) and failed sends. Click a teammate to see every message they sent, with the time, prospect and account. **Export** gives the same as CSV (Excel) or JSON; exports are recorded in the audit log.
+
+Only messages sent from this app are counted. Reading conversations is not tracked.
+
+## Twenty CRM: prospects and messages
+
+With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`):
+
+- Each 1:1 conversation's prospect is a **Person** in Twenty: found by their LinkedIn profile link (however it was typed there), else by their exact name when exactly one person has it and no other LinkedIn profile, else created (name, LinkedIn link, headline as job title).
+- Every message **from the moment the sync is switched on** becomes a **note** on that person: who sent it (the teammate, or the prospect), through which LinkedIn account, when, with a link back to the conversation. History (first syncs, archive imports) is not copied, and group chats are left out.
+- Messages reach Twenty within seconds, about 30 a minute at most. When Twenty fails, a message is retried with a growing pause (6 times); a person deleted or merged in Twenty is found or created again. The Team page shows how many prospects are linked, messages logged in the last day, any waiting or failed, and the last problem, with **Retry**.
+- A conversation whose prospect is in Twenty has an **Open in Twenty** button.

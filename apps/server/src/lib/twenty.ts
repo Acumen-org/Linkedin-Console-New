@@ -57,3 +57,92 @@ export async function workspaceMembers(): Promise<WorkspaceMember[]> {
   }
   throw new TwentyError('Twenty CRM returned more pages of workspace members than expected');
 }
+
+// ---------- People and notes (prospects and their LinkedIn messages) ----------
+
+/** Twenty's web address: the API address without /graphql. */
+export const twentyWebUrl = () => (config.twenty ? config.twenty.url.replace(/\/graphql\/?$/, '') : null);
+
+type PeopleResult = { people: { edges: { node: { id: string; linkedinLink?: { primaryLinkUrl?: string | null } | null } }[] } };
+
+const FIND_PEOPLE = `
+  query LinkedInConsoleFindPeople($filter: PersonFilterInput) {
+    people(filter: $filter, first: 2) { edges { node { id linkedinLink { primaryLinkUrl } } } }
+  }`;
+
+/** The profile's stable part ("linkedin.com/in/jane-doe"), for matching however the link was typed in Twenty. */
+export function linkedinKey(url: string | null | undefined) {
+  const m = String(url ?? '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
+  if (!m) return null;
+  let slug = m[1];
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {} // a malformed %-sequence: compare it as typed
+  return `linkedin.com/in/${slug.toLowerCase()}`;
+}
+
+/**
+ * The Twenty person for a prospect: by LinkedIn profile link, else by exact name when exactly one person has
+ * it and no other LinkedIn profile, else a new person. Returns the id.
+ */
+export async function findOrCreatePerson(p: { name: string; profileUrl: string | null; headline: string | null }) {
+  const key = linkedinKey(p.profileUrl);
+  if (key) {
+    const byLink = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
+      filter: { linkedinLink: { primaryLinkUrl: { ilike: `%${key.replace(/[%_]/g, '')}%` } } },
+    });
+    const hit = byLink.people.edges.find((e) => linkedinKey(e.node.linkedinLink?.primaryLinkUrl) === key);
+    if (hit) return { id: hit.node.id, created: false };
+  }
+  const [firstName, ...rest] = p.name.trim().split(/\s+/);
+  const lastName = rest.join(' ');
+  if (firstName && p.name !== 'LinkedIn Member') {
+    const byName = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
+      filter: { and: [{ name: { firstName: { eq: firstName } } }, { name: { lastName: { eq: lastName } } }] },
+    });
+    const only = byName.people.edges.length === 1 ? byName.people.edges[0].node : null;
+    const otherProfile = only && linkedinKey(only.linkedinLink?.primaryLinkUrl);
+    if (only && (!otherProfile || otherProfile === key)) return { id: only.id, created: false };
+  }
+  const created = await twentyQuery<{ createPerson: { id: string } }>(
+    `mutation LinkedInConsoleCreatePerson($input: PersonCreateInput!) { createPerson(data: $input) { id } }`,
+    {
+      input: {
+        name: { firstName: firstName || 'LinkedIn', lastName: firstName ? lastName : 'Member' },
+        ...(p.profileUrl ? { linkedinLink: { primaryLinkUrl: p.profileUrl, primaryLinkLabel: 'LinkedIn' } } : {}),
+        ...(p.headline ? { jobTitle: p.headline.slice(0, 250) } : {}),
+      },
+    },
+  );
+  return { id: created.createPerson.id, created: true };
+}
+
+export class PersonGoneError extends TwentyError {}
+
+/** A note on a person. If linking fails (the person was deleted or merged), the note is removed again. */
+export async function addPersonNote(personId: string, title: string, markdown: string) {
+  const blocknote = JSON.stringify(
+    markdown.split('\n\n').map((para, i) => ({
+      id: String(i + 1),
+      type: 'paragraph',
+      props: { textColor: 'default', backgroundColor: 'default', textAlignment: 'left' },
+      content: [{ type: 'text', text: para, styles: {} }],
+      children: [],
+    })),
+  );
+  const note = await twentyQuery<{ createNote: { id: string } }>(
+    `mutation LinkedInConsoleCreateNote($input: NoteCreateInput!) { createNote(data: $input) { id } }`,
+    { input: { title: title.slice(0, 250), bodyV2: { blocknote, markdown } } },
+  );
+  const noteId = note.createNote.id;
+  try {
+    await twentyQuery(`mutation LinkedInConsoleLinkNote($input: NoteTargetCreateInput!) { createNoteTarget(data: $input) { id } }`, {
+      input: { noteId, targetPersonId: personId },
+    });
+  } catch (err) {
+    await twentyQuery(`mutation LinkedInConsoleDeleteNote($id: UUID!) { deleteNote(id: $id) { id } }`, { id: noteId }).catch(() => {});
+    if (/foreign key|not found|does not exist/i.test((err as Error).message)) throw new PersonGoneError((err as Error).message);
+    throw err;
+  }
+  return noteId;
+}

@@ -5,7 +5,7 @@ import { sql } from '../../lib/db.ts';
 export const CONVERSATION_COLUMNS = sql`
   c.id, c.account_id, c.thread_urn, c.thread_id, c.title, c.is_group, c.folder, c.participants,
   c.last_message_at, c.last_message_preview, c.last_message_from_self, c.unread_count,
-  c.is_starred, c.is_archived, c.snoozed_until, c.assigned_to, c.locked_by, c.locked_until,
+  c.is_starred, c.is_archived, c.snoozed_until, c.assigned_to, c.locked_by, c.locked_until, c.twenty_person_id,
   a.label AS account_label, a.display_name AS account_name, a.avatar_url AS account_avatar, a.status AS account_status,
   lu.name AS locked_by_name, au.name AS assigned_to_name,
   coalesce((

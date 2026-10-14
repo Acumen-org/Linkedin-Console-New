@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArchiveRestore, ArrowLeft, MonitorPlay, RefreshCw, Send, Star, StickyNote, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, ExternalLink, MonitorPlay, RefreshCw, Send, Star, StickyNote, Users } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMe } from '../../App';
 import { Avatar, LabelChip } from '../../components/ui';
 import { api, qs } from '../../lib/api';
 import { conversationTitle, dayLabel, timeAgo } from '../../lib/format';
+import { useAppConfig } from '../../lib/queries';
 import { onRealtime } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import type { Conversation, Message, Note, User } from '../../types';
@@ -33,6 +34,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
     queryFn: () => api.get<Message[]>(`/api/conversations/${conversationId}/messages`),
   });
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.get<User[]>('/api/users') });
+  const appConfig = useAppConfig();
   const c = conv.data;
 
   // Opening an unread conversation marks it read (also on LinkedIn).
@@ -203,6 +205,17 @@ export function Thread({ conversationId }: { conversationId: string }) {
           >
             <StickyNote size={18} />
           </button>
+          {appConfig.data?.twentyUrl && c.twentyPersonId && (
+            <a
+              href={`${appConfig.data.twentyUrl}/object/person/${c.twentyPersonId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-ghost px-2"
+              title="Open this prospect in Twenty CRM"
+            >
+              <ExternalLink size={18} />
+            </a>
+          )}
           {c.level === 'FULL' && (
             <Link to={`/accounts/${c.accountId}/live`} className="btn-ghost px-2" title="Open Live LinkedIn">
               <MonitorPlay size={18} />

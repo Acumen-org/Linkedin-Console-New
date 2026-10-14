@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Contact, Inbox, Link2, LogOut, Settings, ShieldCheck, Users } from 'lucide-react';
+import { BarChart3, Contact, Inbox, Link2, LogOut, Settings, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { isAdmin, isAuditor, useMe } from '../App';
@@ -62,9 +62,14 @@ export function Layout() {
           </NavLink>
         )}
         {(isAdmin(me) || isAuditor(me)) && (
-          <NavLink to="/audit" className={link}>
-            <ShieldCheck size={22} /> Audit
-          </NavLink>
+          <>
+            <NavLink to="/activity" className={link}>
+              <BarChart3 size={22} /> Activity
+            </NavLink>
+            <NavLink to="/audit" className={link}>
+              <ShieldCheck size={22} /> Audit
+            </NavLink>
+          </>
         )}
         <div className="flex-1" />
         <NavLink to="/profile" className={link} title={me.name}>

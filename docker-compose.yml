@@ -54,6 +54,7 @@ x-server-env: &server-env
   STAFF_SOURCE: ${STAFF_SOURCE:-twilio}
   TWENTY_API_URL: ${TWENTY_API_URL:-}
   TWENTY_API_KEY: ${TWENTY_API_KEY:-}
+  CRM_SYNC: ${CRM_SYNC:-off}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:

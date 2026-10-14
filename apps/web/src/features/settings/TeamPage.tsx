@@ -88,6 +88,58 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
   );
 }
 
+interface CrmStatus {
+  enabled: boolean;
+  since?: string;
+  pending?: number;
+  failed?: number;
+  synced24h?: number;
+  people?: number;
+  last?: { at: string; ok: boolean; error?: string } | null;
+}
+
+/** Twenty CRM sync of prospects and their messages (only shown when CRM_SYNC is on). */
+function CrmCard() {
+  const status = useQuery({
+    queryKey: ['crm-status'],
+    queryFn: () => api.get<CrmStatus>('/api/crm/status'),
+    refetchInterval: 15_000,
+  });
+  const s = status.data;
+  if (!s?.enabled) return null;
+  const retry = async () => {
+    try {
+      const r = await api.post<{ retried: number }>('/api/crm/retry');
+      toast(`Trying ${r.retried} message${r.retried === 1 ? '' : 's'} again`, 'success');
+      status.refetch();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <div className="card mb-4 p-4 text-sm">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-semibold">Twenty CRM: prospects and messages</span>
+        {!!s.failed && (
+          <button type="button" onClick={retry} className="btn-ghost text-xs">
+            <RefreshCw size={13} /> Retry {s.failed} failed
+          </button>
+        )}
+      </div>
+      <p className="text-slate-600">
+        Each prospect is a person in Twenty; every message since {s.since ? fullTime(s.since) : 'switch-on'} is a note on them. {s.people}{' '}
+        prospects linked · {s.synced24h} messages logged in the last 24 hours · {s.pending} waiting
+        {s.failed ? ` · ${s.failed} failed` : ''}.
+      </p>
+      {s.last && !s.last.ok && (
+        <p className="mt-1 text-xs text-red-600">
+          Last problem {fullTime(s.last.at)}: {s.last.error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TeamPage() {
   const me = useMe();
   const qc = useQueryClient();
@@ -142,6 +194,7 @@ export function TeamPage() {
         or tick several), and every message they send is recorded. Admins and the owner see everything.
       </p>
       {directory.data && <DirectoryCard info={directory.data} />}
+      <CrmCard />
       {picked.size > 0 && (
         <div className="card mb-3 flex items-center gap-3 px-4 py-2 text-sm">
           <span className="flex-1">

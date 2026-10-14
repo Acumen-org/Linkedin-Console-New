@@ -46,6 +46,8 @@ export const AUDIT_ACTIONS = {
   'webhook.deleted': { label: 'Deleted a webhook', category: 'settings' },
   'audit.exported': { label: 'Exported the audit log', category: 'audit' },
   'conversations.exported': { label: 'Exported chats', category: 'message' },
+  'activity.exported': { label: 'Exported staff activity', category: 'message' },
+  'crm.retried': { label: 'Retried the Twenty CRM sync', category: 'settings' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 

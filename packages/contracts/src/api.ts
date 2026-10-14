@@ -121,6 +121,8 @@ export interface Conversation {
   lockedBy: string | null;
   lockedByName: string | null;
   lockedUntil: string | null;
+  /** The prospect in Twenty CRM, once the CRM sync has logged them. */
+  twentyPersonId?: string | null;
   labels: Label[];
   accountLabel: string;
   accountName: string | null;
@@ -195,6 +197,8 @@ export interface Webhook {
 export interface AppConfig {
   features: { aiDrafts: boolean; push: boolean };
   vapidPublicKey: string | null;
+  /** Twenty CRM web address ("Open in Twenty" on a prospect), when the CRM sync is on. */
+  twentyUrl: string | null;
 }
 
 export interface ApiErrorBody {

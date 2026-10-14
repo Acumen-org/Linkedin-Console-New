@@ -60,6 +60,8 @@ const Env = z.object({
   // Twenty CRM (optional): GraphQL endpoint (https://…/graphql) and an API key (Settings → APIs in Twenty).
   TWENTY_API_URL: z.union([z.literal(''), z.url()]).default(''),
   TWENTY_API_KEY: z.string().default(''),
+  // Log prospects and their LinkedIn messages in Twenty (people + notes), from the moment this is switched on.
+  CRM_SYNC: z.enum(['off', 'on']).default('off'),
   STAFF_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
 });
 
@@ -84,6 +86,7 @@ const problems = [
   e.STAFF_SYNC !== 'off' && e.STAFF_SOURCE === 'twenty' && !(e.TWENTY_API_URL && e.TWENTY_API_KEY)
     ? 'STAFF_SOURCE=twenty needs TWENTY_API_URL and TWENTY_API_KEY'
     : '',
+  e.CRM_SYNC === 'on' && !(e.TWENTY_API_URL && e.TWENTY_API_KEY) ? 'CRM_SYNC=on needs TWENTY_API_URL and TWENTY_API_KEY' : '',
   !!e.TWENTY_API_URL !== !!e.TWENTY_API_KEY ? 'Twenty CRM needs both TWENTY_API_URL and TWENTY_API_KEY' : '',
   e.STAFF_SYNC === 'provision' && !microsoftEnabled
     ? 'STAFF_SYNC=provision needs Microsoft sign-in (provisioned members have no password)'
@@ -118,6 +121,7 @@ export const config = {
     ? { tenantId: e.MICROSOFT_TENANT_ID, clientId: e.MICROSOFT_CLIENT_ID, clientSecret: e.MICROSOFT_CLIENT_SECRET }
     : null,
   passwordSignin: e.PASSWORD_SIGNIN,
+  crmSync: e.CRM_SYNC === 'on',
   twenty: e.TWENTY_API_URL && e.TWENTY_API_KEY ? { url: e.TWENTY_API_URL, apiKey: e.TWENTY_API_KEY } : null,
   staffSync: {
     mode: e.STAFF_SYNC,

@@ -8,6 +8,7 @@ import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
+import { crmSyncTick } from './crm-sync.ts';
 
 /** Mark pods that stopped reporting as OFFLINE (the bridge heartbeats every ~60s). */
 async function detectOfflinePods() {
@@ -95,4 +96,6 @@ export function startScheduler() {
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));
   }, 60_000);
+  // Twenty CRM: messages reach it within seconds, a few at a time.
+  if (config.crmSync) setInterval(() => crmSyncTick().catch((err) => logger.error({ err }, 'crm sync failed')), 10_000);
 }

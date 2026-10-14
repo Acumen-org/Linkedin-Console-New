@@ -6,6 +6,7 @@ import { SESSION_COOKIE, userFromToken } from './core/auth.ts';
 import { HttpError } from './lib/errors.ts';
 import { logger } from './lib/logger.ts';
 import accountRoutes from './modules/accounts/routes.ts';
+import activityRoutes from './modules/activity/routes.ts';
 import aiRoutes from './modules/ai/routes.ts';
 import auditRoutes from './modules/audit/routes.ts';
 import microsoftRoutes from './modules/auth/microsoft.ts';
@@ -38,6 +39,7 @@ const MODULES = [
   networkRoutes,
   liveRoutes,
   auditRoutes,
+  activityRoutes,
   webhookRoutes,
   pushRoutes,
   aiRoutes,
