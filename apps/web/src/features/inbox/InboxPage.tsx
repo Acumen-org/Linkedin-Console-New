@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import {
   AlarmClock,
   Archive,
+  BellRing,
   Hourglass,
   Inbox as InboxIcon,
   Layers,
@@ -25,6 +26,7 @@ import { conversationTitle, timeAgo } from '../../lib/format';
 import { useLabels } from '../../lib/queries';
 import type { Account, Conversation } from '../../types';
 import { isSyncing, SyncProgress } from '../accounts/SyncProgress';
+import { isOverdue } from './ConversationActions';
 import { NewChat } from './NewChat';
 import { Thread } from './Thread';
 
@@ -32,6 +34,7 @@ const VIEWS = [
   { id: 'all', label: 'All', icon: InboxIcon },
   { id: 'replied', label: 'Replied', icon: Reply },
   { id: 'no_reply', label: 'No reply yet', icon: SendHorizontal },
+  { id: 'followups', label: 'Follow-ups', icon: BellRing },
   { id: 'unread', label: 'Unread', icon: Mail },
   { id: 'awaiting', label: 'Awaiting reply', icon: Hourglass },
   { id: 'starred', label: 'Starred', icon: Star },
@@ -259,6 +262,16 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
           {c.labels.slice(0, 2).map((l) => (
             <LabelChip key={l.id} name={l.name} color={l.color} small />
           ))}
+          {c.reminder && (
+            <span
+              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600' : 'text-brand'}`}
+              title={c.reminder.note ?? 'Follow-up reminder'}
+            >
+              <BellRing size={11} />
+              {new Date(c.reminder.dueAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+              {c.reminder.responsibleName ? ` · ${c.reminder.responsibleName}` : ''}
+            </span>
+          )}
           {c.isStarred && <Star size={12} className="fill-amber-400 text-amber-400" />}
           {c.assignedToName && <span className="truncate">→ {c.assignedToName}</span>}
           {locked && (

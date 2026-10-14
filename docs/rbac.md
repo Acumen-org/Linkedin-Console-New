@@ -121,3 +121,12 @@ With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`):
 - Every message **from the moment the sync is switched on** becomes a **note** on that person: who sent it (the teammate, or the prospect), through which LinkedIn account, when, with a link back to the conversation. History (first syncs, archive imports) is not copied, and group chats are left out.
 - Messages reach Twenty within seconds, about 30 a minute at most. When Twenty fails, a message is retried with a growing pause (6 times); a person deleted or merged in Twenty is found or created again. The Team page shows how many prospects are linked, messages logged in the last day, any waiting or failed, and the last problem, with **Retry**.
 - A conversation whose prospect is in Twenty has an **Open in Twenty** button.
+
+## Follow-up reminders
+
+Each prospect (conversation) can have one open follow-up reminder: the bell in the conversation header sets it (tomorrow, in 3 days, next Monday, in 2 weeks, or a date and time) with an optional note, moves it, or closes it as **Done** (followed up) or **Close prospect** (stop following up). Anyone with Reply access can do this; each change is in the audit log.
+
+- **Who it is for** follows the conversation: its assignee, else the last teammate who messaged the prospect, else everyone who can reply on the account.
+- **When it comes due**, they get a notification (once; moving it notifies again).
+- **Inbox → Follow-ups** lists every prospect with an open reminder, soonest first, overdue in red. Every conversation in the list shows its reminder date and who it is for. **Replied** and **No reply yet** show whether the prospect has answered.
+- **In Twenty CRM** (with `CRM_SYNC=on`): each reminder is a **task** on the prospect's person, due at the same time and assigned to the teammate's Twenty workspace member (staff from `STAFF_SOURCE=twenty`). Moving or closing it here updates the task; marking the task done (or deleting it) in Twenty closes the reminder here, and a new due date there moves it here.

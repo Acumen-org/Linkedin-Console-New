@@ -1,4 +1,5 @@
 import type { Conversation, Message } from '@linkedin-console/contracts';
+import { RESPONSIBLE } from '../../core/reminders-sql.ts';
 import { sql } from '../../lib/db.ts';
 
 /** Columns of a conversation as the API returns it (with account, lock, assignee and labels). */
@@ -11,7 +12,10 @@ export const CONVERSATION_COLUMNS = sql`
   coalesce((
     SELECT json_agg(json_build_object('id', l.id, 'name', l.name, 'color', l.color) ORDER BY l.name)
     FROM conversation_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.conversation_id = c.id
-  ), '[]'::json) AS labels`;
+  ), '[]'::json) AS labels,
+  (SELECT json_build_object('id', r.id, 'dueAt', r.due_at, 'note', r.note, 'responsibleUserId', ru.id, 'responsibleName', ru.name)
+   FROM reminders r LEFT JOIN users ru ON ru.id = ${RESPONSIBLE}
+   WHERE r.conversation_id = c.id AND r.status = 'OPEN') AS reminder`;
 
 export const CONVERSATION_FROM = sql`
   conversations c

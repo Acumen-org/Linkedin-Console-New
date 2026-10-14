@@ -9,6 +9,8 @@ import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
 import { crmSyncTick } from './crm-sync.ts';
+import { notifyDueReminders } from './push.ts';
+import { reminderSyncTick } from './reminder-sync.ts';
 
 /** Mark pods that stopped reporting as OFFLINE (the bridge heartbeats every ~60s). */
 async function detectOfflinePods() {
@@ -92,10 +94,20 @@ async function staffSync() {
 }
 
 export function startScheduler() {
-  const jobs = [detectOfflinePods, scheduleConnectionSync, wakeSnoozed, expireStuckSends, staffSync, retryPendingHistory];
+  const jobs = [
+    detectOfflinePods,
+    scheduleConnectionSync,
+    wakeSnoozed,
+    expireStuckSends,
+    staffSync,
+    retryPendingHistory,
+    notifyDueReminders,
+  ];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));
   }, 60_000);
   // Twenty CRM: messages reach it within seconds, a few at a time.
   if (config.crmSync) setInterval(() => crmSyncTick().catch((err) => logger.error({ err }, 'crm sync failed')), 10_000);
+  // Follow-up reminders as Twenty tasks, both ways.
+  if (config.crmSync) setInterval(() => reminderSyncTick(), 15_000);
 }

@@ -35,7 +35,7 @@ const when = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 16);
 type Participant = { urn?: string; name?: string; headline?: string | null; profileUrl?: string | null };
 
 /** The vanity profile link when we know it from the connections list (more reliable for matching). */
-async function prospectOf(accountId: string, participants: Participant[]) {
+export async function prospectOf(accountId: string, participants: Participant[]) {
   const p = participants[0] ?? {};
   const [contact] = p.urn
     ? await sql`SELECT profile_url, headline FROM contacts WHERE account_id = ${accountId} AND member_urn = ${p.urn} LIMIT 1`

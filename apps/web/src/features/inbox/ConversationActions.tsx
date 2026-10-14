@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, Check, Plus, Tag } from 'lucide-react';
+import { AlarmClock, Bell, BellRing, Check, Plus, Tag } from 'lucide-react';
 import { useState } from 'react';
 import { LabelChip, Popover } from '../../components/ui';
 import { api } from '../../lib/api';
@@ -195,6 +195,146 @@ export function SnoozeMenu({
             </button>
           )}
           <div className="px-2 pb-1 text-[11px] text-slate-500">It comes back earlier if they reply.</div>
+        </div>
+      )}
+    </Popover>
+  );
+}
+
+const dueLabel = (iso: string) =>
+  new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** True when the reminder's time has passed. */
+export const isOverdue = (iso: string) => new Date(iso).getTime() <= Date.now();
+
+/**
+ * The prospect's follow-up reminder: set a time (and a note), move it, or close it as Done (followed up) or
+ * Closed (stop following this prospect). It reaches whoever the conversation is for, and Twenty when connected.
+ */
+export function ReminderMenu({
+  conversation,
+  onChange,
+  disabled,
+}: {
+  conversation: Conversation;
+  onChange: (c: Conversation) => void;
+  disabled?: boolean;
+}) {
+  const r = conversation.reminder;
+  const [custom, setCustom] = useState('');
+  const [note, setNote] = useState(r?.note ?? '');
+
+  const set = async (dueAt: Date) => {
+    try {
+      onChange(await api.put<Conversation>(`/api/conversations/${conversation.id}/reminder`, { dueAt: dueAt.toISOString(), note }));
+      toast(`Reminder set for ${dueLabel(dueAt.toISOString())}`, 'success');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  const close = async (status: 'DONE' | 'CLOSED') => {
+    try {
+      onChange(await api.post<Conversation>(`/api/conversations/${conversation.id}/reminder/close`, { status }));
+      toast(status === 'DONE' ? 'Follow-up done' : 'Prospect closed: no more reminders', 'success');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  const options: [string, () => Date][] = [
+    ['Tomorrow 9:00', () => nextMorning(1)],
+    ['In 3 days, 9:00', () => nextMorning(3)],
+    ['Next Monday 9:00', nextMonday],
+    ['In 2 weeks', () => nextMorning(14)],
+  ];
+  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600' : 'text-brand') : '';
+
+  return (
+    <Popover
+      trigger={({ toggle }) => (
+        <button
+          onClick={() => {
+            setNote(conversation.reminder?.note ?? '');
+            toggle();
+          }}
+          disabled={disabled}
+          className={`btn-ghost px-2 ${tone}`}
+          title={r ? `Follow up ${dueLabel(r.dueAt)}` : 'Remind me to follow up'}
+        >
+          {r ? <BellRing size={18} /> : <Bell size={18} />}
+        </button>
+      )}
+      width={260}
+    >
+      {(closeMenu) => (
+        <div>
+          <div className="px-2 pt-1 pb-1 text-xs font-semibold text-slate-500">
+            {r ? (
+              <span className={tone}>
+                Follow up {dueLabel(r.dueAt)}
+                {r.responsibleName ? ` · for ${r.responsibleName}` : ' · for the team'}
+              </span>
+            ) : (
+              'Remind to follow up…'
+            )}
+          </div>
+          <div className="px-1 pb-1">
+            <input
+              className="input py-1 text-xs"
+              placeholder="Note (optional), e.g. send the pricing"
+              maxLength={500}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+          {options.map(([label, fn]) => (
+            <button
+              key={label}
+              onClick={() => {
+                set(fn());
+                closeMenu();
+              }}
+              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+            >
+              {label}
+            </button>
+          ))}
+          <div className="flex gap-1 border-t border-slate-100 p-1">
+            <input type="datetime-local" className="input py-1 text-xs" value={custom} onChange={(e) => setCustom(e.target.value)} />
+            <button
+              disabled={!custom}
+              onClick={() => {
+                set(new Date(custom));
+                closeMenu();
+              }}
+              className="btn-ghost px-2 text-xs"
+            >
+              Set
+            </button>
+          </div>
+          {r && (
+            <div className="flex gap-1 border-t border-slate-100 p-1">
+              <button
+                onClick={() => {
+                  close('DONE');
+                  closeMenu();
+                }}
+                className="btn-outline flex-1 px-2 py-1 text-xs"
+                title="I followed up"
+              >
+                <Check size={13} /> Done
+              </button>
+              <button
+                onClick={() => {
+                  close('CLOSED');
+                  closeMenu();
+                }}
+                className="btn-ghost flex-1 px-2 py-1 text-xs"
+                title="Stop following up this prospect"
+              >
+                Close prospect
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Popover>

@@ -28,6 +28,7 @@ export const CONVERSATION_VIEWS = [
   'all',
   'replied',
   'no_reply',
+  'followups',
   'unread',
   'awaiting',
   'starred',
@@ -41,3 +42,7 @@ export type ConversationView = (typeof CONVERSATION_VIEWS)[number];
 
 /** 12 chars [a-z0-9]: account ids double as container names (pod-<id>). */
 export const ACCOUNT_ID_RE = /^[a-z0-9]{12}$/;
+
+/** A prospect's follow-up reminder: open, done (followed up) or closed (stop following this prospect). */
+export const REMINDER_STATUSES = ['OPEN', 'DONE', 'CLOSED'] as const;
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number];

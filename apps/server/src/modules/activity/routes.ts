@@ -78,8 +78,9 @@ export default async function activityRoutes(app: FastifyInstance) {
              a.label AS account_label, ${prospectName} AS prospect
       FROM messages m JOIN conversations c ON c.id = m.conversation_id JOIN accounts a ON a.id = m.account_id
       WHERE ${sentWhere(from, to, q.accountId, userId)}
-        ${q.before ? sql`AND (m.created_at, m.id) < (${q.before}::timestamptz, ${q.beforeId ?? ''})` : sql``}
-      ORDER BY m.created_at DESC, m.id DESC LIMIT 100`;
+        -- The cursor comes back from the browser in milliseconds: compare (and sort) at that precision.
+        ${q.before ? sql`AND (date_trunc('milliseconds', m.created_at), m.id) < (${q.before}::timestamptz, ${q.beforeId ?? ''})` : sql``}
+      ORDER BY date_trunc('milliseconds', m.created_at) DESC, m.id DESC LIMIT 100`;
   });
 
   app.get('/api/activity/export', async (req, reply) => {

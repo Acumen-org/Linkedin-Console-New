@@ -12,6 +12,8 @@ import { runStaffSync } from '../core/staff-sync.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
+import { notifyDueReminders } from '../worker/push.ts';
+import { reminderSyncTick } from '../worker/reminder-sync.ts';
 
 const API = `http://localhost:${config.port}`;
 const tag = crypto.randomBytes(3).toString('hex');
@@ -45,6 +47,15 @@ let twentyMembers: { id: string; name: string; email: string }[] = [];
 let twentyFails = false;
 const twentyPeople: { id: string; firstName: string; lastName: string; linkedin: string | null; jobTitle?: string | null }[] = [];
 let twentyNotes: { id: string; title: string; markdown: string; personId: string | null }[] = [];
+let twentyTasks: {
+  id: string;
+  title: string;
+  markdown: string;
+  dueAt: string;
+  status: string;
+  assigneeId: string | null;
+  personId: string | null;
+}[] = [];
 function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.headers.authorization !== `Bearer ${config.twenty?.apiKey}`) return res.writeHead(401).end();
   let body = '';
@@ -97,6 +108,47 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
     if (q.includes('LinkedInConsoleDeleteNote')) {
       twentyNotes = twentyNotes.filter((n) => n.id !== variables.id);
       return json({ data: { deleteNote: { id: variables.id } } });
+    }
+    if (q.includes('LinkedInConsoleCreateTask')) {
+      const i = variables.input;
+      const task = {
+        id: crypto.randomUUID(),
+        title: i.title,
+        markdown: i.bodyV2.markdown,
+        dueAt: i.dueAt,
+        status: i.status,
+        assigneeId: i.assigneeId ?? null,
+        personId: null as string | null,
+      };
+      twentyTasks.push(task);
+      return json({ data: { createTask: { id: task.id } } });
+    }
+    if (q.includes('LinkedInConsoleLinkTask')) {
+      const { taskId, targetPersonId } = variables.input;
+      if (!twentyPeople.some((x) => x.id === targetPersonId))
+        return json({ errors: [{ message: 'insert or update on table "taskTarget" violates foreign key constraint' }] });
+      const task = twentyTasks.find((t) => t.id === taskId);
+      if (task) task.personId = targetPersonId;
+      return json({ data: { createTaskTarget: { id: crypto.randomUUID() } } });
+    }
+    if (q.includes('LinkedInConsoleUpdateTask')) {
+      const task = twentyTasks.find((t) => t.id === variables.id);
+      if (!task) return json({ errors: [{ message: 'Record not found' }] });
+      const i = variables.input;
+      if (i.dueAt) task.dueAt = i.dueAt;
+      if (i.status) task.status = i.status;
+      if ('assigneeId' in i) task.assigneeId = i.assigneeId;
+      if (i.title) task.title = i.title;
+      return json({ data: { updateTask: { id: task.id } } });
+    }
+    if (q.includes('LinkedInConsoleDeleteTask')) {
+      twentyTasks = twentyTasks.filter((t) => t.id !== variables.id);
+      return json({ data: { deleteTask: { id: variables.id } } });
+    }
+    if (q.includes('LinkedInConsoleTasks')) {
+      const ids: string[] = variables.filter.id.in;
+      const hits = twentyTasks.filter((t) => ids.includes(t.id));
+      return json({ data: { tasks: { edges: hits.map((t) => ({ node: { id: t.id, status: t.status, dueAt: t.dueAt } })) } } });
     }
     if (!q.includes('workspaceMembers')) return json({ errors: [{ message: 'unknown query' }] });
     const start = variables?.after ? Number(variables.after) : 0;
@@ -1287,6 +1339,104 @@ try {
     });
   } else {
     console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
+  }
+
+  await step('follow-up reminders: one per prospect, set and moved, for the responsible teammate, due once, done', async () => {
+    const tomorrow = new Date(Date.now() + 86400_000).toISOString();
+    assert.equal((await reader('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: tomorrow })).status, 403, 'READ cannot');
+    assert.equal(
+      (await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: new Date(Date.now() - 3600_000).toISOString() })).status,
+      400,
+      'not in the past',
+    );
+    const set = await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: tomorrow, note: 'Send the pricing' });
+    assert.equal(set.status, 200, JSON.stringify(set.data));
+    assert.equal(set.data.reminder.note, 'Send the pricing');
+    assert.equal(Date.parse(set.data.reminder.dueAt), Date.parse(tomorrow));
+    // For the assignee, else the last teammate who messaged them.
+    const [who] = await sql`
+      SELECT coalesce(c.assigned_to, (SELECT sent_by_user_id FROM messages m WHERE m.conversation_id = c.id AND m.sent_by_user_id IS NOT NULL ORDER BY m.sent_at DESC LIMIT 1)) AS id
+      FROM conversations c WHERE c.id = ${janeId}`;
+    assert.equal(set.data.reminder.responsibleUserId, who.id);
+
+    const later = new Date(Date.now() + 3 * 86400_000).toISOString();
+    const moved = await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: later, note: 'Send the pricing' });
+    assert.equal(moved.data.reminder.id, set.data.reminder.id, 'still the same, one per prospect');
+    assert.equal((await sql`SELECT count(*)::int AS n FROM reminders WHERE conversation_id = ${janeId} AND status = 'OPEN'`)[0].n, 1);
+    const list = await member('GET', `/api/conversations?accountId=${accountId}&view=followups`);
+    assert.ok(list.data.some((c: any) => c.id === janeId && c.reminder));
+
+    // Due: notified once; moved again: notified again.
+    await sql`UPDATE reminders SET due_at = now() - interval '1 minute' WHERE conversation_id = ${janeId} AND status = 'OPEN'`;
+    assert.ok((await notifyDueReminders()) >= 1);
+    assert.equal(await notifyDueReminders(), 0, 'only once');
+    await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: tomorrow });
+    assert.equal((await sql`SELECT notified_at FROM reminders WHERE conversation_id = ${janeId} AND status = 'OPEN'`)[0].notifiedAt, null);
+
+    const done = await member('POST', `/api/conversations/${janeId}/reminder/close`, { status: 'DONE' });
+    assert.equal(done.status, 200);
+    assert.equal(done.data.reminder, null);
+    assert.equal((await member('POST', `/api/conversations/${janeId}/reminder/close`, { status: 'DONE' })).status, 404);
+    assert.ok(!(await member('GET', `/api/conversations?accountId=${accountId}&view=followups`)).data.some((c: any) => c.id === janeId));
+    const logs =
+      await sql`SELECT action FROM audit_log WHERE account_id = ${accountId} AND action LIKE 'reminder.%' AND meta->>'conversationId' = ${janeId}`;
+    assert.ok(logs.some((l) => l.action === 'reminder.set') && logs.some((l) => l.action === 'reminder.closed'));
+  });
+
+  if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {
+    await step('follow-up reminders as Twenty tasks: created on the person, moved and done both ways', async () => {
+      const due = new Date(Date.now() + 2 * 86400_000);
+      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: due.toISOString(), note: 'Ask about the budget' });
+      const reminder = async () =>
+        (await sql`SELECT * FROM reminders WHERE conversation_id = ${rajId} ORDER BY created_at DESC LIMIT 1`)[0];
+      const tick = async () => {
+        await reminderSyncTick({ forcePull: true });
+        return reminder();
+      };
+      const synced = await until(tick, (r) => !!r.twentyTaskId, 'task created in Twenty', 30_000);
+      const task = twentyTasks.find((t) => t.id === synced.twentyTaskId);
+      assert.ok(task, 'task exists');
+      assert.equal(task?.status, 'TODO');
+      assert.equal(task?.personId, rajInTwenty, 'on the prospect');
+      assert.match(task?.markdown ?? '', /Ask about the budget/);
+      assert.equal(Date.parse(task?.dueAt ?? ''), due.getTime());
+
+      // Moved here: moved there.
+      const moved = new Date(Date.now() + 5 * 86400_000);
+      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: moved.toISOString(), note: 'Ask about the budget' });
+      await until(
+        async () => {
+          await reminderSyncTick({ forcePull: true });
+          return Date.parse(twentyTasks.find((t) => t.id === synced.twentyTaskId)?.dueAt ?? '');
+        },
+        (t) => t === moved.getTime(),
+        'due date moved in Twenty',
+        30_000,
+      );
+      // Moved there: moved here.
+      const there = new Date(Date.now() + 9 * 86400_000);
+      task!.dueAt = there.toISOString();
+      await until(tick, (r) => r.dueAt.getTime() === there.getTime(), 'due date followed from Twenty', 30_000);
+      // Done there: closed here.
+      task!.status = 'DONE';
+      const closed = await until(tick, (r) => r.status !== 'OPEN', 'closed from Twenty', 30_000);
+      assert.equal(closed.status, 'DONE');
+      assert.equal(closed.closedVia, 'twenty');
+
+      // Done here: done there.
+      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: due.toISOString() });
+      const second = await until(tick, (r) => r.status === 'OPEN' && !!r.twentyTaskId, 'second task', 30_000);
+      await member('POST', `/api/conversations/${rajId}/reminder/close`, { status: 'CLOSED' });
+      await until(
+        async () => {
+          await reminderSyncTick({ forcePull: true });
+          return twentyTasks.find((t) => t.id === second.twentyTaskId)?.status;
+        },
+        (st) => st === 'DONE',
+        'marked done in Twenty',
+        30_000,
+      );
+    });
   }
 
   await step('config + push subscription endpoints', async () => {

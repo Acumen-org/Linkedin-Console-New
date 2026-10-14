@@ -100,6 +100,15 @@ export interface Label {
   color: string;
 }
 
+export interface ConversationReminder {
+  id: string;
+  dueAt: string;
+  note: string | null;
+  /** Who it is for: the assignee, else the last teammate who messaged; null = everyone on the account. */
+  responsibleUserId: string | null;
+  responsibleName: string | null;
+}
+
 export interface Conversation {
   id: string;
   accountId: string;
@@ -123,6 +132,8 @@ export interface Conversation {
   lockedUntil: string | null;
   /** The prospect in Twenty CRM, once the CRM sync has logged them. */
   twentyPersonId?: string | null;
+  /** The open follow-up reminder, if any. */
+  reminder?: ConversationReminder | null;
   labels: Label[];
   accountLabel: string;
   accountName: string | null;

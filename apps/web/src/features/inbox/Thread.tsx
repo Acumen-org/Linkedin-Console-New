@@ -11,7 +11,7 @@ import { onRealtime } from '../../lib/realtime';
 import { toast } from '../../lib/toast';
 import type { Conversation, Message, Note, User } from '../../types';
 import { Composer } from './Composer';
-import { LabelPicker, SnoozeMenu } from './ConversationActions';
+import { LabelPicker, ReminderMenu, SnoozeMenu } from './ConversationActions';
 import { MessageBubble } from './MessageBubble';
 
 export function Thread({ conversationId }: { conversationId: string }) {
@@ -197,6 +197,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
             {c.isArchived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
           </button>
           <LabelPicker conversation={c} disabled={!canReply} onChange={setConversation} />
+          <ReminderMenu conversation={c} disabled={!canReply} onChange={setConversation} />
           <SnoozeMenu conversation={c} disabled={!canReply} onChange={setConversation} />
           <button
             onClick={() => setShowNotes((s) => !s)}

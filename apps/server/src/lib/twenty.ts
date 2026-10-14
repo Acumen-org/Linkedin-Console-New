@@ -117,11 +117,9 @@ export async function findOrCreatePerson(p: { name: string; profileUrl: string |
   return { id: created.createPerson.id, created: true };
 }
 
-export class PersonGoneError extends TwentyError {}
-
-/** A note on a person. If linking fails (the person was deleted or merged), the note is removed again. */
-export async function addPersonNote(personId: string, title: string, markdown: string) {
-  const blocknote = JSON.stringify(
+/** Note and task bodies: one paragraph per blank-line-separated block (Twenty's rich text). */
+const paragraphs = (markdown: string) =>
+  JSON.stringify(
     markdown.split('\n\n').map((para, i) => ({
       id: String(i + 1),
       type: 'paragraph',
@@ -130,9 +128,14 @@ export async function addPersonNote(personId: string, title: string, markdown: s
       children: [],
     })),
   );
+
+export class PersonGoneError extends TwentyError {}
+
+/** A note on a person. If linking fails (the person was deleted or merged), the note is removed again. */
+export async function addPersonNote(personId: string, title: string, markdown: string) {
   const note = await twentyQuery<{ createNote: { id: string } }>(
     `mutation LinkedInConsoleCreateNote($input: NoteCreateInput!) { createNote(data: $input) { id } }`,
-    { input: { title: title.slice(0, 250), bodyV2: { blocknote, markdown } } },
+    { input: { title: title.slice(0, 250), bodyV2: { blocknote: paragraphs(markdown), markdown } } },
   );
   const noteId = note.createNote.id;
   try {
@@ -145,4 +148,73 @@ export async function addPersonNote(personId: string, title: string, markdown: s
     throw err;
   }
   return noteId;
+}
+
+// ---------- Tasks (follow-up reminders) ----------
+
+export interface TaskInput {
+  title: string;
+  markdown: string;
+  dueAt: Date;
+  /** Twenty workspace member, or null for nobody in particular. */
+  assigneeId: string | null;
+}
+
+/** A task on a person. If linking fails (the person was deleted or merged), the task is removed again. */
+export async function createPersonTask(personId: string, t: TaskInput) {
+  const created = await twentyQuery<{ createTask: { id: string } }>(
+    `mutation LinkedInConsoleCreateTask($input: TaskCreateInput!) { createTask(data: $input) { id } }`,
+    {
+      input: {
+        title: t.title.slice(0, 250),
+        bodyV2: { blocknote: paragraphs(t.markdown), markdown: t.markdown },
+        dueAt: t.dueAt.toISOString(),
+        status: 'TODO',
+        ...(t.assigneeId ? { assigneeId: t.assigneeId } : {}),
+      },
+    },
+  );
+  const taskId = created.createTask.id;
+  try {
+    await twentyQuery(`mutation LinkedInConsoleLinkTask($input: TaskTargetCreateInput!) { createTaskTarget(data: $input) { id } }`, {
+      input: { taskId, targetPersonId: personId },
+    });
+  } catch (err) {
+    await twentyQuery(`mutation LinkedInConsoleDeleteTask($id: UUID!) { deleteTask(id: $id) { id } }`, { id: taskId }).catch(() => {});
+    if (/foreign key|not found|does not exist/i.test((err as Error).message)) throw new PersonGoneError((err as Error).message);
+    throw err;
+  }
+  return taskId;
+}
+
+/** Updates a task; false when it no longer exists in Twenty (deleted there). */
+export async function updateTask(taskId: string, data: Partial<TaskInput> & { done?: boolean }) {
+  const input: Record<string, unknown> = {};
+  if (data.title) input.title = data.title.slice(0, 250);
+  if (data.markdown) input.bodyV2 = { blocknote: paragraphs(data.markdown), markdown: data.markdown };
+  if (data.dueAt) input.dueAt = data.dueAt.toISOString();
+  if (data.assigneeId !== undefined) input.assigneeId = data.assigneeId;
+  if (data.done !== undefined) input.status = data.done ? 'DONE' : 'TODO';
+  try {
+    await twentyQuery(
+      `mutation LinkedInConsoleUpdateTask($id: UUID!, $input: TaskUpdateInput!) { updateTask(id: $id, data: $input) { id } }`,
+      {
+        id: taskId,
+        input,
+      },
+    );
+    return true;
+  } catch (err) {
+    if (/not found|does not exist|no record/i.test((err as Error).message)) return false;
+    throw err;
+  }
+}
+
+/** Status and due date of these tasks; a task missing from the answer was deleted in Twenty. */
+export async function tasksByIds(ids: string[]) {
+  const data = await twentyQuery<{ tasks: { edges: { node: { id: string; status: string | null; dueAt: string | null } }[] } }>(
+    `query LinkedInConsoleTasks($filter: TaskFilterInput) { tasks(filter: $filter, first: 100) { edges { node { id status dueAt } } } }`,
+    { filter: { id: { in: ids } } },
+  );
+  return new Map(data.tasks.edges.map((e) => [e.node.id, e.node]));
 }

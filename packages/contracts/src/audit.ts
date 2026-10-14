@@ -22,6 +22,8 @@ export const AUDIT_ACTIONS = {
   'message.start_chat': { label: 'Started a new chat', category: 'message' },
   'ai.draft': { label: 'Generated an AI draft', category: 'message' },
   'conversation.assigned': { label: 'Assigned a conversation', category: 'conversation' },
+  'reminder.set': { label: 'Set a follow-up reminder', category: 'conversation' },
+  'reminder.closed': { label: 'Closed a follow-up reminder', category: 'conversation' },
   'live.opened': { label: 'Opened Live LinkedIn', category: 'live' },
   'account.created': { label: 'Connected a LinkedIn account', category: 'account' },
   'account.deleted': { label: 'Disconnected a LinkedIn account', category: 'account' },

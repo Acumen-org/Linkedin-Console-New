@@ -5,9 +5,10 @@ import { accessibleAccountIds, conversationForUser } from '../../core/access.ts'
 import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
+import { closeReminder, setReminder } from '../../core/reminders.ts';
 import { emitWebhook } from '../../core/webhooks.ts';
 import { sql } from '../../lib/db.ts';
-import { conflict } from '../../lib/errors.ts';
+import { conflict, HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
 import { CONVERSATION_COLUMNS, CONVERSATION_FROM, loadConversation } from './queries.ts';
@@ -61,7 +62,11 @@ export default async function conversationRoutes(app: FastifyInstance) {
       other: sql`AND c.folder = 'other' AND NOT c.is_archived AND ${awake}`,
       requests: sql`AND c.folder IN ('requests', 'inmail') AND NOT c.is_archived AND ${awake}`,
       archived: sql`AND (c.is_archived OR c.folder = 'archived')`,
+      // Prospects with an open follow-up reminder, soonest first (one page).
+      followups: sql`AND EXISTS (SELECT 1 FROM reminders r WHERE r.conversation_id = c.id AND r.status = 'OPEN')`,
     }[q.view];
+    const followups = q.view === 'followups';
+    if (followups && (q.before || q.beforeId)) return [];
     return sql`
       SELECT ${CONVERSATION_COLUMNS} FROM ${CONVERSATION_FROM}
       WHERE c.account_id IN ${sql(ids)} ${view}
@@ -88,8 +93,31 @@ export default async function conversationRoutes(app: FastifyInstance) {
         )`
             : sql``
         }
-      ORDER BY c.last_message_at DESC NULLS LAST, c.id
-      LIMIT ${q.limit}`;
+      ${
+        followups
+          ? sql`ORDER BY (SELECT r.due_at FROM reminders r WHERE r.conversation_id = c.id AND r.status = 'OPEN'), c.id LIMIT 500`
+          : sql`ORDER BY c.last_message_at DESC NULLS LAST, c.id LIMIT ${q.limit}`
+      }`;
+  });
+
+  // The prospect's follow-up reminder: set or move it, then close it as Done or Closed.
+  app.put<{ Params: Params }>('/api/conversations/:id/reminder', async (req) => {
+    const user = requireUser(req);
+    const { conversation, level } = await conversationForUser(user, req.params.id, 'REPLY');
+    const body = z.object({ dueAt: z.iso.datetime({ offset: true }), note: z.string().trim().max(500).nullish() }).parse(req.body);
+    const dueAt = new Date(body.dueAt);
+    if (dueAt.getTime() < Date.now() - 60_000) throw new HttpError(400, 'Pick a time in the future');
+    if (dueAt.getTime() > Date.now() + 366 * 86400_000) throw new HttpError(400, 'Pick a time within a year');
+    await setReminder({ id: conversation.id, accountId: conversation.accountId }, { dueAt, note: body.note || null }, user, req.ip);
+    return { ...(await loadConversation(conversation.id)), level };
+  });
+
+  app.post<{ Params: Params }>('/api/conversations/:id/reminder/close', async (req) => {
+    const user = requireUser(req);
+    const { conversation, level } = await conversationForUser(user, req.params.id, 'REPLY');
+    const { status } = z.object({ status: z.enum(['DONE', 'CLOSED']) }).parse(req.body);
+    if (!(await closeReminder({ conversationId: conversation.id }, status, user, req.ip))) throw new HttpError(404, 'No open reminder');
+    return { ...(await loadConversation(conversation.id)), level };
   });
 
   app.get<{ Params: Params }>('/api/conversations/:id', async (req) => {
