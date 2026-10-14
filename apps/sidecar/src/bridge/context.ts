@@ -32,6 +32,8 @@ export interface BridgeContext {
     self: LiSelf | null;
     selfUrn: string | null;
     collectingConnections: boolean;
+    /** Conversations LinkedIn's data described since the current conversation list load started. */
+    recognisedConversations: Set<string>;
     /** LinkedIn's own GraphQL requests, captured so we can re-run them quietly. */
     templates: Partial<Record<'messages' | 'conversations' | 'send', RequestTemplate>>;
   };

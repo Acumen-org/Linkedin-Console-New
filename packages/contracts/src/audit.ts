@@ -31,6 +31,8 @@ export const AUDIT_ACTIONS = {
   'account.status': { label: 'Account status changed', category: 'account' },
   'account.restarted': { label: 'Restarted an account browser', category: 'account' },
   'account.auto_restarted': { label: 'Restarted an account browser automatically', category: 'account' },
+  'account.sync_degraded': { label: "Chats not syncing fully (LinkedIn's data not readable)", category: 'account' },
+  'account.load_all_chats': { label: 'Started loading all chats', category: 'account' },
   'account.resynced': { label: 'Ran the full sync again (chats, history, connections)', category: 'account' },
   'account.imported': { label: 'Imported a LinkedIn data archive', category: 'account' },
   'account.auto_paused': { label: 'Sending paused automatically (LinkedIn warning)', category: 'account' },

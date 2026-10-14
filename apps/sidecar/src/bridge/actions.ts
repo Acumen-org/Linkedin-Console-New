@@ -5,6 +5,7 @@
 import type { FileRef } from '@linkedin-console/contracts';
 import type { Locator, Page } from 'patchright';
 import type { Healer } from './heal.ts';
+import type { DomThread } from './inbox-dom.ts';
 
 export const IDLE_URL = 'https://www.linkedin.com/messaging/thread/new/';
 const CONNECTIONS_URL = 'https://www.linkedin.com/mynetwork/invite-connect/connections/';
@@ -136,21 +137,50 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
      * Load the conversation list (without opening any thread) and scroll it to load more: a fixed number of
      * scrolls, or with `target` until that many conversations are listed (or the list stops growing).
      */
-    async loadInbox(page: Page, { scrolls = 4, target = 0, onProgress }: LoadOptions & { scrolls?: number; target?: number } = {}) {
+    async loadInbox(
+      page: Page,
+      { scrolls = 4, target = 0, onProgress }: LoadOptions & { scrolls?: number; target?: number } = {},
+    ): Promise<DomThread[]> {
       await navigate(page, IDLE_URL);
       await jitter(4000, 6000);
       const list = page.locator('.msg-conversations-container__conversations-list').first();
       const box = await list.boundingBox().catch(() => null);
-      if (!box) return;
+      if (!box) return [];
       await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 300));
       const listed = () =>
         page.locator('a[href*="/messaging/thread/"]').evaluateAll((as) => new Set(as.map((a) => (a as HTMLAnchorElement).pathname)).size);
-      const maxScrolls = target ? 40 : scrolls;
+      // About 10 more conversations per scroll: enough scrolls for the target (all chats: up to 400).
+      const maxScrolls = target ? Math.min(400, Math.ceil(target / 8) + 10) : scrolls;
+      // Every card the list showed, collected as it scrolls (a long list may drop the ones far above).
+      const cards = new Map<string, DomThread>();
+      const collect = async () => {
+        const found = await page
+          .locator('a[href*="/messaging/thread/"]')
+          .evaluateAll((as) =>
+            as.map((a) => {
+              const card = (a.closest('li') ?? a) as HTMLElement;
+              const img = card.querySelector('img');
+              return {
+                path: (a as HTMLAnchorElement).pathname,
+                lines: card.innerText
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .filter(Boolean)
+                  .slice(0, 8),
+                avatarUrl: img?.src?.startsWith('https://') ? img.src : null,
+              };
+            }),
+          )
+          .catch(() => [] as DomThread[]);
+        for (const c of found) if (!cards.has(c.path)) cards.set(c.path, c);
+      };
+      await collect();
       let last = 0;
       let stable = 0;
       for (let i = 0; i < maxScrolls && stable < 3; i++) {
         await page.mouse.wheel(0, rand(700, 1100));
         await jitter(1500, 3000);
+        await collect();
         if (!target) continue;
         const count = await listed().catch(() => last);
         await onProgress?.(Math.min(count, target), target);
@@ -158,6 +188,7 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
         stable = count === last ? stable + 1 : 0;
         last = count;
       }
+      return [...cards.values()];
     },
 
     /**

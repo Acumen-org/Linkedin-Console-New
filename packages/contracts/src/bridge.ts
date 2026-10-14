@@ -136,6 +136,17 @@ export interface CommandResult {
   conversationUrn?: string;
   /** LinkedIn signalled a limit or restriction: the app pauses sending on this account. */
   warning?: 'limited' | 'restricted';
+  /** A conversation list load: what the page listed, what LinkedIn's data brought, what came from the page. */
+  inbox?: InboxCheck;
+}
+
+export interface InboxCheck {
+  /** Conversations the LinkedIn page listed. */
+  listed: number;
+  /** Of those, how many LinkedIn's own data described (the normal way). */
+  recognised: number;
+  /** Added from the page itself because LinkedIn's data didn't describe them. */
+  fromPage: number;
 }
 
 // ---------- commands (app → bridge) ----------

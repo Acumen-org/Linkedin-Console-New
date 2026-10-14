@@ -13,7 +13,7 @@ import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newAccountId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
-import { firstSyncRunning, restartFirstSync, retryMissingHistory, syncReport } from '../../worker/first-sync.ts';
+import { firstSyncRunning, loadAllChats, restartFirstSync, retryMissingHistory, syncReport } from '../../worker/first-sync.ts';
 
 const Timezone = z.string().regex(/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+)*$/, 'Invalid timezone');
 const Language = z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$/, 'Invalid language');
@@ -28,7 +28,7 @@ export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
   (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync,
-  a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
+  a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, a.inbox_check, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;
@@ -198,6 +198,18 @@ export default async function accountRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await assertAccount(user, id, 'REPLY');
     return syncReport(id);
+  });
+
+  // The whole conversation list, not just the recent 100 (history then comes for the last 90 days' chats).
+  app.post('/api/accounts/:id/load-all-chats', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'FULL');
+    const [a] = await sql`SELECT status FROM accounts WHERE id = ${id}`;
+    if (a.status !== 'CONNECTED') throw new HttpError(409, 'The account must be connected to sync');
+    if (!(await loadAllChats(id))) throw new HttpError(409, 'Already loading all chats for this account');
+    await audit({ userId: user.id, accountId: id, action: 'account.load_all_chats', ip: req.ip });
+    return { ok: true };
   });
 
   app.post('/api/accounts/:id/sync-report/retry', async (req) => {

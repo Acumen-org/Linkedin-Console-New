@@ -1715,6 +1715,107 @@ try {
     await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
   });
 
+  await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {
+    const stub = (who: string, participants: any[], at: number) => ({
+      urn: conv(who),
+      threadId: `2-${who}${tag}`,
+      title: null,
+      isGroup: null,
+      unreadCount: null,
+      lastActivityAt: at,
+      folder: null,
+      participants,
+    });
+    const before = commands.length;
+    // Read from the page: created with the name shown; history requested (recent).
+    await emit('conversations', [
+      stub('PAGEONE', [{ urn: `page:2-PAGEONE${tag}`, name: 'Page Person', avatarUrl: null }], Date.now() - 3 * 86400_000),
+    ]);
+    const [pageConv] = await until(
+      () => sql`SELECT id, participants FROM conversations WHERE thread_urn = ${conv('PAGEONE')}`,
+      (r) => r.length > 0,
+      'page conversation',
+    );
+    assert.equal(pageConv.participants[0].name, 'Page Person');
+    await until(
+      async () => commands.slice(before).find((c) => c.type === 'sync_thread' && c.conversationUrn === conv('PAGEONE')),
+      Boolean,
+      'history of a recent chat',
+    );
+    // LinkedIn's data arrives later: it replaces the placeholder.
+    const real = person(`urn:li:fsd_profile:PAGEONE${tag}`, 'Page Person Real');
+    await emit('conversations', [stub('PAGEONE', [real], Date.now() - 3 * 86400_000)]);
+    await until(
+      async () => (await sql`SELECT participants FROM conversations WHERE id = ${pageConv.id}`)[0].participants[0].urn,
+      (urn) => urn === real.urn,
+      'LinkedIn data wins',
+    );
+    // A page placeholder for a chat LinkedIn's data already described: ignored.
+    await emit('conversations', [stub('JANE', [{ urn: `page:2-JANE${tag}`, name: 'Wrong Name', avatarUrl: null }], Date.now())]);
+    await sleep(1500);
+    const [jane] = await sql`SELECT participants FROM conversations WHERE id = ${janeId}`;
+    assert.equal(jane.participants[0].name, 'Jane E2E', 'kept');
+
+    // An old chat (200 days): listed, but its history waits until someone opens it.
+    await emit('conversations', [stub('OLDONE', [person(`urn:li:fsd_profile:OLD${tag}`, 'Old Contact')], Date.now() - 200 * 86400_000)]);
+    await until(
+      () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv('OLDONE')}`,
+      (r) => r.length > 0,
+      'old chat',
+    );
+    await sleep(1000);
+    assert.ok(
+      !commands.slice(before).some((c) => c.type === 'sync_thread' && c.conversationUrn === conv('OLDONE')),
+      'no history request yet',
+    );
+  });
+
+  await step('chat list check: a big gap between what LinkedIn lists and what its data describes is shown and alerted', async () => {
+    const send = (inbox: any) => emitResult({ cmdId: crypto.randomUUID(), type: 'sync_inbox', ok: true, inbox });
+    await send({ listed: 40, recognised: 38, fromPage: 2 });
+    const ok = await until(
+      async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data.inboxCheck,
+      (c) => c?.listed === 40,
+      'inbox check stored',
+    );
+    assert.equal(ok.recognised, 38);
+    assert.equal(ok.full, false);
+    const alerts = async () =>
+      (await sql`SELECT count(*)::int AS n FROM audit_log WHERE account_id = ${accountId} AND action = 'account.sync_degraded'`)[0].n;
+    assert.equal(await alerts(), 0, 'a small gap is normal');
+    await redis.del(`lu:inboxdegraded:${accountId}`);
+    await send({ listed: 40, recognised: 2, fromPage: 38 });
+    await until(alerts, (n) => n === 1, 'degraded: recorded and alerted');
+    await send({ listed: 40, recognised: 2, fromPage: 38 });
+    await sleep(800);
+    assert.equal(await alerts(), 1, 'once a day');
+  });
+
+  await step('load all chats: the whole list at human pace, full access only, one at a time, with progress', async () => {
+    assert.equal((await member('POST', `/api/accounts/${accountId}/load-all-chats`)).status, 403);
+    const before = commands.length;
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/load-all-chats`)).status, 200);
+    const cmd: any = await until(
+      async () => commands.slice(before).find((c) => c.type === 'sync_inbox' && c.target >= 1000),
+      Boolean,
+      'whole list requested',
+    );
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/load-all-chats`)).status, 409, 'one at a time');
+    await emit('progress', { kind: 'conversations', loaded: 340, total: cmd.target, done: false });
+    await until(
+      async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data.allChats?.loaded,
+      (n) => n === 340,
+      'progress',
+    );
+    await emitResult({ cmdId: cmd.cmdId, type: 'sync_inbox', ok: true, inbox: { listed: 612, recognised: 600, fromPage: 12 } });
+    const done = await until(
+      async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data,
+      (r) => !r.allChats && r.inboxCheck?.listed === 612,
+      'finished',
+    );
+    assert.equal(done.inboxCheck.full, true);
+  });
+
   await step('NEEDS_ATTENTION status reaches the account', async () => {
     await emit('session', { status: 'NEEDS_ATTENTION', self: null });
     await until(

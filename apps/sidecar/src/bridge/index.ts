@@ -60,6 +60,7 @@ export async function startBridge(streams: Streams, shared: SharedState) {
       self: null,
       selfUrn: null,
       collectingConnections: false,
+      recognisedConversations: new Set(),
       templates: JSON.parse((await streams.redis.get(`li:tpl:${config.accountId}`)) ?? '{}'),
     },
     exclusive: createExclusiveRunner(),

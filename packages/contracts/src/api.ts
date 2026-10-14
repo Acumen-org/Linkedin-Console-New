@@ -1,5 +1,5 @@
 /** Shapes returned by the HTTP API (camelCase JSON). */
-import type { LiAttachment, LiParticipant, LiReaction } from './bridge.js';
+import type { InboxCheck, LiAttachment, LiParticipant, LiReaction } from './bridge.js';
 import type { AccountStatus, Folder, Level, MessageStatus, Role } from './domain.js';
 
 export interface User {
@@ -99,6 +99,10 @@ export interface Account {
   lastRestartReason?: string | null;
   /** Automatic restarts in a row that haven't brought it back yet. */
   recoverAttempts?: number;
+  /** The last conversation list load: listed by the page, described by LinkedIn's data, added from the page. */
+  inboxCheck?: (InboxCheck & { at: string; full: boolean }) | null;
+  /** A running "Load all chats": conversations listed so far. */
+  allChats?: { loaded: number; startedAt: string } | null;
   lastError: string | null;
   createdAt: string;
   unread?: number;

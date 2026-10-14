@@ -28,6 +28,8 @@ const norm = (s: string | null | undefined) =>
     .trim();
 const preview = (m: LiMessage) => norm(m.text).slice(0, 200) || (m.attachments.length ? '📎 Attachment' : '');
 const ts = (ms: number | null | undefined) => new Date(ms ?? Date.now());
+/** Conversations with activity in this many days get their history fetched without anyone opening them. */
+const HISTORY_DAYS = 90;
 
 /**
  * Insert or update a conversation. Returns changed = false when LinkedIn sent nothing new, so callers can skip
@@ -41,13 +43,20 @@ interface UpsertedConversation {
   unreadCount: number;
 }
 
+/** A conversation read from the LinkedIn page itself (fallback): its participants have placeholder ids. */
+export const isFromPage = (c: LiConversation) => c.participants.length > 0 && c.participants.every((p) => p.urn.startsWith('page:'));
+
 async function upsertConversation(accountId: string, c: LiConversation): Promise<UpsertedConversation & { changed: boolean }> {
+  const fromPage = isFromPage(c);
   const next = {
     threadId: sql`coalesce(excluded.thread_id, conversations.thread_id)`,
     title: sql`coalesce(excluded.title, conversations.title)`,
     isGroup: c.isGroup === null ? sql`conversations.is_group` : sql`excluded.is_group`,
     folder: c.folder === null ? sql`conversations.folder` : sql`excluded.folder`,
-    participants: sql`CASE WHEN jsonb_array_length(excluded.participants) > 0 THEN excluded.participants ELSE conversations.participants END`,
+    // Read from the page (placeholder ids): only for a conversation we know nothing about; LinkedIn's data wins.
+    participants: fromPage
+      ? sql`CASE WHEN jsonb_array_length(conversations.participants) = 0 THEN excluded.participants ELSE conversations.participants END`
+      : sql`CASE WHEN jsonb_array_length(excluded.participants) > 0 THEN excluded.participants ELSE conversations.participants END`,
     lastMessageAt: sql`greatest(conversations.last_message_at, excluded.last_message_at)`,
     unreadCount: c.unreadCount === null ? sql`conversations.unread_count` : sql`excluded.unread_count`,
   };
@@ -102,7 +111,10 @@ export async function onConversations(accountId: string, items: LiConversation[]
   for (const c of items) {
     if (!c.urn) continue;
     const row = await upsertConversation(accountId, c);
-    const neverFetched = !row.historyRequestedAt && !row.historySyncedAt;
+    // History by itself only for recent chats (a whole inbox would be thousands of requests to LinkedIn); an
+    // older one fetches it when someone opens it.
+    const recent = !!c.lastActivityAt && c.lastActivityAt > Date.now() - HISTORY_DAYS * 86400_000;
+    const neverFetched = !row.historyRequestedAt && !row.historySyncedAt && recent;
     if (c.threadId && (neverFetched || missedWhileAway(away, c.lastActivityAt, row)))
       await requestHistory(accountId, row.id, c, row.unreadCount);
     if (row.changed) await publish(accountRoom(accountId), 'conversation.updated', await loadConversation(row.id));

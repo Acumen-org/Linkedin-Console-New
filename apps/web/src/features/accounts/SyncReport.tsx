@@ -1,6 +1,6 @@
-import type { AccountSync } from '@linkedin-console/contracts';
+import type { AccountSync, InboxCheck } from '@linkedin-console/contracts';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clock, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Download, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { Modal } from '../../components/ui';
@@ -13,6 +13,8 @@ import { isSyncing, SyncProgress } from './SyncProgress';
 type Wait = 'no_thread' | 'unread' | 'queued' | 'retrying' | 'not_requested';
 
 interface Report {
+  inboxCheck: (InboxCheck & { at: string; full: boolean }) | null;
+  allChats: { loaded: number; startedAt: string } | null;
   status: string;
   sync: AccountSync | null;
   historyRequestLearned: boolean;
@@ -101,6 +103,8 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
             />
           </div>
 
+          <InboxCheckPanel account={account} report={r} onStarted={() => report.refetch()} />
+
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={onlyWaiting} onChange={(e) => setOnlyWaiting(e.target.checked)} />
@@ -146,5 +150,61 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * The last conversation list load: how many chats LinkedIn's page listed and how many its data described. A big
+ * gap means reading LinkedIn's data broke (its format changed); the missing chats were added from the page.
+ * Also "Load all chats" (the whole list, not only the recent 100).
+ */
+function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; report: Report; onStarted: () => void }) {
+  const c = r.inboxCheck;
+  const degraded = !!c && c.listed >= 5 && c.recognised < c.listed / 2;
+  const start = async () => {
+    try {
+      await api.post(`/api/accounts/${account.id}/load-all-chats`);
+      toast('Loading all chats. This takes a few minutes; history follows for the last 90 days.', 'success');
+      onStarted();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <div className={`rounded-md border p-3 text-sm ${degraded ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        {degraded && <AlertTriangle size={16} className="text-amber-600" />}
+        <span className="flex-1">
+          {c ? (
+            <>
+              Last chat list load {timeAgo(c.at)}
+              {c.full ? ' (all chats)' : ''}: LinkedIn listed <b>{c.listed}</b> chats, its data described <b>{c.recognised}</b>
+              {c.fromPage ? (
+                <>
+                  , <b>{c.fromPage}</b> added from the page
+                </>
+              ) : null}
+              .
+            </>
+          ) : (
+            'No chat list load reported yet (it runs when the account connects, and with Load all chats).'
+          )}
+        </span>
+        {account.level === 'FULL' &&
+          (r.allChats ? (
+            <span className="text-xs text-slate-500">Loading all chats… {r.allChats.loaded} listed so far</span>
+          ) : (
+            <button type="button" onClick={start} disabled={r.status !== 'CONNECTED'} className="btn-outline text-xs">
+              <Download size={13} /> Load all chats
+            </button>
+          ))}
+      </div>
+      {degraded && (
+        <p className="mt-1 text-xs text-amber-800">
+          LinkedIn changed how it sends the chat list, so most chats were added from the page: names only, their messages may be missing
+          until the bridge is updated. The admins were alerted. A LinkedIn data archive (Import) brings the full history now.
+        </p>
+      )}
+    </div>
   );
 }

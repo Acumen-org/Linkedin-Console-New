@@ -6,12 +6,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { CommandResult, FileRef } from '@linkedin-console/contracts';
+import type { CommandResult, FileRef, InboxCheck } from '@linkedin-console/contracts';
 import { config } from '../config.ts';
 import { logger } from '../logger.ts';
-import { IDLE_URL, jitter } from './actions.ts';
+import { IDLE_URL, jitter, sleep } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
 import { extract } from './extract.ts';
+import { conversationsFromPage, threadIdFromPath } from './inbox-dom.ts';
 import { encodeUrn, forgetTemplate, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import type { Command } from './streams.ts';
@@ -235,11 +236,29 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     }
   }
 
-  async function syncInbox(cmd: Extract<Command, { type: 'sync_inbox' }>) {
+  /**
+   * Loads the conversation list. Whatever the page listed that LinkedIn's data didn't describe (its format
+   * changed, a response was missed) is added from the page itself, and the counts are reported so the app can
+   * tell when reading LinkedIn's data stopped working.
+   */
+  async function syncInbox(cmd: Extract<Command, { type: 'sync_inbox' }>): Promise<InboxCheck> {
     const onProgress = cmd.target
       ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'conversations', loaded, total, done: false })
       : undefined;
-    await ctx.actions.loadInbox(page, { scrolls: cmd.scrolls ?? 6, target: cmd.target ?? 0, onProgress });
+    ctx.state.recognisedConversations.clear();
+    const threads = await ctx.actions.loadInbox(page, { scrolls: cmd.scrolls ?? 6, target: cmd.target ?? 0, onProgress });
+    await sleep(1500); // the last responses are still being read
+    const ids = new Set(threads.map((t) => threadIdFromPath(t.path)).filter((id) => id && id !== 'new'));
+    const self = ctx.state.selfUrn;
+    const fromPage = self ? conversationsFromPage(threads, self, ctx.state.recognisedConversations) : [];
+    if (fromPage.length) {
+      logger.warn(
+        { listed: ids.size, fromPage: fromPage.length },
+        "conversations added from the page: LinkedIn's data didn't describe them",
+      );
+      for (let i = 0; i < fromPage.length; i += 50) await ctx.streams.emit('conversations', fromPage.slice(i, i + 50));
+    }
+    return { listed: ids.size, recognised: ids.size - fromPage.length, fromPage: fromPage.length };
   }
 
   /** Background syncs report when they're done (the app tracks first-sync progress and retries). */
@@ -263,7 +282,12 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
       if (ctx.state.status !== 'CONNECTED') return;
       switch (cmd.type) {
         case 'sync_inbox':
-          return attempt(cmd, () => ctx.exclusive(() => syncInbox(cmd)));
+          try {
+            const inbox = await ctx.exclusive(() => syncInbox(cmd));
+            return done(cmd, { ok: true, inbox });
+          } catch (e) {
+            return done(cmd, { ok: false, error: (e as Error).message.split('\n')[0] });
+          }
         case 'sync_thread': {
           const outcome = await ctx
             .exclusive(() => syncThread(cmd), priority)

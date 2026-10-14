@@ -90,6 +90,7 @@ export function createReader(ctx: BridgeContext) {
     }
 
     if (x.conversations.length) {
+      for (const c of x.conversations) ctx.state.recognisedConversations.add(c.urn);
       const items = x.conversations.map(({ messages: _messages, ...c }) => c);
       const changed = items.filter((c) => fresh(`c:${c.urn}:${c.lastActivityAt}:${c.unreadCount}:${c.folder}`));
       if (changed.length) await emit('conversations', changed);

@@ -63,6 +63,14 @@ What can't be fixed automatically: LinkedIn logging an account out or asking for
 
 `AUTO_RECOVERY=off` switches the restarts off; only for test stacks whose accounts have no real browser.
 
+## Chats missing from the inbox
+
+Every chat list load compares what LinkedIn's page lists with what LinkedIn's own data describes (the normal way the app reads chats: names, people, messages). **Accounts → Sync report** shows the last result, e.g. "LinkedIn listed 42 chats, its data described 40, 2 added from the page".
+
+- **Added from the page**: chats LinkedIn's data didn't describe are taken from the page itself (name, picture, time shown), so the inbox is complete even then. LinkedIn's data replaces these details as soon as it comes through, and never the other way round.
+- **A big gap** (most chats only from the page) means LinkedIn changed its data format: the admins get an alert (once a day) and the sync report shows a warning. Messages of those chats may be missing until the bridge is updated; send a capture (`./scripts/capture.sh`, see bridge-maintenance.md). A LinkedIn data archive (Accounts → Import → messages.csv) brings the full history meanwhile.
+- **Load all chats** (sync report, full access): the whole list instead of the recent 100, at the usual human pace, with progress. History is then fetched by itself for chats active in the last 90 days; older ones load theirs when someone opens them (a whole inbox at once would be thousands of requests to LinkedIn).
+
 ## Monitoring checklist
 
 - `api` and `worker` containers healthy (`docker compose ps`); the worker restarts itself if its event processing stalls

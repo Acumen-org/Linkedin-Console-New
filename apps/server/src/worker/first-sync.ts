@@ -5,10 +5,12 @@
 //      someone opens jumps the queue
 //   3. then the full connection list in the background, with progress and a time estimate
 // Progress is stored on the account (sync_state) and pushed to the team.
-import { type AccountSync, ADMINS_ROOM, accountRoom, type BridgeEventMap } from '@linkedin-console/contracts';
+import { type AccountSync, ADMINS_ROOM, accountRoom, type BridgeEventMap, type InboxCheck } from '@linkedin-console/contracts';
+import { audit } from '../core/audit.ts';
 import { sendCommand } from '../core/bridge.ts';
 import { sql } from '../lib/db.ts';
 import { publish, redis } from '../lib/redis.ts';
+import { alertAdmins } from './alerts.ts';
 
 export const FIRST_SYNC_CONVERSATIONS = 100;
 const QUICK_CONNECTION_SCROLLS = 6; // about the newest 100
@@ -150,6 +152,15 @@ export async function refreshFirstSync(accountId: string, force = false) {
 
 /** Progress reported by the bridge while a list loads. */
 export async function onProgress(accountId: string, p: BridgeEventMap['progress']) {
+  // A "Load all chats" run: its own progress (the first sync may be long finished).
+  if (p.kind === 'conversations') {
+    const loading = await allChatsLoading(accountId);
+    if (loading) {
+      const next = { ...loading, loaded: Math.max(loading.loaded, p.loaded) };
+      await redis.set(LOAD_KEY(accountId), JSON.stringify(next), 'KEEPTTL');
+      await publish([accountRoom(accountId), ADMINS_ROOM], 'account.updated', { id: accountId, allChats: next });
+    }
+  }
   await mutate(accountId, (state) => {
     if (p.kind === 'conversations') {
       state.conversations.loaded = Math.max(state.conversations.loaded, p.loaded);
@@ -173,7 +184,46 @@ export async function onProgress(accountId: string, p: BridgeEventMap['progress'
 }
 
 /** A background sync finished (from the bridge's result). */
+/** How the last conversation list load went; alerts the admins (once a day) when LinkedIn's data stopped coming. */
+async function recordInboxCheck(accountId: string, inbox: InboxCheck) {
+  const loading = await redis.get(LOAD_KEY(accountId));
+  const check = { ...inbox, at: new Date().toISOString(), full: !!loading };
+  if (loading) await redis.del(LOAD_KEY(accountId));
+  await sql`UPDATE accounts SET inbox_check = ${sql.json(check as never)} WHERE id = ${accountId}`;
+  await publish([accountRoom(accountId), ADMINS_ROOM], 'account.updated', { id: accountId, inboxCheck: check });
+  // Most of what the page listed wasn't in LinkedIn's data: reading it broke (format change).
+  const degraded = inbox.listed >= 5 && inbox.recognised < inbox.listed / 2;
+  if (degraded && (await redis.set(`lu:inboxdegraded:${accountId}`, '1', 'EX', 24 * 3600, 'NX'))) {
+    const [a] = await sql`SELECT label FROM accounts WHERE id = ${accountId}`;
+    await audit({ accountId, action: 'account.sync_degraded', meta: { ...inbox } });
+    await alertAdmins(
+      `Chats not syncing fully: ${a?.label ?? accountId}`,
+      `LinkedIn's page listed ${inbox.listed} chats but its data described only ${inbox.recognised}. The others were added from the page (names only; their messages may be missing) until the bridge is updated for LinkedIn's change. See Accounts → Sync report.`,
+      '/accounts',
+    );
+  }
+}
+
+const LOAD_KEY = (accountId: string) => `lu:inboxload:${accountId}`;
+
+/** "Load all chats": the whole conversation list, at the usual human pace, with progress. */
+export async function loadAllChats(accountId: string) {
+  if (await redis.get(LOAD_KEY(accountId))) return false;
+  await redis.set(LOAD_KEY(accountId), JSON.stringify({ loaded: 0, startedAt: new Date().toISOString() }), 'EX', 3 * 3600);
+  await sendCommand(accountId, { type: 'sync_inbox', target: ALL_CHATS });
+  return true;
+}
+
+/** Progress of a "Load all chats" run (null when none is running). */
+export async function allChatsLoading(accountId: string): Promise<{ loaded: number; startedAt: string } | null> {
+  const raw = await redis.get(LOAD_KEY(accountId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+const ALL_CHATS = 3000;
+
 export async function onSyncResult(accountId: string, r: BridgeEventMap['result']) {
+  if (r.type === 'sync_inbox' && r.inbox) await recordInboxCheck(accountId, r.inbox);
   if (r.type === 'sync_thread' && r.ok && r.conversationUrn) {
     await sql`
       UPDATE conversations SET history_synced_at = now()
@@ -204,7 +254,7 @@ export type HistoryWait =
  * and why the others are still waiting.
  */
 export async function syncReport(accountId: string) {
-  const [a] = await sql`SELECT sync_state, status FROM accounts WHERE id = ${accountId}`;
+  const [a] = await sql`SELECT sync_state, status, inbox_check FROM accounts WHERE id = ${accountId}`;
   const templates = JSON.parse((await redis.get(`li:tpl:${accountId}`)) ?? '{}') as { messages?: unknown; send?: unknown };
   const learned = !!templates.messages;
   const rows = await sql`
@@ -236,6 +286,8 @@ export async function syncReport(accountId: string) {
     status: a?.status as string,
     sync: a?.syncState ?? null,
     historyRequestLearned: learned,
+    inboxCheck: a?.inboxCheck ?? null,
+    allChats: await allChatsLoading(accountId),
     sendRequestLearned: !!templates.send,
     conversations: total as number,
     connections: connections as number,
