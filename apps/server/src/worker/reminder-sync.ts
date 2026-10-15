@@ -10,7 +10,7 @@ import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { publish, redis } from '../lib/redis.ts';
-import { createPersonTask, findOrCreatePerson, PersonGoneError, tasksByIds, updateTask } from '../lib/twenty.ts';
+import { createPersonTask, PersonGoneError, tasksByIds, updateTask } from '../lib/twenty.ts';
 import { loadConversation } from '../modules/conversations/queries.ts';
 import { prospectOf } from './crm-sync.ts';
 
@@ -24,7 +24,9 @@ async function pushChanges() {
     SELECT r.id, r.status, r.due_at, r.note, r.updated_at::text AS version, r.twenty_task_id, r.twenty_attempts, r.conversation_id, r.account_id,
            c.twenty_person_id, c.participants, ${ASSIGNEE} AS assignee
     FROM reminders r JOIN conversations c ON c.id = r.conversation_id
-    WHERE r.twenty_attempts < ${MAX_ATTEMPTS} AND (
+    WHERE r.twenty_attempts < ${MAX_ATTEMPTS}
+      -- A new task needs the prospect bound to a Person (no reply / no binding yet: it waits).
+      AND (r.twenty_task_id IS NOT NULL OR (c.crm_binding = 'bound' AND c.twenty_person_id IS NOT NULL)) AND (
       (r.status = 'OPEN' AND (r.twenty_task_id IS NULL OR r.twenty_synced_at IS NULL OR r.twenty_synced_at < r.updated_at
                               OR r.twenty_assignee IS DISTINCT FROM ${ASSIGNEE}))
       OR (r.status <> 'OPEN' AND r.twenty_task_id IS NOT NULL AND (r.twenty_synced_at IS NULL OR r.twenty_synced_at < r.updated_at)))
@@ -46,11 +48,9 @@ async function pushChanges() {
       let taskId = r.twentyTaskId as string | null;
       if (r.status === 'OPEN') {
         if (!taskId || !(await updateTask(taskId, task))) {
-          let personId = r.twentyPersonId as string | null;
-          if (!personId) {
-            personId = (await findOrCreatePerson(prospect)).id;
-            await sql`UPDATE conversations SET twenty_person_id = ${personId} WHERE id = ${r.conversationId}`;
-          }
+          // Only on a bound prospect's Person (never creates one): an unbound one waits for its binding.
+          const personId = r.twentyPersonId as string | null;
+          if (!personId) continue;
           taskId = await createPersonTask(personId, task);
         }
       } else if (taskId) {

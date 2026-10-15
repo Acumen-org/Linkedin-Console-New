@@ -67,7 +67,7 @@ type PeopleResult = { people: { edges: { node: { id: string; linkedinLink?: { pr
 
 const FIND_PEOPLE = `
   query LinkedInConsoleFindPeople($filter: PersonFilterInput) {
-    people(filter: $filter, first: 2) { edges { node { id linkedinLink { primaryLinkUrl } } } }
+    people(filter: $filter, first: 10) { edges { node { id linkedinLink { primaryLinkUrl } } } }
   }`;
 
 /** The profile's stable part ("linkedin.com/in/jane-doe"), for matching however the link was typed in Twenty. */
@@ -82,39 +82,56 @@ export function linkedinKey(url: string | null | undefined) {
 }
 
 /**
- * The Twenty person for a prospect: by LinkedIn profile link, else by exact name when exactly one person has
- * it and no other LinkedIn profile, else a new person. Returns the id.
+ * Every Twenty Person whose LinkedIn link is this profile (however it was typed: with or without https, www,
+ * a trailing slash or tracking parameters). Exactly one = safe to bind; none or several = a person decides.
+ * Never matches by name.
  */
-export async function findOrCreatePerson(p: { name: string; profileUrl: string | null; headline: string | null }) {
-  const key = linkedinKey(p.profileUrl);
-  if (key) {
-    const byLink = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
-      filter: { linkedinLink: { primaryLinkUrl: { ilike: `%${key.replace(/[%_]/g, '')}%` } } },
-    });
-    const hit = byLink.people.edges.find((e) => linkedinKey(e.node.linkedinLink?.primaryLinkUrl) === key);
-    if (hit) return { id: hit.node.id, created: false };
-  }
+export async function peopleWithLinkedin(profileUrl: string): Promise<string[]> {
+  const key = linkedinKey(profileUrl);
+  if (!key) return [];
+  const found = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
+    filter: { linkedinLink: { primaryLinkUrl: { ilike: `%${key.replace(/[%_]/g, '')}%` } } },
+  });
+  return found.people.edges.filter((e) => linkedinKey(e.node.linkedinLink?.primaryLinkUrl) === key).map((e) => e.node.id);
+}
+
+/** A new Person for a prospect (only on a teammate's "Add as new"). */
+export async function createPerson(p: {
+  name: string;
+  profileUrl: string | null;
+  headline: string | null;
+  extra?: Record<string, unknown>;
+}) {
   const [firstName, ...rest] = p.name.trim().split(/\s+/);
-  const lastName = rest.join(' ');
-  if (firstName && p.name !== 'LinkedIn Member') {
-    const byName = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
-      filter: { and: [{ name: { firstName: { eq: firstName } } }, { name: { lastName: { eq: lastName } } }] },
-    });
-    const only = byName.people.edges.length === 1 ? byName.people.edges[0].node : null;
-    const otherProfile = only && linkedinKey(only.linkedinLink?.primaryLinkUrl);
-    if (only && (!otherProfile || otherProfile === key)) return { id: only.id, created: false };
-  }
   const created = await twentyQuery<{ createPerson: { id: string } }>(
     `mutation LinkedInConsoleCreatePerson($input: PersonCreateInput!) { createPerson(data: $input) { id } }`,
     {
       input: {
-        name: { firstName: firstName || 'LinkedIn', lastName: firstName ? lastName : 'Member' },
+        name: { firstName: firstName || 'LinkedIn', lastName: firstName ? rest.join(' ') : 'Member' },
         ...(p.profileUrl ? { linkedinLink: { primaryLinkUrl: p.profileUrl, primaryLinkLabel: 'LinkedIn' } } : {}),
         ...(p.headline ? { jobTitle: p.headline.slice(0, 250) } : {}),
+        ...p.extra,
       },
     },
   );
-  return { id: created.createPerson.id, created: true };
+  return created.createPerson.id;
+}
+
+/** Changes fields of a Person; false when the Person no longer exists. */
+export async function updatePerson(personId: string, data: Record<string, unknown>) {
+  try {
+    await twentyQuery(
+      `mutation LinkedInConsoleUpdatePerson($id: UUID!, $input: PersonUpdateInput!) { updatePerson(id: $id, data: $input) { id } }`,
+      {
+        id: personId,
+        input: data,
+      },
+    );
+    return true;
+  } catch (err) {
+    if (/not found|does not exist|no record/i.test((err as Error).message)) return false;
+    throw err;
+  }
 }
 
 /** Note and task bodies: one paragraph per blank-line-separated block (Twenty's rich text). */

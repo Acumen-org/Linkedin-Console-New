@@ -1,13 +1,18 @@
-// Twenty CRM sync (CRM_SYNC=on): each 1:1 conversation's prospect becomes a Person in Twenty (found by LinkedIn
-// profile link, else by an unambiguous name, else created), and every message from the moment the sync was
-// switched on is logged on them as a note: who sent it (teammate or prospect), through which LinkedIn account.
-// History (first syncs, archive imports) is not copied. Runs a few messages at a time, in order, retrying
-// with a growing pause when Twenty fails; a person deleted or merged in Twenty is found or created again.
+// Twenty CRM sync (CRM_SYNC=on), duplicates prevented rather than merged (master plan, 16 Oct):
+//  - a prospect reaches Twenty only after they reply and are bound to exactly one Person (crm-binding.ts):
+//    automatically on an exact LinkedIn profile-link match, otherwise by a teammate; never by name, never created
+//    by the sync itself;
+//  - once bound, every message from the moment the sync was switched on is a note on that Person (also the ones
+//    sent before the reply): who sent it, through which LinkedIn account;
+//  - Persons the earlier sync created for prospects who never replied are marked for review (nothing deleted).
+// History (first syncs, archive imports) is not copied. A few messages at a time, in order, retried with a growing
+// pause when Twenty fails; a Person deleted or merged in Twenty unbinds the prospect, who is then looked at again.
 import { config } from '../lib/config.ts';
 import { getSetting, sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { redis } from '../lib/redis.ts';
-import { addPersonNote, findOrCreatePerson, PersonGoneError } from '../lib/twenty.ts';
+import { addPersonNote, PersonGoneError } from '../lib/twenty.ts';
+import { bindReplied, markForReview, prospectOf, unbindProspect } from './crm-binding.ts';
 
 const BATCH = 5; // per tick (every 10 s): ~30 messages a minute, well inside Twenty's API limits
 const MAX_ATTEMPTS = 6;
@@ -18,6 +23,8 @@ export interface CrmSyncStatus {
   at: string;
   ok: boolean;
   synced: number;
+  /** Prospects bound automatically in this run. */
+  bound?: number;
   error?: string;
 }
 
@@ -32,20 +39,7 @@ export async function crmSince(): Promise<Date> {
 
 const when = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 16);
 
-type Participant = { urn?: string; name?: string; headline?: string | null; profileUrl?: string | null };
-
-/** The vanity profile link when we know it from the connections list (more reliable for matching). */
-export async function prospectOf(accountId: string, participants: Participant[]) {
-  const p = participants[0] ?? {};
-  const [contact] = p.urn
-    ? await sql`SELECT profile_url, headline FROM contacts WHERE account_id = ${accountId} AND member_urn = ${p.urn} LIMIT 1`
-    : [];
-  return {
-    name: p.name?.trim() || 'LinkedIn Member',
-    profileUrl: (contact?.profileUrl as string | null) ?? p.profileUrl ?? null,
-    headline: (contact?.headline as string | null) ?? p.headline ?? null,
-  };
-}
+export { prospectOf } from './crm-binding.ts';
 
 export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
   if (!config.crmSync) return null;
@@ -53,6 +47,8 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
   const status: CrmSyncStatus = { at: new Date().toISOString(), ok: true, synced: 0 };
   try {
     const since = await crmSince();
+    status.bound = await bindReplied();
+    await markForReview();
     // Never going to Twenty: group chats, deleted or failed messages, and history older than the switch-on.
     await sql`
       UPDATE messages m SET crm_synced_at = now()
@@ -69,18 +65,17 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
       WHERE m.crm_synced_at IS NULL AND m.created_at >= ${since} AND m.crm_attempts < ${MAX_ATTEMPTS}
         AND (m.crm_next_at IS NULL OR m.crm_next_at <= now())
         AND (m.direction = 'INBOUND' OR m.status = 'SENT')
+        -- Only prospects bound to a Person; the others wait (nothing is lost) until they are.
+        AND c.crm_binding = 'bound' AND c.twenty_person_id IS NOT NULL
       ORDER BY m.created_at LIMIT ${BATCH}`;
 
     for (const m of due) {
       try {
-        const prospect = await prospectOf(m.accountId, (m.participants ?? []) as Participant[]);
-        let personId = m.twentyPersonId as string | null;
-        if (!personId) {
-          // Re-read: an earlier message of this batch may have found the person already.
-          const [c] = await sql`SELECT twenty_person_id FROM conversations WHERE id = ${m.conversationId}`;
-          personId = c?.twentyPersonId ?? (await findOrCreatePerson(prospect)).id;
-          await sql`UPDATE conversations SET twenty_person_id = ${personId} WHERE id = ${m.conversationId}`;
-        }
+        const prospect = await prospectOf(m.accountId, m.participants ?? []);
+        // Re-read: an earlier message of this batch may have unbound the prospect (Person gone).
+        const [c] = await sql`SELECT twenty_person_id FROM conversations WHERE id = ${m.conversationId} AND crm_binding = 'bound'`;
+        const personId = c?.twentyPersonId as string | undefined;
+        if (!personId) continue;
         const inbound = m.direction === 'INBOUND';
         const files = (m.attachments as unknown[] | null)?.length ?? 0;
         const text = (m.text as string | null)?.trim() || (files ? `📎 ${files} attachment${files === 1 ? '' : 's'}` : '(no text)');
@@ -96,8 +91,9 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
       } catch (err) {
         const message = (err as Error).message.slice(0, 500);
         const gone = err instanceof PersonGoneError;
-        // Deleted or merged in Twenty: find or create them again on the next try.
-        if (gone) await sql`UPDATE conversations SET twenty_person_id = NULL WHERE id = ${m.conversationId}`;
+        // Deleted or merged in Twenty: the prospect is looked at again (auto-bind by link, or a teammate decides).
+        const memberUrn = (m.participants?.[0]?.urn as string | undefined) ?? '';
+        if (gone && memberUrn) await unbindProspect(memberUrn, 'The Person was deleted or merged in Twenty');
         const pauseMin = gone ? 0 : 2 ** m.crmAttempts;
         await sql`
           UPDATE messages SET crm_attempts = crm_attempts + 1, crm_error = ${message},
@@ -113,7 +109,7 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
   } finally {
     await redis.del('lu:crmsync:lock');
   }
-  if (status.synced || !status.ok) await redis.set(STATUS_KEY, JSON.stringify(status));
+  if (status.synced || status.bound || !status.ok) await redis.set(STATUS_KEY, JSON.stringify(status));
   return status;
 }
 
@@ -125,8 +121,15 @@ export async function crmSyncStatus() {
     SELECT count(*) FILTER (WHERE crm_synced_at IS NULL AND crm_attempts < ${MAX_ATTEMPTS})::int AS pending,
            count(*) FILTER (WHERE crm_synced_at IS NULL AND crm_attempts >= ${MAX_ATTEMPTS})::int AS failed,
            count(*) FILTER (WHERE crm_note_id IS NOT NULL AND crm_synced_at > now() - interval '24 hours')::int AS synced_24h
-    FROM messages WHERE created_at >= ${since} AND (crm_synced_at IS NULL OR crm_synced_at > now() - interval '24 hours')`;
-  const [people] = await sql`SELECT count(*)::int AS n FROM conversations WHERE twenty_person_id IS NOT NULL`;
+    FROM messages m WHERE m.created_at >= ${since} AND (m.crm_synced_at IS NULL OR m.crm_synced_at > now() - interval '24 hours')
+      -- Waiting for a binding is not "pending": counted below.
+      AND (m.crm_synced_at IS NOT NULL OR EXISTS (SELECT 1 FROM conversations c WHERE c.id = m.conversation_id AND c.crm_binding = 'bound'))`;
+  const [people] = await sql`SELECT count(*)::int AS n FROM crm_bindings`;
+  const [binding] = await sql`
+    SELECT count(*) FILTER (WHERE crm_binding = 'needed')::int AS needed,
+           count(*) FILTER (WHERE crm_review_person_id IS NOT NULL AND crm_review_marked_at IS NULL)::int AS review_pending,
+           count(DISTINCT crm_review_person_id) FILTER (WHERE crm_review_marked_at IS NOT NULL)::int AS reviewed
+    FROM conversations WHERE NOT is_group`;
   const raw = await redis.get(STATUS_KEY);
   return {
     enabled: true as const,
@@ -135,6 +138,11 @@ export async function crmSyncStatus() {
     failed: counts.failed as number,
     synced24h: counts.synced24h as number,
     people: people.n as number,
+    /** Replied, waiting for a teammate to bind them (or for profile data). */
+    needsBinding: binding.needed as number,
+    /** Persons from the earlier sync (no reply) still to mark for review / marked. */
+    reviewPending: binding.reviewPending as number,
+    reviewed: binding.reviewed as number,
     last: raw ? (JSON.parse(raw) as CrmSyncStatus) : null,
   };
 }

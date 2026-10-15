@@ -95,6 +95,9 @@ interface CrmStatus {
   failed?: number;
   synced24h?: number;
   people?: number;
+  needsBinding?: number;
+  reviewPending?: number;
+  reviewed?: number;
   last?: { at: string; ok: boolean; error?: string } | null;
 }
 
@@ -185,10 +188,18 @@ function CrmCard() {
         )}
       </div>
       <p className="text-slate-600">
-        Each prospect is a person in Twenty; every message since {s.since ? fullTime(s.since) : 'switch-on'} is a note on them. {s.people}{' '}
-        prospects linked · {s.synced24h} messages logged in the last 24 hours · {s.pending} waiting
+        A prospect reaches Twenty only after they reply and are bound to one Person (automatically when exactly one Person has their
+        LinkedIn link); then every message since {s.since ? fullTime(s.since) : 'switch-on'} is a note on them. {s.people} prospects bound ·{' '}
+        {s.needsBinding ?? 0} replied and waiting to be bound · {s.synced24h} messages logged in the last 24 hours · {s.pending} on their
+        way
         {s.failed ? ` · ${s.failed} failed` : ''}.
       </p>
+      {(!!s.reviewPending || !!s.reviewed) && (
+        <p className="mt-1 text-xs text-slate-500">
+          Persons the earlier sync created for prospects who never replied: {s.reviewed ?? 0} marked “LinkedIn Console: review” in Twenty
+          {s.reviewPending ? `, ${s.reviewPending} waiting for that field (scripts/twenty-fields.sh)` : ''}. Nothing is deleted.
+        </p>
+      )}
       {s.last && !s.last.ok && (
         <p className="mt-1 text-xs text-red-600">
           Last problem {fullTime(s.last.at)}: {s.last.error}

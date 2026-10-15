@@ -14,7 +14,10 @@ import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
+import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
+import { markForReview } from '../worker/crm-binding.ts';
+import { crmSyncTick } from '../worker/crm-sync.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { recoverAccounts } from '../worker/recovery.ts';
 import { reminderSyncTick } from '../worker/reminder-sync.ts';
@@ -49,7 +52,52 @@ function fakeTwilio(req: http.IncomingMessage, res: http.ServerResponse) {
 // Fake Twenty CRM (POST /graphql): workspace members, two per page (the sync must read every page).
 let twentyMembers: { id: string; name: string; email: string }[] = [];
 let twentyFails = false;
-const twentyPeople: { id: string; firstName: string; lastName: string; linkedin: string | null; jobTitle?: string | null }[] = [];
+const twentyPeople: {
+  id: string;
+  firstName: string;
+  lastName: string;
+  linkedin: string | null;
+  jobTitle?: string | null;
+  fields?: Record<string, unknown>;
+}[] = [];
+/** Persons the console created (Phase 1: must stay 0). */
+let twentyCreated = 0;
+/** The Person object's fields (metadata API), standard ones to begin with. */
+const twentyFieldNames = new Map<string, string>([
+  ['name', 'FULL_NAME'],
+  ['emails', 'EMAILS'],
+  ['linkedinLink', 'LINKS'],
+  ['jobTitle', 'TEXT'],
+]);
+function fakeTwentyMetadata(req: http.IncomingMessage, res: http.ServerResponse) {
+  if (req.headers.authorization !== `Bearer ${config.twenty?.apiKey}`) return res.writeHead(401).end();
+  let body = '';
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    const { query, variables } = JSON.parse(body);
+    const json = (data: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(data));
+    if (String(query).includes('LinkedInConsolePersonFields')) {
+      const fields = { edges: [...twentyFieldNames].map(([name, type]) => ({ node: { name, type } })) };
+      return json({
+        data: {
+          objects: {
+            edges: [
+              { node: { id: 'obj-company', nameSingular: 'company', fields: { edges: [] } } },
+              { node: { id: 'obj-person', nameSingular: 'person', fields } },
+            ],
+          },
+        },
+      });
+    }
+    if (String(query).includes('LinkedInConsoleCreateField')) {
+      const f = variables.input.field;
+      if (f.objectMetadataId !== 'obj-person') return json({ errors: [{ message: 'unknown object' }] });
+      twentyFieldNames.set(f.name, f.type);
+      return json({ data: { createOneField: { id: crypto.randomUUID(), name: f.name } } });
+    }
+    json({ errors: [{ message: 'unknown metadata query' }] });
+  });
+}
 let twentyNotes: { id: string; title: string; markdown: string; personId: string | null }[] = [];
 let twentyTasks: {
   id: string;
@@ -79,7 +127,16 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
       );
       return json({ data: { people: { edges: hits.map((x) => ({ node: { id: x.id, linkedinLink: { primaryLinkUrl: x.linkedin } } })) } } });
     }
+    if (q.includes('LinkedInConsoleUpdatePerson')) {
+      const person = twentyPeople.find((x) => x.id === variables.id);
+      if (!person) return json({ errors: [{ message: 'Record not found' }] });
+      for (const k of Object.keys(variables.input))
+        if (!twentyFieldNames.has(k)) return json({ errors: [{ message: `Field ${k} not found` }] });
+      person.fields = { ...person.fields, ...variables.input };
+      return json({ data: { updatePerson: { id: person.id } } });
+    }
     if (q.includes('LinkedInConsoleCreatePerson')) {
+      twentyCreated++;
       const i = variables.input;
       const person = {
         id: crypto.randomUUID(),
@@ -176,6 +233,7 @@ const received: { event: string; signature: string; legacySignature: string; bod
 const receiver = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/staff')) return fakeTwilio(req, res);
   if (req.url === '/graphql') return fakeTwenty(req, res);
+  if (req.url === '/metadata') return fakeTwentyMetadata(req, res);
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
@@ -318,6 +376,8 @@ async function fakeBridge() {
 
 const rajInTwenty = crypto.randomUUID();
 twentyPeople.push({ id: rajInTwenty, firstName: 'Raj', lastName: 'E2E', linkedin: null });
+const janeInTwenty = crypto.randomUUID();
+twentyPeople.push({ id: janeInTwenty, firstName: 'Jane', lastName: 'Doe', linkedin: 'https://www.linkedin.com/in/jane' });
 
 async function setup() {
   const hash = await hashPassword(password);
@@ -1300,87 +1360,200 @@ try {
   });
 
   if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {
-    await step('Twenty CRM: prospects become people (by LinkedIn link, by name, or new), messages become notes on them', async () => {
-      const personOf = async (id: string) =>
-        (await sql`SELECT twenty_person_id FROM conversations WHERE id = ${id}`)[0].twentyPersonId as string | null;
-      const janeTwentyId = await until(() => personOf(janeId), Boolean, 'Jane linked in Twenty', 60_000);
-      const janeInTwenty = twentyPeople.find((x) => x.id === janeTwentyId);
-      assert.equal(janeInTwenty?.firstName, 'Jane');
-      assert.equal(
-        await until(() => personOf(rajId), Boolean, 'Raj linked in Twenty', 60_000),
-        rajInTwenty,
-        'existing person found by name',
-      );
-      const notes = await until(
-        async () => twentyNotes.filter((n) => n.personId === janeTwentyId),
-        (l) => l.some((n) => n.title.includes('replied')) && l.some((n) => n.title.includes('message to')),
-        'notes on Jane',
-        60_000,
-      );
-      const sentNote = notes.find((n) => n.title.includes('message to'));
-      assert.match(sentNote?.markdown ?? '', /Sent by .+ · LinkedIn account E2E account/);
-      assert.ok(
-        notes.every((n) => n.personId),
-        'no note left without a person',
-      );
-      const [state] = await sql`SELECT count(*)::int AS n FROM messages WHERE conversation_id = ${janeId} AND crm_note_id IS NOT NULL`;
-      assert.ok(state.n >= 2);
-
-      // A connection we know (profile link from the connections list) and one already in Twenty by that link.
-      const chatWith = async (who: string, prospect: typeof jane, profileUrl: string) => {
-        await emit('contacts', {
-          connections: true,
-          items: [
-            {
-              urn: prospect.urn,
-              publicId: `${who.toLowerCase()}-${tag}`,
-              name: prospect.name,
-              headline: 'Buyer',
-              avatarUrl: null,
-              profileUrl,
-            },
-          ],
-        });
-        await until(
-          async () => (await sql`SELECT 1 FROM contacts WHERE member_urn = ${prospect.urn}`).length,
-          Boolean,
-          `${who} connection`,
-        );
-        await emit('conversations', [
+    const binding = async (id: string) =>
+      (await sql`SELECT crm_binding, crm_binding_reason, twenty_person_id FROM conversations WHERE id = ${id}`)[0];
+    const afterTick = async <T>(fn: () => Promise<T>) => {
+      await crmSyncTick();
+      return fn();
+    };
+    // A prospect we know from the connections list (profile link), in a 1:1 chat; they reply or not.
+    const chatWith = async (who: string, prospect: typeof jane, profileUrl: string, reply: boolean) => {
+      await emit('contacts', {
+        connections: true,
+        items: [
           {
-            urn: conv(who),
-            threadId: `2-${who}${tag}`,
-            title: null,
-            isGroup: false,
-            unreadCount: 1,
-            lastActivityAt: Date.now(),
-            folder: 'focused',
-            participants: [prospect],
+            urn: prospect.urn,
+            publicId: `${who.toLowerCase()}-${tag}`,
+            name: prospect.name,
+            headline: 'Buyer',
+            avatarUrl: null,
+            profileUrl,
           },
-        ]);
-        await emit('messages', [msg(who, prospect, `Hello from ${prospect.name}`, Date.now())]);
-        const [c] = await until(
-          () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv(who)}`,
-          (r) => r.length > 0,
-          `${who} chat`,
-        );
-        return until(() => personOf(c.id), Boolean, `${who} in Twenty`, 60_000);
-      };
-      const lina = person(`urn:li:fsd_profile:LINA${tag}`, 'Lina E2E');
-      const linaUrl = `https://www.linkedin.com/in/lina-${tag}/`;
-      const linaId = await chatWith('LINA', lina, linaUrl);
-      assert.equal(twentyPeople.find((x) => x.id === linaId)?.linkedin, linaUrl, 'created with the LinkedIn profile link');
-      assert.equal(twentyPeople.find((x) => x.id === linaId)?.jobTitle, 'Buyer');
-      const omarInTwenty = crypto.randomUUID();
-      const omarUrl = `https://www.linkedin.com/in/omar-${tag}`;
-      twentyPeople.push({ id: omarInTwenty, firstName: 'Someone', lastName: 'Else', linkedin: `${omarUrl}?trk=x` });
-      const omar = person(`urn:li:fsd_profile:OMAR${tag}`, 'Omar E2E');
-      assert.equal(await chatWith('OMAR', omar, `${omarUrl}/`), omarInTwenty, 'found by LinkedIn link, whatever the name in Twenty');
+        ],
+      });
+      await until(async () => (await sql`SELECT 1 FROM contacts WHERE member_urn = ${prospect.urn}`).length, Boolean, `${who} connection`);
+      await emit('conversations', [
+        {
+          urn: conv(who),
+          threadId: `2-${who}${tag}`,
+          title: null,
+          isGroup: false,
+          unreadCount: 0,
+          lastActivityAt: Date.now(),
+          folder: 'focused',
+          participants: [prospect],
+        },
+      ]);
+      await emit('messages', [msg(who, null, `Hi ${prospect.name}, a quick question`, Date.now() - 60_000)]);
+      if (reply) await emit('messages', [msg(who, prospect, `Hello from ${prospect.name}`, Date.now())]);
+      const [c] = await until(
+        () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv(who)}`,
+        (r) => r.length > 0,
+        `${who} chat`,
+      );
+      await until(
+        async () => (await sql`SELECT count(*)::int AS n FROM messages WHERE conversation_id = ${c.id}`)[0].n,
+        (n) => n >= (reply ? 2 : 1),
+        `${who} messages`,
+      );
+      return c.id as string;
+    };
 
-      const status = await owner('GET', '/api/crm/status');
-      assert.equal(status.data.enabled, true);
-      assert.ok(status.data.people >= 2);
-      assert.equal((await member('GET', '/api/crm/status')).status, 403);
+    await step(
+      'Twenty CRM: only after a reply, bound automatically only on an exact LinkedIn link, never by name, never created',
+      async () => {
+        // Jane replied and exactly one Person has her LinkedIn link: bound by itself; her messages become notes.
+        const janeBound = await until(
+          () => afterTick(() => binding(janeId)),
+          (b) => b.crmBinding === 'bound',
+          'Jane bound',
+          60_000,
+        );
+        assert.equal(janeBound.twentyPersonId, janeInTwenty);
+        const notes = await until(
+          () => afterTick(async () => twentyNotes.filter((n) => n.personId === janeInTwenty)),
+          (l) => l.some((n) => n.title.includes('replied')) && l.some((n) => n.title.includes('message to')),
+          'notes on Jane',
+          60_000,
+        );
+        assert.match(notes.find((n) => n.title.includes('message to'))?.markdown ?? '', /Sent by .+ · LinkedIn account E2E account/);
+
+        // Raj replied, but Twenty only has someone with his name and no LinkedIn link: never bound; he waits.
+        const raj = await until(
+          () => afterTick(() => binding(rajId)),
+          (b) => b.crmBinding === 'needed',
+          'Raj waits for a teammate',
+          60_000,
+        );
+        assert.equal(raj.twentyPersonId, null);
+        assert.match(raj.crmBindingReason, /No LinkedIn profile link/);
+        assert.equal(twentyNotes.filter((n) => n.personId === rajInTwenty).length, 0, 'nothing on the same-name Person');
+        const [rajWaiting] = await sql`SELECT count(*)::int AS n FROM messages WHERE conversation_id = ${rajId} AND crm_synced_at IS NULL`;
+        assert.ok(rajWaiting.n > 0, 'his messages wait, nothing is lost');
+
+        // Only we wrote (no reply), though Twenty has their link: nothing reaches Twenty, not even a follow-up task.
+        const silentUrl = `https://www.linkedin.com/in/silent-${tag}/`;
+        const silentInTwenty = crypto.randomUUID();
+        twentyPeople.push({ id: silentInTwenty, firstName: 'Silent', lastName: 'Prospect', linkedin: silentUrl });
+        const silentId = await chatWith('SILENT', person(`urn:li:fsd_profile:SILENT${tag}`, 'Silent E2E'), silentUrl, false);
+        await member('PUT', `/api/conversations/${silentId}/reminder`, {
+          dueAt: new Date(Date.now() + 86400_000).toISOString(),
+          note: 'Nudge',
+        });
+        for (let i = 0; i < 3; i++) {
+          await crmSyncTick();
+          await reminderSyncTick({ forcePull: true });
+          await sleep(300);
+        }
+        assert.equal((await binding(silentId)).crmBinding, null);
+        assert.equal(twentyNotes.filter((n) => n.personId === silentInTwenty).length, 0, 'no note');
+        assert.equal(twentyTasks.filter((t) => t.personId === silentInTwenty).length, 0, 'no task');
+        assert.equal((await sql`SELECT twenty_task_id FROM reminders WHERE conversation_id = ${silentId}`)[0].twentyTaskId, null);
+
+        // Replied, link not in Twenty: waits for a teammate (Phase 2: bind or add), nothing created.
+        const linaId = await chatWith(
+          'LINA',
+          person(`urn:li:fsd_profile:LINA${tag}`, 'Lina E2E'),
+          `https://www.linkedin.com/in/lina-${tag}/`,
+          true,
+        );
+        const lina = await until(
+          () => afterTick(() => binding(linaId)),
+          (b) => b.crmBinding === 'needed',
+          'Lina waits',
+          60_000,
+        );
+        assert.match(lina.crmBindingReason, /Not in Twenty yet/);
+
+        // Replied, in Twenty under another name with the same link (typed differently): bound to that Person.
+        const omarInTwenty = crypto.randomUUID();
+        const omarUrl = `https://www.linkedin.com/in/omar-${tag}`;
+        twentyPeople.push({ id: omarInTwenty, firstName: 'Someone', lastName: 'Else', linkedin: `${omarUrl}?trk=x` });
+        const omarId = await chatWith('OMAR', person(`urn:li:fsd_profile:OMAR${tag}`, 'Omar E2E'), `${omarUrl}/`, true);
+        const omar = await until(
+          () => afterTick(() => binding(omarId)),
+          (b) => b.crmBinding === 'bound',
+          'Omar bound',
+          60_000,
+        );
+        assert.equal(omar.twentyPersonId, omarInTwenty);
+
+        // Two Persons with the same link: a teammate decides.
+        const twinUrl = `https://www.linkedin.com/in/twin-${tag}`;
+        twentyPeople.push({ id: crypto.randomUUID(), firstName: 'Twin', lastName: 'A', linkedin: twinUrl });
+        twentyPeople.push({ id: crypto.randomUUID(), firstName: 'Twin', lastName: 'B', linkedin: `${twinUrl}/` });
+        const twinId = await chatWith('TWIN', person(`urn:li:fsd_profile:TWIN${tag}`, 'Twin E2E'), twinUrl, true);
+        const twin = await until(
+          () => afterTick(() => binding(twinId)),
+          (b) => b.crmBinding === 'needed',
+          'twins wait',
+          60_000,
+        );
+        assert.match(twin.crmBindingReason, /2 Persons/);
+
+        assert.equal(twentyCreated, 0, 'the console created no Person');
+        const status = await owner('GET', '/api/crm/status');
+        assert.equal(status.data.enabled, true);
+        assert.ok(status.data.people >= 2);
+        assert.ok(status.data.needsBinding >= 3);
+        assert.equal((await member('GET', '/api/crm/status')).status, 403);
+        const [log] = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${omarInTwenty}`;
+        assert.equal(log?.meta.method, 'auto_link');
+      },
+    );
+
+    await step('Twenty fields: listed first, added only with --apply; Persons of non-repliers marked for review', async () => {
+      const run = (apply: boolean) =>
+        new Promise<{ code: number | null; out: string }>((resolve) => {
+          const proc = spawn(process.execPath, ['src/cli/twenty-fields.ts'], { env: { ...process.env, APPLY: apply ? '1' : '0' } });
+          let out = '';
+          proc.stdout.on('data', (d) => (out += d));
+          proc.stderr.on('data', (d) => (out += d));
+          proc.on('close', (code) => resolve({ code, out }));
+        });
+      const dry = await run(false);
+      assert.equal(dry.code, 0, dry.out);
+      assert.match(dry.out, /LinkedIn status \(linkedinStatus, SELECT: Connected · Request sent · Not connected\) would be added/);
+      assert.equal(twentyFieldNames.has('linkedinConsoleSource'), false, 'a dry run changes nothing');
+      const applied = await run(true);
+      assert.equal(applied.code, 0, applied.out);
+      for (const f of [
+        'linkedinConsoleSource',
+        'linkedinStatus',
+        'lastLinkedinMessageSentAt',
+        'lastLinkedinMessageReceivedAt',
+        'linkedinMemberId',
+      ])
+        assert.ok(twentyFieldNames.has(f), `${f} added`);
+      assert.match((await run(false)).out, /All LinkedIn Console fields are there/);
+
+      // A Person the earlier sync created for someone who never replied: marked for review, not deleted.
+      const reviewMe = crypto.randomUUID();
+      twentyPeople.push({ id: reviewMe, firstName: 'Never', lastName: 'Replied', linkedin: null });
+      const [silent] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('SILENT')}`;
+      await sql`UPDATE conversations SET crm_review_person_id = ${reviewMe} WHERE id = ${silent.id}`;
+      // ...but one who replied since and is bound to that very Person is a real contact: left alone.
+      const [omar] = await sql`SELECT id, twenty_person_id FROM conversations WHERE thread_urn = ${conv('OMAR')}`;
+      await sql`UPDATE conversations SET crm_review_person_id = ${omar.twentyPersonId} WHERE id = ${omar.id}`;
+      resetPersonFieldsCache();
+      await markForReview();
+      assert.equal(twentyPeople.find((x) => x.id === reviewMe)?.fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE_REVIEW');
+      assert.equal(twentyPeople.find((x) => x.id === omar.twentyPersonId)?.fields?.linkedinConsoleSource, undefined);
+      assert.ok((await sql`SELECT crm_review_marked_at FROM conversations WHERE id = ${silent.id}`)[0].crmReviewMarkedAt);
+      assert.ok(
+        twentyPeople.some((x) => x.id === reviewMe),
+        'nothing deleted',
+      );
     });
   } else {
     console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
@@ -1431,9 +1604,9 @@ try {
   if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {
     await step('follow-up reminders as Twenty tasks: created on the person, moved and done both ways', async () => {
       const due = new Date(Date.now() + 2 * 86400_000);
-      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: due.toISOString(), note: 'Ask about the budget' });
+      await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: due.toISOString(), note: 'Ask about the budget' });
       const reminder = async () =>
-        (await sql`SELECT * FROM reminders WHERE conversation_id = ${rajId} ORDER BY created_at DESC LIMIT 1`)[0];
+        (await sql`SELECT * FROM reminders WHERE conversation_id = ${janeId} ORDER BY created_at DESC LIMIT 1`)[0];
       const tick = async () => {
         await reminderSyncTick({ forcePull: true });
         return reminder();
@@ -1442,13 +1615,13 @@ try {
       const task = twentyTasks.find((t) => t.id === synced.twentyTaskId);
       assert.ok(task, 'task exists');
       assert.equal(task?.status, 'TODO');
-      assert.equal(task?.personId, rajInTwenty, 'on the prospect');
+      assert.equal(task?.personId, janeInTwenty, 'on the prospect');
       assert.match(task?.markdown ?? '', /Ask about the budget/);
       assert.equal(Date.parse(task?.dueAt ?? ''), due.getTime());
 
       // Moved here: moved there.
       const moved = new Date(Date.now() + 5 * 86400_000);
-      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: moved.toISOString(), note: 'Ask about the budget' });
+      await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: moved.toISOString(), note: 'Ask about the budget' });
       await until(
         async () => {
           await reminderSyncTick({ forcePull: true });
@@ -1469,9 +1642,9 @@ try {
       assert.equal(closed.closedVia, 'twenty');
 
       // Done here: done there.
-      await member('PUT', `/api/conversations/${rajId}/reminder`, { dueAt: due.toISOString() });
+      await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: due.toISOString() });
       const second = await until(tick, (r) => r.status === 'OPEN' && !!r.twentyTaskId, 'second task', 30_000);
-      await member('POST', `/api/conversations/${rajId}/reminder/close`, { status: 'CLOSED' });
+      await member('POST', `/api/conversations/${janeId}/reminder/close`, { status: 'CLOSED' });
       await until(
         async () => {
           await reminderSyncTick({ forcePull: true });

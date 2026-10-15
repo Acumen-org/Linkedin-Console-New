@@ -115,12 +115,17 @@ Only messages sent from this app are counted. Reading conversations is not track
 
 ## Twenty CRM: prospects and messages
 
-With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`):
+With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`). Duplicates are prevented, not merged afterwards (master plan, 16 Oct):
 
-- Each 1:1 conversation's prospect is a **Person** in Twenty: found by their LinkedIn profile link (however it was typed there), else by their exact name when exactly one person has it and no other LinkedIn profile, else created (name, LinkedIn link, headline as job title).
-- Every message **from the moment the sync is switched on** becomes a **note** on that person: who sent it (the teammate, or the prospect), through which LinkedIn account, when, with a link back to the conversation. History (first syncs, archive imports) is not copied, and group chats are left out.
-- Messages reach Twenty within seconds, about 30 a minute at most. When Twenty fails, a message is retried with a growing pause (6 times); a person deleted or merged in Twenty is found or created again. The Team page shows how many prospects are linked, messages logged in the last day, any waiting or failed, and the last problem, with **Retry**.
-- A conversation whose prospect is in Twenty has an **Open in Twenty** button.
+- **Nothing reaches Twenty until the prospect replies.** Messaging someone who never answers creates nothing there (no Person, no note, no follow-up task).
+- **After a reply the prospect is bound to exactly one Person.** Automatically only when exactly one Person in Twenty has their LinkedIn profile link (however it was typed: with or without www, a trailing slash, tracking parameters). Otherwise (no Person has it, several do, or the profile link isn't known yet) the conversation waits in **Needs CRM binding** for a teammate. Never by name, never by email; the console never creates a Person by itself.
+- **A binding belongs to the prospect**, not the conversation: every conversation with them, in any account, goes to the same Person.
+- **Once bound**, every message from the moment the sync was switched on becomes a note on that Person (also the ones sent before the reply; nothing is lost while waiting), and follow-up reminders become tasks on it.
+- **Persons the earlier sync created** for prospects who never replied (or a second Person it made for the same prospect) are unlinked and marked **LinkedIn Console: review** in Twenty for CS to clean up. Nothing is deleted.
+- A Person deleted or merged in Twenty unbinds the prospect, who is then looked at again.
+- The Team page shows prospects bound, replies waiting to be bound, messages logged, and the review marks.
+
+**Twenty fields.** `./scripts/twenty-fields.sh` lists which LinkedIn Console fields Person has (LinkedIn Console source, LinkedIn status, Last LinkedIn message sent / received, LinkedIn member ID) and which are missing; it changes nothing. `./scripts/twenty-fields.sh --apply` adds the missing ones (custom, nullable; existing fields are never changed). The console only writes fields that exist, so the review mark waits until that field is there.
 
 ## Follow-up reminders
 

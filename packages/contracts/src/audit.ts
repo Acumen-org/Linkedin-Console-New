@@ -55,6 +55,8 @@ export const AUDIT_ACTIONS = {
   'conversations.exported': { label: 'Exported chats', category: 'message' },
   'activity.exported': { label: 'Exported staff activity', category: 'message' },
   'crm.retried': { label: 'Retried the Twenty CRM sync', category: 'settings' },
+  'crm.bound': { label: 'Bound a prospect to a Twenty Person', category: 'conversation' },
+  'crm.unbound': { label: 'Unbound a prospect from Twenty (Person gone)', category: 'conversation' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
