@@ -7,7 +7,7 @@ import { requireUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
 import { closeReminder, setReminder } from '../../core/reminders.ts';
 import { emitWebhook } from '../../core/webhooks.ts';
-import { sql } from '../../lib/db.ts';
+import { likeEscape, sql } from '../../lib/db.ts';
 import { conflict, HttpError } from '../../lib/errors.ts';
 import { newId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
@@ -16,7 +16,6 @@ import { CONVERSATION_COLUMNS, CONVERSATION_FROM, loadConversation } from './que
 const LOCK_SECONDS = 120;
 
 /** A search term matched literally by ILIKE: % and _ typed by the user are not wildcards. */
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 type Params = { id: string };
 
 const ListQuery = z.object({

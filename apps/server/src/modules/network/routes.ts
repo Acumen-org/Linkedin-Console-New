@@ -5,7 +5,7 @@ import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
 import { sendCommand } from '../../core/bridge.ts';
 import { assertCanSend, assertStaffCanSend, watchStaffVolume } from '../../core/send-limits.ts';
-import { sql } from '../../lib/db.ts';
+import { likeEscape, sql } from '../../lib/db.ts';
 import { notFound } from '../../lib/errors.ts';
 import { redis } from '../../lib/redis.ts';
 
@@ -15,15 +15,26 @@ export default async function networkRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const { id } = req.params;
     await assertAccount(user, id, 'READ');
-    const q = z.object({ q: z.string().max(200).optional(), offset: z.coerce.number().int().min(0).default(0) }).parse(req.query);
+    // One page at a time: the browser never loads the whole network.
+    const q = z
+      .object({
+        q: z.string().max(200).optional(),
+        offset: z.coerce.number().int().min(0).default(0),
+        limit: z.coerce.number().int().min(10).max(100).default(50),
+      })
+      .parse(req.query);
     const term = q.q?.trim();
+    const like = term ? `%${likeEscape(term)}%` : null;
+    const filter = like ? sql`AND (name ILIKE ${like} OR headline ILIKE ${like})` : sql``;
     const rows = await sql`
       SELECT id, public_id, name, headline, avatar_url, profile_url, updated_at FROM contacts
-      WHERE account_id = ${id} AND is_connection
-        ${term ? sql`AND (name ILIKE ${`%${term}%`} OR headline ILIKE ${`%${term}%`})` : sql``}
-      ORDER BY name LIMIT 100 OFFSET ${q.offset}`;
-    const [{ total }] = await sql`SELECT count(*)::int AS total FROM contacts WHERE account_id = ${id} AND is_connection`;
-    return { total, items: rows };
+      WHERE account_id = ${id} AND is_connection ${filter}
+      ORDER BY name, id LIMIT ${q.limit} OFFSET ${q.offset}`;
+    const [{ total, matching }] = await sql`
+      SELECT count(*)::int AS total, count(*) FILTER (WHERE true ${filter})::int AS matching
+      FROM contacts WHERE account_id = ${id} AND is_connection`;
+    // total: all connections; matching: those the search finds (= total without a search).
+    return { total, matching, offset: q.offset, limit: q.limit, items: rows };
   });
 
   /**

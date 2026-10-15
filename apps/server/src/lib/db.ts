@@ -31,6 +31,9 @@ export async function migrate() {
   });
 }
 
+/** A search term inside LIKE/ILIKE: its % and _ match themselves, not "anything". */
+export const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 /** Small key/value store for generated settings (e.g. VAPID keys). */
 export async function getSetting<T>(key: string): Promise<T | null> {
   const [row] = await sql`SELECT value FROM settings WHERE key = ${key}`;

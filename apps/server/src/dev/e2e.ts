@@ -959,6 +959,47 @@ try {
     assert.equal((await other('GET', `/api/accounts/${accountId}/connections/${janeContactId}`)).status, 401);
   });
 
+  await step('network: one page at a time, searchable, with totals', async () => {
+    const name = (i: number) => `Pager${tag} ${String(i).padStart(2, '0')}`;
+    await emit('contacts', {
+      connections: true,
+      items: Array.from({ length: 25 }, (_, i) => ({
+        urn: `public:pager-${tag}-${i}`,
+        publicId: `pager-${tag}-${i}`,
+        name: name(i),
+        headline: 'Engineer',
+        avatarUrl: null,
+        profileUrl: `https://www.linkedin.com/in/pager-${tag}-${i}/`,
+      })),
+    });
+    const page = (offset: number, limit = 10) =>
+      member('GET', `/api/accounts/${accountId}/connections?q=${encodeURIComponent(`Pager${tag}`)}&offset=${offset}&limit=${limit}`);
+    const first = await until(
+      () => page(0),
+      (r) => r.data?.matching === 25,
+      'all 25 synced',
+    );
+    assert.equal(first.data.items.length, 10);
+    assert.ok(first.data.total >= 25, 'total counts every connection');
+    assert.deepEqual(
+      first.data.items.map((c: any) => c.name),
+      Array.from({ length: 10 }, (_, i) => name(i)),
+      'sorted by name',
+    );
+    const second = await page(10);
+    const last = await page(20);
+    assert.equal(last.data.items.length, 5, 'the last page is partial');
+    const all = [...first.data.items, ...second.data.items, ...last.data.items].map((c: any) => c.id);
+    assert.equal(new Set(all).size, 25, 'no overlap, nothing skipped');
+    assert.equal((await page(0, 5)).status, 400, 'at least 10 per page');
+    // % and _ are plain characters in a search, not wildcards.
+    const pct = await member('GET', `/api/accounts/${accountId}/connections?q=${encodeURIComponent('%')}`);
+    assert.equal(pct.data.matching, 0);
+    const plain = await member('GET', `/api/accounts/${accountId}/connections`);
+    assert.equal(plain.data.matching, plain.data.total, 'no search: matching = total');
+    assert.equal(plain.data.limit, 50, '50 per page by default');
+  });
+
   await step('new chats from Network obey pause and the daily cap', async () => {
     const start = () => member('POST', `/api/accounts/${accountId}/connections/${janeContactId}/message`, { text: 'Hello from Network' });
     assert.equal((await start()).status, 409, 'paused (from the previous step)');
