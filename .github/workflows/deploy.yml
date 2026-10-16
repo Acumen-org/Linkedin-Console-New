@@ -1,0 +1,98 @@
+# Deploys main to Nomad (job linkedin-console-new on worker-7) after CI passed: builds the images, pushes them to
+# Harbor (tagged with the commit), runs the job with that tag and waits until Nomad reports it healthy (a failed
+# deploy goes back to the previous version by itself). Account browsers then move to the new images on their own.
+# One-time setup: deploy/nomad/README.md. Secrets (repository or "production" environment):
+#   HARBOR_USERNAME, HARBOR_PASSWORD  a Harbor robot account that can push to linkedin-outreach
+#   NOMAD_ADDR, NOMAD_TOKEN           https://n0m4d.pmx.acumen-strategy.com and a token with the deploy policy
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time, never cancelled halfway.
+concurrency:
+  group: deploy-nomad
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: h4rb0r.acm.acumen-strategy.com
+  NOMAD_VERSION: ${{ vars.NOMAD_VERSION || '1.10.5' }}
+  JOB_FILE: deploy/nomad/linkedin-console-new.nomad.hcl
+
+jobs:
+  deploy:
+    # Only after a passing CI run for a push to main (not for pull requests), or by hand.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check the deploy settings
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+        run: |
+          missing=""
+          for v in HARBOR_USERNAME HARBOR_PASSWORD NOMAD_ADDR NOMAD_TOKEN; do [ -n "${!v}" ] || missing="$missing $v"; done
+          if [ -n "$missing" ]; then echo "::error::Missing secrets:$missing (see deploy/nomad/README.md)"; exit 1; fi
+          echo "TAG=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install the Nomad CLI
+        run: |
+          cd "$RUNNER_TEMP"
+          zip="nomad_${NOMAD_VERSION}_linux_amd64.zip"
+          curl -fsSLO "https://releases.hashicorp.com/nomad/${NOMAD_VERSION}/${zip}"
+          curl -fsSL "https://releases.hashicorp.com/nomad/${NOMAD_VERSION}/nomad_${NOMAD_VERSION}_SHA256SUMS" | grep " ${zip}$" | sha256sum -c -
+          unzip -q "$zip" -d "$RUNNER_TEMP/bin" && echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Check the job file
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+        run: |
+          nomad fmt -check "$JOB_FILE" || echo "::warning::$JOB_FILE is not in nomad fmt style (cosmetic)"
+          nomad job validate -var "tag=$TAG" "$JOB_FILE"
+
+      - name: Log in to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Build the images
+        run: |
+          cp .env.example .env
+          CHROME_REFRESH=$(date +%G-W%V) docker compose --profile images build
+
+      - name: Push the images to Harbor
+        run: ./scripts/push-images.sh
+
+      - name: Plan
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+        # Exit code 1 means "there are changes", which is the point of a deploy.
+        run: nomad job plan -var "tag=$TAG" "$JOB_FILE" || [ $? -eq 1 ]
+
+      - name: Deploy and wait until healthy
+        env:
+          NOMAD_ADDR: ${{ secrets.NOMAD_ADDR }}
+          NOMAD_TOKEN: ${{ secrets.NOMAD_TOKEN }}
+        run: |
+          nomad job run -var "tag=$TAG" "$JOB_FILE"
+          echo "### Deployed \`$TAG\` to Nomad (linkedin-console-new)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Account browsers move to the new images by themselves, two per minute (Accounts page: \"Updated to the new version\")." >> "$GITHUB_STEP_SUMMARY"

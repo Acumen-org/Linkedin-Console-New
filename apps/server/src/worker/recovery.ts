@@ -19,7 +19,10 @@ const ALERT_AFTER = 3;
 /** A just-created account gets this long before a missing pod counts as a problem. */
 const GRACE_MIN = 3;
 
-type Pods = Pick<typeof podAgent, 'list' | 'create' | 'restart'>;
+type Pods = Pick<typeof podAgent, 'list' | 'create' | 'restart' | 'recreate'>;
+
+/** Browsers moved to a new version per run (every minute): a deploy rolls through the accounts, a few at a time. */
+const UPGRADES_PER_RUN = 2;
 
 async function restart(pods: Pods, a: Record<string, any>, pod: PodStatus | undefined, reason: string) {
   // Deleted meanwhile: nothing to bring back.
@@ -49,6 +52,23 @@ async function restart(pods: Pods, a: Record<string, any>, pod: PodStatus | unde
   if (attempt === ALERT_AFTER) await alertAccountStatus(a.id, 'OFFLINE');
 }
 
+/** Moves a running browser to the deployed version. The new images are pulled before the old pod goes. */
+async function upgrade(pods: Pods, a: Record<string, any>) {
+  let error: string | null = null;
+  try {
+    await pods.recreate(a.id, podSpecOf(a));
+  } catch (err) {
+    error = (err as Error).message;
+    logger.warn({ err, accountId: a.id }, 'browser upgrade failed');
+  }
+  // Failed (e.g. the new image can't be pulled): the pod keeps running as it was; tried again in 15 minutes.
+  await sql`
+    UPDATE accounts SET last_restart_at = now(), last_restart_reason = ${error ? `Update failed: ${error}`.slice(0, 300) : 'Updated to the new version'},
+      recover_next_at = ${error ? sql`now() + interval '15 minutes'` : null}
+    WHERE id = ${a.id}`;
+  await audit({ accountId: a.id, action: 'account.auto_restarted', meta: { reason: 'new version', error } });
+}
+
 /** `pods` replaces the pod-agent in tests (no real browsers there). Off with AUTO_RECOVERY=off. */
 export async function recoverAccounts(opts: { pods?: Pods } = {}) {
   if (!opts.pods && !config.autoRecovery) return;
@@ -60,6 +80,7 @@ export async function recoverAccounts(opts: { pods?: Pods } = {}) {
       return null;
     });
     const byId = new Map((list ?? []).map((p) => [p.id, p]));
+    let upgraded = 0;
     const accounts = await sql`
       SELECT * FROM accounts
       WHERE recover_next_at IS NULL OR recover_next_at <= now()`;
@@ -69,6 +90,12 @@ export async function recoverAccounts(opts: { pods?: Pods } = {}) {
       const young = Date.now() - new Date(a.createdAt).getTime() < GRACE_MIN * 60_000;
       // Containers gone or stopped (pod-agent answered): restart now, whatever the status says.
       const stopped = list !== null && !young && (!pod || !pod.running);
+      // Running, but on the images of an earlier version (a deploy happened): new containers, same LinkedIn session.
+      if (!down && !stopped && pod?.running && pod.current === false && !young && upgraded < UPGRADES_PER_RUN) {
+        upgraded++;
+        await upgrade(pods, a);
+        continue;
+      }
       if (!down && !stopped) continue;
       const reason = stopped
         ? !pod || pod.chrome === 'missing' || pod.sidecar === 'missing'

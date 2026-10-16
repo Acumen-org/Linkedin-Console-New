@@ -37,6 +37,8 @@ export interface PodStatus {
   chrome: string;
   sidecar: string;
   running: boolean;
+  /** Runs the images the pod-agent would use now (false after a new version was deployed). */
+  current?: boolean;
 }
 
 async function podAgent<T>(method: string, path: string, body?: unknown): Promise<T> {

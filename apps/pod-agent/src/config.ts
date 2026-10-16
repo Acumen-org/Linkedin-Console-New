@@ -17,6 +17,8 @@ export const config = {
   filesVolume: env.FILES_VOLUME ?? 'linkedin-console_files',
   chromeImage: env.CHROME_IMAGE ?? 'linkedin-console/chrome:latest',
   sidecarImage: env.SIDECAR_IMAGE ?? 'linkedin-console/sidecar:latest',
+  /** A Docker config.json with registry logins (e.g. the node's, mounted read-only), to pull private images. */
+  registryAuthFile: env.REGISTRY_AUTH_FILE ?? '',
   redisUrl: env.REDIS_URL ?? 'redis://redis:6379',
   podMemoryBytes: Number(env.POD_MEMORY_MB ?? 1024) * 1024 * 1024,
   sidecarEnv: [

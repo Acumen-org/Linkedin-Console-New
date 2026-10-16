@@ -2142,7 +2142,13 @@ try {
     assert.equal(config.autoRecovery, false, 'the test stack must not start real browsers (AUTO_RECOVERY=off)');
     // A fake pod-agent: this account's pod exists and runs unless a test says otherwise; others are left alone.
     const calls: { op: string; id: string }[] = [];
-    let ourPod: { chrome: string; sidecar: string; running: boolean } | null = { chrome: 'running', sidecar: 'running', running: true };
+    let ourPod: { chrome: string; sidecar: string; running: boolean; current?: boolean } | null = {
+      chrome: 'running',
+      sidecar: 'running',
+      running: true,
+      current: true,
+    };
+    let recreateFails = false;
     const fakePods = {
       list: async () => {
         const all = await sql`SELECT id FROM accounts`;
@@ -2152,7 +2158,7 @@ try {
               ? ourPod
                 ? { id: a.id, ...ourPod }
                 : null
-              : { id: a.id, chrome: 'running', sidecar: 'running', running: true },
+              : { id: a.id, chrome: 'running', sidecar: 'running', running: true, current: true },
           )
           .filter(Boolean) as any[];
       },
@@ -2163,6 +2169,11 @@ try {
       restart: async (id: string) => {
         calls.push({ op: 'restart', id });
         return { id, chrome: 'running', sidecar: 'running', running: true };
+      },
+      recreate: async (id: string) => {
+        calls.push({ op: 'recreate', id });
+        if (recreateFails) throw new Error('pod-agent: Pulling chrome: unauthorized');
+        return { id, chrome: 'running', sidecar: 'running', running: true, current: true };
       },
     };
     const account = async () =>
@@ -2222,6 +2233,23 @@ try {
     const shown = (await owner('GET', `/api/accounts/${accountId}`)).data;
     assert.ok(shown.lastRestartAt);
     assert.equal(shown.lastRestartReason, 'Browser containers were stopped');
+    // A new version was deployed: the running browser moves to it (same session), but only once the image is there.
+    ourPod = { chrome: 'running', sidecar: 'running', running: true, current: false };
+    await sql`UPDATE accounts SET recover_next_at = NULL, status = 'CONNECTED' WHERE id = ${accountId}`;
+    recreateFails = true;
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls.at(-1), { op: 'recreate', id: accountId });
+    const failed = await account();
+    assert.match(failed.lastRestartReason, /Update failed: .*unauthorized/);
+    assert.ok(failed.recoverNextAt > new Date(), 'tried again later, the pod keeps running meanwhile');
+    recreateFails = false;
+    await sql`UPDATE accounts SET recover_next_at = NULL WHERE id = ${accountId}`;
+    await recoverAccounts({ pods: fakePods });
+    assert.equal((await account()).lastRestartReason, 'Updated to the new version');
+    assert.equal((calls as { op: string }[]).filter((c) => c.op === 'recreate').length, 2);
+    ourPod = { chrome: 'running', sidecar: 'running', running: true, current: true };
+    await recoverAccounts({ pods: fakePods });
+    assert.equal((calls as { op: string }[]).filter((c) => c.op === 'recreate').length, 2, 'up to date: left alone');
     await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
   });
 

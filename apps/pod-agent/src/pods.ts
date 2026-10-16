@@ -1,9 +1,11 @@
 // Account pods through the Docker API.
 // A pod = `pod-<id>` (Chrome, on the pods network: reaches Redis and the internet, not the api or database) + `pod-<id>-sidecar`
 // (Live View + bridge, shares Chrome's network namespace so CDP stays on 127.0.0.1).
+import fs from 'node:fs';
 import { config } from './config.ts';
 import { docker } from './docker.ts';
 import { podRedisUrl, removePodRedisUser } from './redis-acl.ts';
+import { registryAuthHeader } from './registry-auth.ts';
 
 export interface PodSpec {
   id: string;
@@ -17,6 +19,8 @@ export interface PodStatus {
   chrome: string;
   sidecar: string;
   running: boolean;
+  /** Both containers run the images this pod-agent would use now (false after a new version was deployed). */
+  current: boolean;
 }
 
 const names = (id: string) => ({ chrome: `pod-${id}`, sidecar: `pod-${id}-sidecar`, profile: `linkedin-console_profile_${id}` });
@@ -34,17 +38,42 @@ async function removeContainer(name: string) {
 
 export async function status(id: string): Promise<PodStatus> {
   const n = names(id);
-  const [c, s] = await Promise.all([inspect(n.chrome), inspect(n.sidecar)]);
+  const [c, s, chromeId, sidecarId] = await Promise.all([
+    inspect(n.chrome),
+    inspect(n.sidecar),
+    docker.imageId(config.chromeImage),
+    docker.imageId(config.sidecarImage),
+  ]);
   return {
     id,
     chrome: c ? c.State.Status : 'missing',
     sidecar: s ? s.State.Status : 'missing',
     running: !!(c?.State.Running && s?.State.Running),
+    // A desired image not on this machine yet means a new version: it is pulled before anything is replaced.
+    current: !!c && !!s && c.Image === chromeId && s.Image === sidecarId,
   };
+}
+
+/** X-Registry-Auth for the image's registry, from the Docker config file (REGISTRY_AUTH_FILE), if it has a login. */
+function registryAuth(ref: string): string | null {
+  if (!config.registryAuthFile) return null;
+  try {
+    return registryAuthHeader(ref, fs.readFileSync(config.registryAuthFile, 'utf8'));
+  } catch {
+    return null; // file not mounted or unreadable: pull without a login
+  }
+}
+
+/** Makes sure the image is on this machine (pulls it from its registry if not). */
+export async function ensureImage(ref: string) {
+  if (await docker.imageId(ref)) return;
+  await docker.pull(ref, registryAuth(ref));
 }
 
 export async function createPod({ id, timezone, language, proxyServer }: PodSpec): Promise<PodStatus> {
   const n = names(id);
+  await ensureImage(config.chromeImage);
+  await ensureImage(config.sidecarImage);
   // Chrome can't hold proxy credentials: if the proxy needs a login, Chrome talks to a
   // local forwarder in the sidecar (127.0.0.1:3128) which adds the credentials.
   const needsForwarder = /^https?:\/\/[^/]*@/.test(proxyServer);
@@ -111,6 +140,9 @@ export async function restartPod(id: string) {
 
 /** Recreate containers (e.g. after an image update) but keep the profile volume = keep the LinkedIn session. */
 export async function recreatePod(spec: PodSpec) {
+  // New images first: if they can't be pulled, the running pod stays as it is.
+  await ensureImage(config.chromeImage);
+  await ensureImage(config.sidecarImage);
   await deletePod(spec.id, false);
   return createPod(spec);
 }

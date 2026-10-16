@@ -53,6 +53,46 @@ const enc = encodeURIComponent;
 
 export interface ContainerInfo {
   State: { Status: string; Running: boolean };
+  /** The image id the container was created from. */
+  Image: string;
+}
+
+/**
+ * Pulls an image (POST /images/create). Docker answers 200 and reports a failure inside the stream, so the stream
+ * is read to the end and checked. `auth`: X-Registry-Auth for a private registry.
+ */
+function pullImage(ref: string, auth: string | null): Promise<void> {
+  const at = ref.lastIndexOf(':');
+  const hasTag = at > ref.lastIndexOf('/');
+  const image = hasTag ? ref.slice(0, at) : ref;
+  const tag = hasTag ? ref.slice(at + 1) : 'latest';
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        socketPath: SOCKET,
+        method: 'POST',
+        path: `/images/create?fromImage=${enc(image)}&tag=${enc(tag)}`,
+        headers: auth ? { 'X-Registry-Auth': auth } : {},
+      },
+      (res) => {
+        let raw = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (raw += c));
+        res.on('end', () => {
+          const failed = raw
+            .split('\n')
+            .map((l) => safeJson(l) as { error?: string } | string)
+            .find((l) => typeof l === 'object' && l?.error);
+          if ((res.statusCode ?? 500) >= 400 || failed)
+            reject(new DockerError(res.statusCode ?? 500, `Pulling ${ref}: ${(failed as { error?: string })?.error ?? raw.slice(0, 200)}`));
+          else resolve();
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(10 * 60_000, () => req.destroy(new Error(`Pulling ${ref} timed out`)));
+    req.end();
+  });
 }
 
 export const docker = {
@@ -73,6 +113,16 @@ export const docker = {
       if (e instanceof DockerError && e.statusCode === 404) return null;
       throw e;
     }),
+  /** The image's id, or null when it isn't on this machine. */
+  imageId: (ref: string) =>
+    call<{ Id: string }>('GET', `/images/${enc(ref)}/json`).then(
+      (i) => i.Id,
+      (e) => {
+        if (e instanceof DockerError && e.statusCode === 404) return null;
+        throw e;
+      },
+    ),
+  pull: pullImage,
   listByLabel: (label: string) =>
     call<{ Labels: Record<string, string> }[]>('GET', `/containers/json?all=1&filters=${enc(JSON.stringify({ label: [label] }))}`),
 };
