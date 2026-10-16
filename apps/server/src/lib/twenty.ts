@@ -334,3 +334,34 @@ export async function personById(
     pod: fields.podField ? (n[fields.podField] ?? null) : null,
   };
 }
+
+// ---------- Records of a custom object (the LinkedIn conversation object) ----------
+
+const pascal = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+
+export async function createRecord(objectSingular: string, data: Record<string, unknown>) {
+  const P = pascal(objectSingular);
+  const r = await twentyQuery<Record<string, { id: string }>>(
+    `mutation LinkedInConsoleCreateRecord($input: ${P}CreateInput!) { create${P}(data: $input) { id } }`,
+    { input: data },
+  );
+  return r[`create${P}`].id;
+}
+
+/** Updates a record; false when it no longer exists (deleted in Twenty). */
+export async function updateRecord(objectSingular: string, id: string, data: Record<string, unknown>) {
+  const P = pascal(objectSingular);
+  try {
+    await twentyQuery(
+      `mutation LinkedInConsoleUpdateRecord($id: UUID!, $input: ${P}UpdateInput!) { update${P}(id: $id, data: $input) { id } }`,
+      {
+        id,
+        input: data,
+      },
+    );
+    return true;
+  } catch (err) {
+    if (/not found|does not exist|no record/i.test((err as Error).message)) return false;
+    throw err;
+  }
+}

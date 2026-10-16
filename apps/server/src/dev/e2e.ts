@@ -17,6 +17,7 @@ import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
 import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
+import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { recoverAccounts } from '../worker/recovery.ts';
@@ -62,6 +63,10 @@ const twentyPeople: {
 }[] = [];
 /** Persons the console created (Phase 1: must stay 0). */
 let twentyCreated = 0;
+/** Custom objects added through the metadata API (the LinkedIn conversation object), with their fields. */
+const twentyObjects = new Map<string, { id: string; fields: Map<string, string> }>();
+/** Records of custom objects (LinkedIn conversations). */
+let twentyConvRecords: Record<string, any>[] = [];
 /** The Person object's fields (metadata API), standard ones to begin with. */
 const twentyFieldNames = new Map<string, string>([
   ['name', 'FULL_NAME'],
@@ -84,6 +89,9 @@ function fakeTwentyMetadata(req: http.IncomingMessage, res: http.ServerResponse)
             edges: [
               { node: { id: 'obj-company', nameSingular: 'company', fields: { edges: [] } } },
               { node: { id: 'obj-person', nameSingular: 'person', fields } },
+              ...[...twentyObjects].map(([nameSingular, o]) => ({
+                node: { id: o.id, nameSingular, fields: { edges: [...o.fields].map(([name, type]) => ({ node: { name, type } })) } },
+              })),
             ],
           },
         },
@@ -91,9 +99,27 @@ function fakeTwentyMetadata(req: http.IncomingMessage, res: http.ServerResponse)
     }
     if (String(query).includes('LinkedInConsoleCreateField')) {
       const f = variables.input.field;
-      if (f.objectMetadataId !== 'obj-person') return json({ errors: [{ message: 'unknown object' }] });
-      twentyFieldNames.set(f.name, f.type);
+      const custom = [...twentyObjects.values()].find((o) => o.id === f.objectMetadataId);
+      if (f.objectMetadataId !== 'obj-person' && !custom) return json({ errors: [{ message: 'unknown object' }] });
+      if (f.type === 'RELATION') {
+        if (f.relationCreationPayload?.type !== 'MANY_TO_ONE' || f.relationCreationPayload.targetObjectMetadataId !== 'obj-person')
+          return json({ errors: [{ message: 'bad relation' }] });
+        twentyFieldNames.set('linkedinConversations', 'RELATION');
+      }
+      (custom ? custom.fields : twentyFieldNames).set(f.name, f.type);
       return json({ data: { createOneField: { id: crypto.randomUUID(), name: f.name } } });
+    }
+    if (String(query).includes('LinkedInConsoleCreateObject')) {
+      const o = variables.input.object;
+      const id = crypto.randomUUID();
+      twentyObjects.set(o.nameSingular, {
+        id,
+        fields: new Map([
+          ['id', 'UUID'],
+          ['name', 'TEXT'],
+        ]),
+      });
+      return json({ data: { createOneObject: { id } } });
     }
     json({ errors: [{ message: 'unknown metadata query' }] });
   });
@@ -126,6 +152,18 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
         link ? (x.linkedin ?? '').toLowerCase().includes(link) : x.firstName === first && x.lastName === last,
       );
       return json({ data: { people: { edges: hits.map((x) => ({ node: { id: x.id, linkedinLink: { primaryLinkUrl: x.linkedin } } })) } } });
+    }
+    if (q.includes('LinkedInConsoleCreateRecord')) {
+      if (!q.includes('createLinkedinConversation')) return json({ errors: [{ message: 'unknown object' }] });
+      const record = { id: crypto.randomUUID(), ...variables.input };
+      twentyConvRecords.push(record);
+      return json({ data: { createLinkedinConversation: { id: record.id } } });
+    }
+    if (q.includes('LinkedInConsoleUpdateRecord')) {
+      const record = twentyConvRecords.find((r) => r.id === variables.id);
+      if (!record) return json({ errors: [{ message: 'Record not found' }] });
+      Object.assign(record, variables.input);
+      return json({ data: { updateLinkedinConversation: { id: record.id } } });
     }
     if (q.includes('LinkedInConsoleSearchPeople')) {
       const words: string[] = [];
@@ -356,6 +394,7 @@ const emit = (type: string, data: unknown) =>
   redis.xadd('li:events', '*', 'json', JSON.stringify({ accountId, type, data, at: Date.now() }));
 const person = (urn: string, name: string) => ({ urn, name, headline: `${name} headline`, avatarUrl: null, profileUrl: null });
 const jane = person(`urn:li:fsd_profile:JANE${tag}`, 'Jane E2E');
+const jane_ = jane;
 const raj = person(`urn:li:fsd_profile:RAJ${tag}`, 'Raj E2E');
 let seq = 0;
 const msg = (c: string, from: typeof jane | null, text: string, at: number, extra = {}) => ({
@@ -1573,7 +1612,10 @@ try {
       const dry = await run(false);
       assert.equal(dry.code, 0, dry.out);
       assert.match(dry.out, /LinkedIn status \(linkedinStatus, SELECT: Connected · Request sent · Not connected\) would be added/);
+      assert.match(dry.out, /object LinkedIn conversations \(linkedinConversation\) would be added/);
+      assert.match(dry.out, /link to Person \(person; the Person page lists its LinkedIn conversations\) would be added/);
       assert.equal(twentyFieldNames.has('linkedinConsoleSource'), false, 'a dry run changes nothing');
+      assert.equal(twentyObjects.size, 0, 'no object either');
       const applied = await run(true);
       assert.equal(applied.code, 0, applied.out);
       for (const f of [
@@ -1582,9 +1624,27 @@ try {
         'lastLinkedinMessageSentAt',
         'lastLinkedinMessageReceivedAt',
         'linkedinMemberId',
+        'linkedinReplyStatus',
+        'nextLinkedinFollowUpAt',
+        'linkedinConversation',
       ])
         assert.ok(twentyFieldNames.has(f), `${f} added`);
-      assert.match((await run(false)).out, /All LinkedIn Console fields are there/);
+      const convObject = twentyObjects.get('linkedinConversation');
+      assert.ok(convObject, 'LinkedIn conversation object added');
+      for (const f of [
+        'linkedinAccount',
+        'handledBy',
+        'replyStatus',
+        'lastMessageSentAt',
+        'lastMessageReceivedAt',
+        'nextFollowUpAt',
+        'messageCount',
+        'conversationLink',
+        'person',
+      ])
+        assert.ok(convObject.fields.has(f), `conversation ${f} added`);
+      assert.ok(twentyFieldNames.has('linkedinConversations'), 'Person lists its LinkedIn conversations');
+      assert.match((await run(false)).out, /Everything LinkedIn Console needs is there/);
 
       // A Person the earlier sync created for someone who never replied: marked for review, not deleted.
       const reviewMe = crypto.randomUUID();
@@ -1715,6 +1775,80 @@ try {
         assert.equal(await nudgeUnbound(), 0, 'once');
         const audited = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${linaPerson.id}`;
         assert.equal(audited[0]?.meta.method, 'new');
+      },
+    );
+    await step(
+      'Twenty fields written: the LinkedIn summary on the Person, a LinkedIn conversation record per chat, only changes',
+      async () => {
+        resetPersonFieldsCache();
+        // Through the worker's own entry point and its lock: the worker runs the same at the same time.
+        const sync = async () => {
+          await crmSyncTick();
+        };
+        const janeRecord = () => twentyConvRecords.find((r) => r.personId === janeInTwenty);
+        const jane = () => twentyPeople.find((x) => x.id === janeInTwenty)!;
+        await until(
+          async () => {
+            await sync();
+            return jane().fields;
+          },
+          (f) => !!f?.linkedinMemberId && !!janeRecord(),
+          'Jane summary and record',
+          60_000,
+        );
+        const f = jane().fields as Record<string, any>;
+        assert.equal(f.linkedinStatus, 'CONNECTED', 'a connection of the account');
+        assert.equal(f.linkedinMemberId, `JANE${tag}`);
+        assert.ok(f.lastLinkedinMessageReceivedAt && f.lastLinkedinMessageSentAt);
+        assert.match(
+          (f.linkedinConversation as { primaryLinkUrl?: string } | undefined)?.primaryLinkUrl ?? '',
+          new RegExp(`/inbox/${janeId}$`),
+        );
+        // One record for Jane's chat, on her Person.
+        const record = twentyConvRecords.find((r) => r.personId === janeInTwenty);
+        assert.ok(record, JSON.stringify(twentyConvRecords));
+        assert.equal(record.linkedinAccount, 'E2E account');
+        assert.match(record.name, /Jane E2E · E2E account/);
+        assert.ok(record.messageCount > 0);
+        assert.match(record.conversationLink?.primaryLinkUrl ?? '', new RegExp(`/inbox/${janeId}$`));
+        // Prospects not bound (never replied, or waiting for a teammate) get nothing.
+        const [silent] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('SILENT')}`;
+        assert.ok(!twentyConvRecords.some((r) => String(r.conversationLink?.primaryLinkUrl).endsWith(silent.id)));
+
+        // Nothing new: nothing written. A new reply and a reminder: both written.
+        const before = JSON.stringify(record);
+        assert.equal(await syncConversationRecords(100), 0, 'nothing written');
+        assert.equal(JSON.stringify(record), before, 'unchanged');
+        const due = new Date(Date.now() + 2 * 86400_000);
+        await member('PUT', `/api/conversations/${janeId}/reminder`, { dueAt: due.toISOString(), note: 'Call her' });
+        const sentAt = Date.now() + 5_000;
+        await emit('messages', [msg('JANE', jane_, 'One more question', sentAt)]);
+        await until(
+          async () => {
+            await sync();
+            const r = janeRecord() ?? {};
+            return [jane().fields?.nextLinkedinFollowUpAt, r.lastMessageReceivedAt, r.replyStatus];
+          },
+          ([next, received, status]) =>
+            Date.parse(next ?? '') === due.getTime() && Date.parse(received ?? '') === sentAt && status === 'REPLIED',
+          'reminder and reply written',
+          30_000,
+        );
+        assert.equal(jane().fields?.linkedinReplyStatus, 'REPLIED');
+        assert.equal(twentyConvRecords.filter((r) => r.personId === janeInTwenty).length, 1, 'still one record for that chat');
+        // Deleted in Twenty: made again.
+        twentyConvRecords = twentyConvRecords.filter((r) => r.personId !== janeInTwenty);
+        await sql`UPDATE conversations SET twenty_record_checked_at = NULL, twenty_record_hash = NULL WHERE id = ${janeId}`;
+        await until(
+          async () => {
+            await sync();
+            return twentyConvRecords.filter((r) => r.personId === janeInTwenty).length;
+          },
+          (n) => n === 1,
+          'recreated',
+          30_000,
+        );
+        await member('POST', `/api/conversations/${janeId}/reminder/close`, { status: 'DONE' });
       },
     );
   } else {

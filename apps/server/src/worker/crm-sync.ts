@@ -13,6 +13,7 @@ import { logger } from '../lib/logger.ts';
 import { redis } from '../lib/redis.ts';
 import { addPersonNote, PersonGoneError } from '../lib/twenty.ts';
 import { bindReplied, markForReview, prospectOf, unbindProspect } from './crm-binding.ts';
+import { syncConversationRecords, syncPersonFields } from './crm-fields.ts';
 
 const BATCH = 5; // per tick (every 10 s): ~30 messages a minute, well inside Twenty's API limits
 const MAX_ATTEMPTS = 6;
@@ -49,6 +50,9 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
     const since = await crmSince();
     status.bound = await bindReplied();
     await markForReview();
+    // The LinkedIn summary on bound Persons and their LinkedIn conversation records (only what changed).
+    await syncPersonFields();
+    await syncConversationRecords();
     // Never going to Twenty: group chats, deleted or failed messages, and history older than the switch-on.
     await sql`
       UPDATE messages m SET crm_synced_at = now()

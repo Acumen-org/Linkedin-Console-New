@@ -134,7 +134,13 @@ With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`). Duplicates are prev
 
 **Owner and pod.** An admin links each teammate to their Twenty user and pod (Team page → Twenty; with `STAFF_SOURCE=twenty` the user is already known). The owner is the Person field `TWENTY_PERSON_OWNER_FIELD` (default `assignedTo`, a relation to a workspace member, the one the Twilio console reads); the pod is `TWENTY_PERSON_POD_FIELD` (default `pod`). A field the workspace doesn't have is simply not written. `TWENTY_WEB_URL` is Twenty's web app address for "Open in Twenty" when it isn't the API address without /graphql.
 
-**Twenty fields.** `./scripts/twenty-fields.sh` lists which LinkedIn Console fields Person has (LinkedIn Console source, LinkedIn status, Last LinkedIn message sent / received, LinkedIn member ID) and which are missing; it changes nothing. `./scripts/twenty-fields.sh --apply` adds the missing ones (custom, nullable; existing fields are never changed). The console only writes fields that exist, so the review mark waits until that field is there.
+**LinkedIn data in Twenty** (bound prospects only, only what changed, within a sync round of new activity and at least hourly):
+
+- **On the Person**, the summary over every conversation with them: LinkedIn status (Connected / Not connected with any of the team's accounts; Request sent once the console sends requests), Last LinkedIn message sent, Last LinkedIn message received, LinkedIn reply status (Replied: their message is the latest; No reply yet: ours is), Next LinkedIn follow-up (earliest open reminder), LinkedIn member ID, and LinkedIn conversation (a link to their latest conversation in the console). Filter and build views on these in Twenty.
+- **LinkedIn conversations**, a Twenty object: one record per conversation (prospect × LinkedIn account) with the account, who handles it, reply status, last sent / received, next follow-up, message count and a link to it, linked to the Person (the Person page lists them). A record deleted in Twenty is made again.
+- The messages themselves stay notes on the Person's timeline.
+
+**Twenty data model.** `./scripts/twenty-fields.sh` lists what LinkedIn Console needs in Twenty (the Person fields above and the source, the LinkedIn conversation object with its fields and its link to Person) and what is missing; it changes nothing. `./scripts/twenty-fields.sh --apply` adds what is missing (custom, nullable; nothing existing is changed). The console only writes what exists.
 
 ## Follow-up reminders
 
