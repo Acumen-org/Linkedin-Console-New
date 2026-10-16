@@ -111,11 +111,18 @@ export async function createPersonField(objectId: string, f: FieldSpec) {
   );
 }
 
-let cache: { at: number; names: Set<string> } | null = null;
-/** Whether Person has this field (asked at most every 10 minutes): the sync only writes fields that exist. */
+let cache: { at: number; fields: Map<string, string> } | null = null;
+/** Person's fields and their types (asked at most every 10 minutes): only fields that exist are written. */
+async function schema() {
+  if (!cache || Date.now() - cache.at > 10 * 60_000) cache = { at: Date.now(), fields: (await personFields()).fields };
+  return cache.fields;
+}
 export async function personHasField(name: string) {
-  if (!cache || Date.now() - cache.at > 10 * 60_000) cache = { at: Date.now(), names: new Set((await personFields()).fields.keys()) };
-  return cache.names.has(name);
+  return (await schema()).has(name);
+}
+/** The field's type (e.g. RELATION, TEXT, SELECT), or null when Person doesn't have it. */
+export async function personFieldType(name: string) {
+  return (await schema()).get(name) ?? null;
 }
 
 /** Forget the cached field list (after adding fields in this process; tests). */

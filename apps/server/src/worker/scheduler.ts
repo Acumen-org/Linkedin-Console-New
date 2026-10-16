@@ -9,6 +9,7 @@ import { publish, redis } from '../lib/redis.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
 import { autoFollowups } from './auto-followups.ts';
+import { nudgeUnbound } from './crm-binding.ts';
 import { crmSyncTick } from './crm-sync.ts';
 import { notifyDueReminders } from './push.ts';
 import { recoverAccounts } from './recovery.ts';
@@ -113,6 +114,8 @@ export function startScheduler() {
   }, 60_000);
   // Twenty CRM: messages reach it within seconds, a few at a time.
   if (config.crmSync) setInterval(() => crmSyncTick().catch((err) => logger.error({ err }, 'crm sync failed')), 10_000);
+  // Replies waiting a business day for a CRM binding: remind the teammate.
+  if (config.crmSync) setInterval(() => nudgeUnbound().catch((err) => logger.error({ err }, 'crm nudge failed')), 15 * 60_000);
   // Follow-up reminders as Twenty tasks, both ways.
   if (config.crmSync) setInterval(() => reminderSyncTick(), 15_000);
 }

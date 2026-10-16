@@ -61,6 +61,8 @@ export default async function conversationRoutes(app: FastifyInstance) {
       other: sql`AND c.folder = 'other' AND NOT c.is_archived AND ${awake}`,
       requests: sql`AND c.folder IN ('requests', 'inmail') AND NOT c.is_archived AND ${awake}`,
       archived: sql`AND (c.is_archived OR c.folder = 'archived')`,
+      // Replied prospects waiting for a teammate to bind them to Twenty (Bind to existing / Add as new).
+      crm_needed: sql`AND c.crm_binding = 'needed' AND NOT c.is_group`,
       // Prospects with an open follow-up reminder, soonest first (one page).
       followups: sql`AND EXISTS (SELECT 1 FROM reminders r WHERE r.conversation_id = c.id AND r.status = 'OPEN')`,
     }[q.view];

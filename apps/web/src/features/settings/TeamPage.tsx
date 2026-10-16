@@ -7,6 +7,7 @@ import { PageScroll } from '../../components/Layout';
 import { Avatar, Modal, PageHeader } from '../../components/ui';
 import { api } from '../../lib/api';
 import { fullTime } from '../../lib/format';
+import { useAppConfig } from '../../lib/queries';
 import { toast } from '../../lib/toast';
 import type { User } from '../../types';
 import { BulkAssignModal, StaffAccessModal } from './StaffAccess';
@@ -217,6 +218,8 @@ export function TeamPage() {
   const [adding, setAdding] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
   const [assigning, setAssigning] = useState<User | null>(null);
+  const [linking, setLinking] = useState<User | null>(null);
+  const crmOn = !!useAppConfig().data?.twentyUrl;
   // Staff picked for assigning accounts to several at once.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState(false);
@@ -333,6 +336,17 @@ export function TeamPage() {
                 {u.dailySendCap === null || u.dailySendCap === undefined ? '' : u.dailySendCap ? ` / ${u.dailySendCap}` : ' · no limit'}
               </span>
             )}
+            {crmOn && u.role !== 'AUDITOR' && !u.disabledAt && (
+              <button
+                type="button"
+                onClick={() => setLinking(u)}
+                className="btn-ghost text-xs"
+                title="Owner of the Persons they add to Twenty, and their pod"
+              >
+                {u.twentyMemberId ? 'Twenty ✓' : 'Twenty: not linked'}
+                {u.pod ? ` · ${u.pod}` : ''}
+              </button>
+            )}
             {me.role === 'OWNER' && u.role !== 'OWNER' && !u.disabledAt && (
               <button type="button" onClick={() => makeOwner(u)} className="btn-ghost text-xs">
                 Make owner
@@ -360,6 +374,13 @@ export function TeamPage() {
       {adding && <AddUserModal microsoft={!!directory.data?.microsoft} passwords={passwordsUsed} onClose={() => setAdding(false)} />}
       {resetting && <ResetModal user={resetting} onClose={() => setResetting(null)} />}
       {assigning && <StaffAccessModal user={assigning} onClose={() => setAssigning(null)} />}
+      {linking && (
+        <TwentyLinkModal
+          user={linking}
+          pods={[...new Set((users.data ?? []).map((u) => u.pod).filter((p): p is string => !!p))]}
+          onClose={() => setLinking(null)}
+        />
+      )}
       {bulk && (
         <BulkAssignModal
           users={users.data?.filter((u) => picked.has(u.id)) ?? []}
@@ -497,6 +518,67 @@ function ResetModal({ user, onClose }: { user: User; onClose: () => void }) {
             </button>
           </>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/** A teammate's Twenty user (owner of the Persons they add) and pod (master plan L2). */
+function TwentyLinkModal({ user, pods, onClose }: { user: User; pods: string[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const members = useQuery({
+    queryKey: ['crm-members'],
+    queryFn: () => api.get<{ id: string; name: string | null; email: string | null }[]>('/api/crm/members'),
+  });
+  const [memberId, setMemberId] = useState(user.twentyMemberId ?? '');
+  const [pod, setPod] = useState(user.pod ?? '');
+  // Same email in Twenty: a likely match to offer first.
+  const suggested = members.data?.find((m) => m.email && m.email === user.email?.toLowerCase());
+  const save = async () => {
+    try {
+      await api.patch(`/api/users/${user.id}`, { twentyMemberId: memberId || null, pod: pod.trim() || null });
+      toast('Saved', 'success');
+      qc.invalidateQueries({ queryKey: ['users'] });
+      onClose();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <Modal title={`Twenty CRM · ${user.name}`} onClose={onClose}>
+      <p className="mb-3 text-sm text-slate-600">
+        Persons {user.name} adds to Twenty get them as owner and their pod. Binding to an existing Person fills these only where empty.
+      </p>
+      <label className="label">Their Twenty user</label>
+      <select className="input" value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+        <option value="">Not linked</option>
+        {members.data?.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name ?? m.email ?? m.id}
+            {m.email ? ` (${m.email})` : ''}
+            {m.id === suggested?.id ? ' · same email' : ''}
+          </option>
+        ))}
+      </select>
+      {suggested && !memberId && (
+        <button type="button" onClick={() => setMemberId(suggested.id)} className="mt-1 text-xs text-brand hover:underline">
+          Use {suggested.name ?? suggested.email} (same email)
+        </button>
+      )}
+      <label className="label mt-3">Pod</label>
+      <input className="input" list="pods" value={pod} onChange={(e) => setPod(e.target.value)} placeholder="e.g. Pod A" maxLength={60} />
+      <datalist id="pods">
+        {pods.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+      <div className="mt-4 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="btn-ghost">
+          Cancel
+        </button>
+        <button type="button" onClick={save} className="btn-primary">
+          Save
+        </button>
       </div>
     </Modal>
   );

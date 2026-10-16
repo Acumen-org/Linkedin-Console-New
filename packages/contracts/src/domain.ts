@@ -29,6 +29,7 @@ export const CONVERSATION_VIEWS = [
   'replied',
   'no_reply',
   'followups',
+  'crm_needed',
   'unread',
   'awaiting',
   'starred',

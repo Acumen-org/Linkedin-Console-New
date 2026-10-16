@@ -22,6 +22,9 @@ export interface User {
   dailySendCap?: number | null;
   /** Messages and new chats they sent in the last 24 hours. */
   sent24h?: number;
+  /** Their Twenty CRM user (owner of the Persons they add) and pod. */
+  twentyMemberId?: string | null;
+  pod?: string | null;
 }
 
 /** First sync of a newly connected account (shown until done). */
@@ -151,6 +154,9 @@ export interface Conversation {
   twentyPersonId?: string | null;
   /** The open follow-up reminder, if any. */
   reminder?: ConversationReminder | null;
+  /** Twenty CRM: null = not decided (no reply yet), needed = waiting for a teammate to bind, bound. */
+  crmBinding?: 'needed' | 'bound' | null;
+  crmBindingReason?: string | null;
   labels: Label[];
   accountLabel: string;
   accountName: string | null;

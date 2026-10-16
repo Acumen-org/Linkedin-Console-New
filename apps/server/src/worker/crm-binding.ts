@@ -5,11 +5,16 @@
 // to the prospect (LinkedIn member URN), so every conversation with them goes to the same Person.
 import { accountRoom } from '@linkedin-console/contracts';
 import { audit } from '../core/audit.ts';
+import { RESPONSIBLE } from '../core/reminders-sql.ts';
+import { addBusinessDays } from '../lib/business-days.ts';
+import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
+import { HttpError } from '../lib/errors.ts';
 import { publish } from '../lib/redis.ts';
-import { linkedinKey, peopleWithLinkedin, updatePerson } from '../lib/twenty.ts';
-import { CONSOLE_SOURCE, personHasField } from '../lib/twenty-fields.ts';
+import { createPerson, linkedinKey, peopleWithLinkedin, personById, updatePerson } from '../lib/twenty.ts';
+import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-fields.ts';
 import { loadConversation } from '../modules/conversations/queries.ts';
+import { pushToUsers } from './push.ts';
 
 export type BindMethod = 'auto_link' | 'existing' | 'new';
 
@@ -134,4 +139,146 @@ export async function markForReview(limit = 10) {
     await sql`UPDATE conversations SET crm_review_marked_at = now() WHERE crm_review_person_id = ${personId}`;
   }
   return due.length;
+}
+
+// ---------- A teammate's decision (Needs CRM binding) ----------
+
+/** Which owner / pod / console fields this Twenty workspace has (only those are written). */
+export async function crmFields() {
+  const t = config.twenty;
+  if (!t) throw new HttpError(409, 'Twenty CRM is not configured');
+  const [ownerType, podType, source, memberId] = await Promise.all([
+    personFieldType(t.ownerField),
+    personFieldType(t.podField),
+    personHasField('linkedinConsoleSource'),
+    personHasField('linkedinMemberId'),
+  ]);
+  return {
+    // The owner is a link to a workspace member; anything else isn't an owner we can set.
+    owner: ownerType === 'RELATION' ? t.ownerField : null,
+    pod: podType ? t.podField : null,
+    source,
+    memberId,
+  };
+}
+
+/** LinkedIn's member id from its URN (urn:li:fsd_profile:ACoAA… → ACoAA…). */
+const memberIdOf = (urn: string) => urn.split(':').pop() ?? urn;
+
+async function teammate(userId: string) {
+  const [u] = await sql`SELECT twenty_member_id, pod FROM users WHERE id = ${userId}`;
+  return { memberId: (u?.twentyMemberId as string | null) ?? null, pod: (u?.pod as string | null) ?? null };
+}
+
+/** The 1:1 conversation's prospect, ready for a decision (bound ones and group chats can't be). */
+async function decidable(conversationId: string) {
+  const [c] = await sql`SELECT id, account_id, participants, is_group, crm_binding FROM conversations WHERE id = ${conversationId}`;
+  if (!c || c.isGroup) throw new HttpError(400, 'Only a 1:1 conversation can be bound to a Twenty Person');
+  if (c.crmBinding === 'bound') throw new HttpError(409, 'This prospect is already bound to a Twenty Person');
+  const prospect = await prospectOf(c.accountId, c.participants ?? []);
+  if (!prospect.memberUrn) throw new HttpError(409, 'LinkedIn has not identified this prospect yet; try again after the next sync');
+  return { conversation: c, prospect, memberUrn: prospect.memberUrn };
+}
+
+/**
+ * Binds to a Person a teammate chose. Fills the Person's owner and pod (the teammate's), LinkedIn link and member
+ * id only where empty: an existing owner is never overwritten.
+ */
+export async function bindToExisting(conversationId: string, personId: string, by: { id: string }, ip?: string) {
+  const { prospect, memberUrn } = await decidable(conversationId);
+  const fields = await crmFields();
+  const person = await personById(personId, { ownerField: fields.owner, podField: fields.pod });
+  if (!person) throw new HttpError(404, 'That Person no longer exists in Twenty');
+  const me = await teammate(by.id);
+  const fill: Record<string, unknown> = {};
+  if (fields.owner && !person.ownerId && me.memberId) fill[`${fields.owner}Id`] = me.memberId;
+  if (fields.pod && !person.pod && me.pod) fill[fields.pod] = me.pod;
+  if (!person.linkedin && prospect.profileUrl) fill.linkedinLink = { primaryLinkUrl: prospect.profileUrl, primaryLinkLabel: 'LinkedIn' };
+  if (fields.memberId) fill.linkedinMemberId = memberIdOf(memberUrn);
+  if (Object.keys(fill).length) await updatePerson(personId, fill);
+  await bindProspect(memberUrn, personId, 'existing', by, ip);
+  return { personId, filled: Object.keys(fill) };
+}
+
+/**
+ * Adds the prospect as a new Person, owned by the teammate and in their pod. Refused when any Person already has
+ * their LinkedIn link (bind to that one instead), so even this can't create a duplicate.
+ */
+export async function addAsNew(conversationId: string, by: { id: string }, ip?: string) {
+  const { prospect, memberUrn } = await decidable(conversationId);
+  if (prospect.profileUrl && (await peopleWithLinkedin(prospect.profileUrl)).length) {
+    throw new HttpError(409, 'A Person in Twenty already has this LinkedIn profile: bind to that one instead');
+  }
+  const fields = await crmFields();
+  const me = await teammate(by.id);
+  if (fields.owner && !me.memberId) throw new HttpError(409, 'Link your user to your Twenty account on the Team page first (an admin can)');
+  if (fields.pod && !me.pod) throw new HttpError(409, 'Set your pod on the Team page first (an admin can)');
+  const personId = await createPerson({
+    name: prospect.name,
+    profileUrl: prospect.profileUrl,
+    headline: prospect.headline,
+    extra: {
+      ...(fields.owner ? { [`${fields.owner}Id`]: me.memberId } : {}),
+      ...(fields.pod ? { [fields.pod]: me.pod } : {}),
+      ...(fields.source ? { linkedinConsoleSource: CONSOLE_SOURCE.ADDED } : {}),
+      ...(fields.memberId ? { linkedinMemberId: memberIdOf(memberUrn) } : {}),
+    },
+  });
+  await bindProspect(memberUrn, personId, 'new', by, ip);
+  return { personId };
+}
+
+/** An admin undoes a binding (wrong Person). The prospect then waits for a teammate; never bound again by itself. */
+export async function unbindByAdmin(conversationId: string, by: { id: string; name: string }, ip?: string) {
+  const [c] = await sql`SELECT participants, crm_binding, twenty_person_id FROM conversations WHERE id = ${conversationId}`;
+  if (!c || c.crmBinding !== 'bound') throw new HttpError(409, 'This prospect is not bound');
+  const memberUrn = c.participants?.[0]?.urn as string;
+  await sql`DELETE FROM crm_bindings WHERE member_urn = ${memberUrn}`;
+  const convs = await sql<{ id: string; accountId: string }[]>`
+    UPDATE conversations SET twenty_person_id = NULL, crm_binding = 'needed', crm_nudged_at = NULL,
+      crm_binding_reason = ${`Unbound by ${by.name}: bind it again by hand`},
+      -- Never looked at again automatically (the link match was the wrong Person).
+      crm_binding_at = 'infinity'
+    WHERE participants->0->>'urn' = ${memberUrn} AND NOT is_group
+    RETURNING id, account_id`;
+  await audit({
+    userId: by.id,
+    accountId: convs[0]?.accountId,
+    action: 'crm.unbound',
+    meta: { memberUrn, personId: c.twentyPersonId },
+    ip,
+  });
+  await changed(convs);
+}
+
+/** Replies waiting more than a business day for a binding: the teammate responsible is reminded, once. */
+export async function nudgeUnbound(now = new Date()) {
+  const waiting = await sql`
+    SELECT c.id, c.account_id, c.crm_binding_at, a.timezone, ${RESPONSIBLE} AS responsible,
+           coalesce(c.title, c.participants->0->>'name', 'a prospect') AS prospect
+    FROM conversations c JOIN accounts a ON a.id = c.account_id
+    WHERE c.crm_binding = 'needed' AND c.crm_nudged_at IS NULL AND c.crm_binding_at < ${now}::timestamptz - interval '1 day'
+    LIMIT 100`;
+  let nudged = 0;
+  for (const c of waiting) {
+    const since = c.crmBindingAt as Date;
+    // One business day in the account's timezone (a reply on Friday is nudged on Monday).
+    if (addBusinessDays(since, 1, c.timezone, 0) > now) continue;
+    let to: string[] = c.responsible ? [c.responsible] : [];
+    if (!to.length) {
+      const rows = await sql`
+        SELECT u.id FROM users u LEFT JOIN account_grants g ON g.user_id = u.id AND g.account_id = ${c.accountId}
+        WHERE u.disabled_at IS NULL AND (u.role IN ('OWNER', 'ADMIN') OR g.level IN ('REPLY', 'FULL'))`;
+      to = rows.map((u) => u.id as string);
+    }
+    await pushToUsers(to, {
+      title: `Bind ${c.prospect} to Twenty`,
+      body: 'They replied and are not in Twenty yet: bind them to a Person or add them as new.',
+      url: `/inbox/${c.id}`,
+      tag: `crm-${c.id}`,
+    }).catch(() => {});
+    await sql`UPDATE conversations SET crm_nudged_at = now() WHERE id = ${c.id}`;
+    nudged++;
+  }
+  return nudged;
 }

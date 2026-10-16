@@ -125,6 +125,15 @@ With `CRM_SYNC=on` (and `TWENTY_API_URL`, `TWENTY_API_KEY`). Duplicates are prev
 - A Person deleted or merged in Twenty unbinds the prospect, who is then looked at again.
 - The Team page shows prospects bound, replies waiting to be bound, messages logged, and the review marks.
 
+**Binding by hand (Needs CRM binding).** Inbox → **Needs CRM binding** lists replies waiting for a decision; the conversation shows why. Anyone who can reply on the account clicks **Bind to Twenty**:
+
+- **Bind**: search Twenty by name or email (prefilled with the prospect's name; everyone with their LinkedIn link is listed too), see each Person's title, company, LinkedIn link and owner, and pick one. The Person's owner and pod (yours), LinkedIn link and member ID are filled **only where empty**: an existing owner is never overwritten.
+- **Add as new**: a new Person owned by you, in your pod, with their LinkedIn link and source "LinkedIn Console". Refused when any Person already has their LinkedIn link (bind to that one instead), so it can't create a duplicate.
+- **Unbind** (admins, audited): for a wrong Person. The prospect then waits again and is never bound back automatically.
+- Replies waiting more than a business day remind the teammate responsible, once.
+
+**Owner and pod.** An admin links each teammate to their Twenty user and pod (Team page → Twenty; with `STAFF_SOURCE=twenty` the user is already known). The owner is the Person field `TWENTY_PERSON_OWNER_FIELD` (default `assignedTo`, a relation to a workspace member, the one the Twilio console reads); the pod is `TWENTY_PERSON_POD_FIELD` (default `pod`). A field the workspace doesn't have is simply not written. `TWENTY_WEB_URL` is Twenty's web app address for "Open in Twenty" when it isn't the API address without /graphql.
+
 **Twenty fields.** `./scripts/twenty-fields.sh` lists which LinkedIn Console fields Person has (LinkedIn Console source, LinkedIn status, Last LinkedIn message sent / received, LinkedIn member ID) and which are missing; it changes nothing. `./scripts/twenty-fields.sh --apply` adds the missing ones (custom, nullable; existing fields are never changed). The console only writes fields that exist, so the review mark waits until that field is there.
 
 ## Follow-up reminders

@@ -60,8 +60,8 @@ export async function workspaceMembers(): Promise<WorkspaceMember[]> {
 
 // ---------- People and notes (prospects and their LinkedIn messages) ----------
 
-/** Twenty's web address: the API address without /graphql. */
-export const twentyWebUrl = () => (config.twenty ? config.twenty.url.replace(/\/graphql\/?$/, '') : null);
+/** Twenty's web app (TWENTY_WEB_URL, else the API address without /graphql). */
+export const twentyWebUrl = () => config.twenty?.webUrl ?? null;
 
 type PeopleResult = { people: { edges: { node: { id: string; linkedinLink?: { primaryLinkUrl?: string | null } | null } }[] } };
 
@@ -234,4 +234,103 @@ export async function tasksByIds(ids: string[]) {
     { filter: { id: { in: ids } } },
   );
   return new Map(data.tasks.edges.map((e) => [e.node.id, e.node]));
+}
+
+// ---------- Choosing a Person (bind to existing / add as new) ----------
+
+export interface PersonCandidate {
+  id: string;
+  name: string;
+  jobTitle: string | null;
+  company: string | null;
+  city: string | null;
+  email: string | null;
+  linkedin: string | null;
+  owner: string | null;
+}
+
+type PersonNode = {
+  id: string;
+  name?: { firstName?: string | null; lastName?: string | null } | null;
+  jobTitle?: string | null;
+  city?: string | null;
+  emails?: { primaryEmail?: string | null } | null;
+  linkedinLink?: { primaryLinkUrl?: string | null } | null;
+  company?: { name?: string | null } | null;
+  [owner: string]: unknown;
+};
+
+const candidate = (n: PersonNode, ownerField: string | null): PersonCandidate => {
+  const owner = ownerField ? (n[ownerField] as { name?: { firstName?: string; lastName?: string } } | null) : null;
+  return {
+    id: n.id,
+    name: `${n.name?.firstName ?? ''} ${n.name?.lastName ?? ''}`.trim() || '(no name)',
+    jobTitle: n.jobTitle ?? null,
+    company: n.company?.name ?? null,
+    city: n.city ?? null,
+    email: n.emails?.primaryEmail ?? null,
+    linkedin: n.linkedinLink?.primaryLinkUrl ?? null,
+    owner: owner?.name ? `${owner.name.firstName ?? ''} ${owner.name.lastName ?? ''}`.trim() || null : null,
+  };
+};
+
+/**
+ * People to bind a prospect to, for a teammate to choose from: every word of the search in the first name, last
+ * name or email, plus everyone with the prospect's LinkedIn link. Shows the owner when Person has the owner field.
+ */
+export async function searchPeople(q: string, profileUrl: string | null, ownerField: string | null): Promise<PersonCandidate[]> {
+  const words = q
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.replace(/[%_]/g, ''))
+    .filter((w) => w.length >= 2)
+    .slice(0, 4);
+  const key = linkedinKey(profileUrl);
+  const or: unknown[] = [];
+  if (words.length) {
+    or.push({
+      and: words.map((w) => ({
+        or: [
+          { name: { firstName: { ilike: `%${w}%` } } },
+          { name: { lastName: { ilike: `%${w}%` } } },
+          { emails: { primaryEmail: { ilike: `%${w}%` } } },
+        ],
+      })),
+    });
+  }
+  if (key) or.push({ linkedinLink: { primaryLinkUrl: { ilike: `%${key.replace(/[%_]/g, '')}%` } } });
+  if (!or.length) return [];
+  const ownerSelect = ownerField ? `${ownerField} { name { firstName lastName } }` : '';
+  const data = await twentyQuery<{ people: { edges: { node: PersonNode }[] } }>(
+    `query LinkedInConsoleSearchPeople($filter: PersonFilterInput) {
+      people(filter: $filter, first: 15) {
+        edges { node { id name { firstName lastName } jobTitle city emails { primaryEmail } linkedinLink { primaryLinkUrl }
+          company { name } ${ownerSelect} } }
+      }
+    }`,
+    { filter: { or } },
+  );
+  return data.people.edges.map((e) => candidate(e.node, ownerField));
+}
+
+/** One Person with its current owner (member id) and pod, or null when it doesn't exist. */
+export async function personById(
+  id: string,
+  fields: { ownerField: string | null; podField: string | null },
+): Promise<{ id: string; linkedin: string | null; ownerId: string | null; pod: string | null } | null> {
+  const extra = [fields.ownerField ? `${fields.ownerField}Id` : '', fields.podField ?? ''].filter(Boolean).join(' ');
+  const data = await twentyQuery<{ people: { edges: { node: Record<string, any> }[] } }>(
+    `query LinkedInConsolePerson($filter: PersonFilterInput) {
+      people(filter: $filter, first: 1) { edges { node { id linkedinLink { primaryLinkUrl } ${extra} } } }
+    }`,
+    { filter: { id: { eq: id } } },
+  );
+  const n = data.people.edges[0]?.node;
+  if (!n) return null;
+  return {
+    id: n.id,
+    linkedin: n.linkedinLink?.primaryLinkUrl ?? null,
+    ownerId: fields.ownerField ? (n[`${fields.ownerField}Id`] ?? null) : null,
+    pod: fields.podField ? (n[fields.podField] ?? null) : null,
+  };
 }

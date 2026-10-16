@@ -13,6 +13,7 @@ import microsoftRoutes from './modules/auth/microsoft.ts';
 import authRoutes from './modules/auth/routes.ts';
 import messageRoutes from './modules/conversations/messages.ts';
 import conversationRoutes from './modules/conversations/routes.ts';
+import crmRoutes from './modules/crm/routes.ts';
 import dataRoutes from './modules/data/routes.ts';
 import fileRoutes from './modules/files/routes.ts';
 import labelRoutes from './modules/labels/routes.ts';
@@ -40,6 +41,7 @@ const MODULES = [
   liveRoutes,
   auditRoutes,
   activityRoutes,
+  crmRoutes,
   webhookRoutes,
   pushRoutes,
   aiRoutes,

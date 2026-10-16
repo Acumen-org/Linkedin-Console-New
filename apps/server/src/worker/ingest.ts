@@ -320,7 +320,8 @@ export async function onContacts(accountId: string, data: BridgeEventMap['contac
   const urns = rows.map((r) => r.memberUrn).filter((u): u is string => typeof u === 'string' && u.startsWith('urn:li:'));
   if (urns.length) {
     await sql`
-      UPDATE conversations SET crm_binding = NULL WHERE crm_binding = 'needed' AND participants->0->>'urn' IN ${sql(urns)}`;
+      UPDATE conversations SET crm_binding = NULL
+      WHERE crm_binding = 'needed' AND crm_binding_at <> 'infinity' AND participants->0->>'urn' IN ${sql(urns)}`;
   }
   if (data.items.length) await publish(accountRoom(accountId), 'connections.updated', { accountId, count: data.items.length });
 }

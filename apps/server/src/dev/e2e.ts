@@ -16,7 +16,7 @@ import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
-import { markForReview } from '../worker/crm-binding.ts';
+import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { recoverAccounts } from '../worker/recovery.ts';
@@ -127,23 +127,72 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
       );
       return json({ data: { people: { edges: hits.map((x) => ({ node: { id: x.id, linkedinLink: { primaryLinkUrl: x.linkedin } } })) } } });
     }
+    if (q.includes('LinkedInConsoleSearchPeople')) {
+      const words: string[] = [];
+      let link: string | null = null;
+      for (const part of variables.filter.or) {
+        if (part.and) for (const w of part.and) words.push(String(w.or[0].name.firstName.ilike).replaceAll('%', '').toLowerCase());
+        if (part.linkedinLink) link = String(part.linkedinLink.primaryLinkUrl.ilike).replaceAll('%', '').toLowerCase();
+      }
+      const hits = twentyPeople.filter(
+        (x) =>
+          (words.length && words.every((w) => `${x.firstName} ${x.lastName}`.toLowerCase().includes(w))) ||
+          (link && (x.linkedin ?? '').toLowerCase().includes(link)),
+      );
+      return json({
+        data: {
+          people: {
+            edges: hits.map((x) => ({
+              node: {
+                id: x.id,
+                name: { firstName: x.firstName, lastName: x.lastName },
+                jobTitle: x.jobTitle ?? null,
+                city: null,
+                emails: { primaryEmail: null },
+                linkedinLink: { primaryLinkUrl: x.linkedin },
+                company: null,
+                ...(q.includes('assignedTo {')
+                  ? { assignedTo: x.fields?.assignedToId ? { name: { firstName: 'Owner', lastName: 'Set' } } : null }
+                  : {}),
+              },
+            })),
+          },
+        },
+      });
+    }
+    if (q.includes('LinkedInConsolePerson(')) {
+      const x = twentyPeople.find((y) => y.id === variables.filter.id.eq);
+      const node = x
+        ? {
+            id: x.id,
+            linkedinLink: { primaryLinkUrl: x.linkedin },
+            assignedToId: x.fields?.assignedToId ?? null,
+            pod: x.fields?.pod ?? null,
+          }
+        : null;
+      return json({ data: { people: { edges: node ? [{ node }] : [] } } });
+    }
     if (q.includes('LinkedInConsoleUpdatePerson')) {
       const person = twentyPeople.find((x) => x.id === variables.id);
       if (!person) return json({ errors: [{ message: 'Record not found' }] });
       for (const k of Object.keys(variables.input))
-        if (!twentyFieldNames.has(k)) return json({ errors: [{ message: `Field ${k} not found` }] });
+        if (!twentyFieldNames.has(k) && !twentyFieldNames.has(k.replace(/Id$/, '')))
+          return json({ errors: [{ message: `Field ${k} not found` }] });
+      if (variables.input.linkedinLink) person.linkedin = variables.input.linkedinLink.primaryLinkUrl;
       person.fields = { ...person.fields, ...variables.input };
       return json({ data: { updatePerson: { id: person.id } } });
     }
     if (q.includes('LinkedInConsoleCreatePerson')) {
       twentyCreated++;
       const i = variables.input;
+      const { name: _n, linkedinLink: _l, jobTitle: _j, ...fields } = i;
       const person = {
         id: crypto.randomUUID(),
         firstName: i.name.firstName,
         lastName: i.name.lastName,
         linkedin: i.linkedinLink?.primaryLinkUrl ?? null,
         jobTitle: i.jobTitle ?? null,
+        fields,
       };
       twentyPeople.push(person);
       return json({ data: { createPerson: { id: person.id } } });
@@ -1555,6 +1604,119 @@ try {
         'nothing deleted',
       );
     });
+    await step(
+      'Twenty CRM by hand: bind to existing or add as new, owner and pod, one Person per prospect, admin unbind, nudge',
+      async () => {
+        // This workspace has an owner relation and a pod field; the teammate is linked to their Twenty user and pod.
+        twentyFieldNames.set('assignedTo', 'RELATION');
+        twentyFieldNames.set('pod', 'TEXT');
+        const memberTwentyId = crypto.randomUUID();
+        assert.equal((await member('PATCH', `/api/users/${memberId}`, { pod: 'Pod B' })).status, 403, 'admins link teammates');
+        assert.equal((await owner('PATCH', `/api/users/${memberId}`, { twentyMemberId: memberTwentyId, pod: 'Pod A' })).status, 200);
+        const listed = (await owner('GET', '/api/users')).data.find((u: any) => u.id === memberId);
+        assert.equal(listed.pod, 'Pod A');
+
+        // Raj waits (same-name Person without a link). The teammate sees why and finds that Person by name.
+        const state = await member('GET', `/api/conversations/${rajId}/crm`);
+        assert.equal(state.data.binding, 'needed');
+        assert.equal(state.data.owner.field, 'assignedTo');
+        assert.equal(state.data.pod.field, 'pod');
+        const found = await member('GET', `/api/conversations/${rajId}/crm/candidates`);
+        assert.ok(
+          found.data.some((c: any) => c.id === rajInTwenty),
+          JSON.stringify(found.data),
+        );
+        assert.equal((await reader('GET', `/api/conversations/${rajId}/crm/candidates`)).status, 403, 'READ cannot bind');
+        const view = await member('GET', `/api/conversations?accountId=${accountId}&view=crm_needed`);
+        assert.ok(
+          view.data.some((c: any) => c.id === rajId),
+          'Needs CRM binding view',
+        );
+
+        // Bind to existing: owner and pod filled because empty; his messages then become notes.
+        const bound = await member('POST', `/api/conversations/${rajId}/crm/bind`, { personId: rajInTwenty });
+        assert.equal(bound.status, 200, JSON.stringify(bound.data));
+        const raj = twentyPeople.find((x) => x.id === rajInTwenty)!;
+        assert.equal(raj.fields?.assignedToId, memberTwentyId);
+        assert.equal(raj.fields?.pod, 'Pod A');
+        assert.equal((await sql`SELECT crm_binding FROM conversations WHERE id = ${rajId}`)[0].crmBinding, 'bound');
+        await until(
+          async () => {
+            await crmSyncTick();
+            return twentyNotes.filter((n) => n.personId === rajInTwenty).length;
+          },
+          (n) => n > 0,
+          'notes on Raj after binding',
+          60_000,
+        );
+
+        // Twins (two Persons have the link): Add as new is refused (it would be a duplicate); bind keeps an existing owner.
+        const [twin] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('TWIN')}`;
+        const add = await member('POST', `/api/conversations/${twin.id}/crm/add`);
+        assert.equal(add.status, 409);
+        assert.match(add.data.error, /already has this LinkedIn profile/);
+        const twinA = twentyPeople.find((x) => x.firstName === 'Twin' && x.lastName === 'A')!;
+        twinA.fields = { assignedToId: 'someone-else', pod: null };
+        assert.equal((await member('POST', `/api/conversations/${twin.id}/crm/bind`, { personId: twinA.id })).status, 200);
+        assert.equal(twinA.fields?.assignedToId, 'someone-else', 'an existing owner is never overwritten');
+        assert.equal(twinA.fields?.pod, 'Pod A', 'an empty pod is filled');
+
+        // Add as new: Lina (not in Twenty): one Person with owner, pod, source and her LinkedIn link.
+        const [lina] = await sql`SELECT id FROM conversations WHERE thread_urn = ${conv('LINA')}`;
+        const created = await member('POST', `/api/conversations/${lina.id}/crm/add`);
+        assert.equal(created.status, 200, JSON.stringify(created.data));
+        assert.equal(twentyCreated, 1);
+        const linaPerson = twentyPeople.find((x) => x.id === created.data.personId)!;
+        assert.equal(linaPerson.fields?.assignedToId, memberTwentyId);
+        assert.equal(linaPerson.fields?.pod, 'Pod A');
+        assert.equal(linaPerson.fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE');
+        assert.equal(linaPerson.linkedin, `https://www.linkedin.com/in/lina-${tag}/`);
+        assert.equal((await member('POST', `/api/conversations/${lina.id}/crm/add`)).status, 409, 'already bound');
+
+        // A second chat with Lina (another thread) lands on the same Person by itself.
+        const linaUrn = `urn:li:fsd_profile:LINA${tag}`;
+        await emit('conversations', [
+          {
+            urn: conv('LINA2'),
+            threadId: `2-LINA2${tag}`,
+            title: null,
+            isGroup: false,
+            unreadCount: 0,
+            lastActivityAt: Date.now(),
+            folder: 'focused',
+            participants: [person(linaUrn, 'Lina E2E')],
+          },
+        ]);
+        await emit('messages', [msg('LINA2', person(linaUrn, 'Lina E2E'), 'Me again', Date.now())]);
+        await until(
+          async () => {
+            await crmSyncTick();
+            return (await sql`SELECT twenty_person_id FROM conversations WHERE thread_urn = ${conv('LINA2')}`)[0]?.twentyPersonId;
+          },
+          (id) => id === linaPerson.id,
+          'same Person for the second chat',
+          60_000,
+        );
+        assert.equal(twentyCreated, 1, 'no second Person');
+
+        // An admin unbinds (wrong Person): Raj waits again and is never bound back by itself.
+        assert.equal((await member('POST', `/api/conversations/${rajId}/crm/unbind`)).status, 403);
+        assert.equal((await owner('POST', `/api/conversations/${rajId}/crm/unbind`)).status, 200);
+        await crmSyncTick();
+        const unbound = (await sql`SELECT crm_binding, crm_binding_reason, twenty_person_id FROM conversations WHERE id = ${rajId}`)[0];
+        assert.equal(unbound.crmBinding, 'needed');
+        assert.equal(unbound.twentyPersonId, null);
+        assert.match(unbound.crmBindingReason, /Unbound by/);
+
+        // A reply waiting more than a business day: the teammate is nudged, once.
+        await sql`UPDATE conversations SET crm_binding_at = now() - interval '6 days', crm_nudged_at = NULL WHERE thread_urn = ${conv('TWIN')}`;
+        await sql`UPDATE conversations SET crm_binding = 'needed', twenty_person_id = NULL WHERE thread_urn = ${conv('TWIN')}`;
+        assert.ok((await nudgeUnbound()) >= 1);
+        assert.equal(await nudgeUnbound(), 0, 'once');
+        const audited = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${linaPerson.id}`;
+        assert.equal(audited[0]?.meta.method, 'new');
+      },
+    );
   } else {
     console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
   }

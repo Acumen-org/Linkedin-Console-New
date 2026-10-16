@@ -60,6 +60,17 @@ const Env = z.object({
   // Twenty CRM (optional): GraphQL endpoint (https://…/graphql) and an API key (Settings → APIs in Twenty).
   TWENTY_API_URL: z.union([z.literal(''), z.url()]).default(''),
   TWENTY_API_KEY: z.string().default(''),
+  // Twenty's web app (for "Open in Twenty"), when it isn't the API address without /graphql.
+  TWENTY_WEB_URL: z.union([z.literal(''), z.url()]).default(''),
+  // Person fields for the owner (a relation to a workspace member) and the pod (text or select).
+  TWENTY_PERSON_OWNER_FIELD: z
+    .string()
+    .regex(/^[a-zA-Z][a-zA-Z0-9]*$/)
+    .default('assignedTo'),
+  TWENTY_PERSON_POD_FIELD: z
+    .string()
+    .regex(/^[a-zA-Z][a-zA-Z0-9]*$/)
+    .default('pod'),
   // Log prospects and their LinkedIn messages in Twenty (people + notes), from the moment this is switched on.
   CRM_SYNC: z.enum(['off', 'on']).default('off'),
   STAFF_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
@@ -126,7 +137,16 @@ export const config = {
   passwordSignin: e.PASSWORD_SIGNIN,
   crmSync: e.CRM_SYNC === 'on',
   autoRecovery: e.AUTO_RECOVERY === 'on',
-  twenty: e.TWENTY_API_URL && e.TWENTY_API_KEY ? { url: e.TWENTY_API_URL, apiKey: e.TWENTY_API_KEY } : null,
+  twenty:
+    e.TWENTY_API_URL && e.TWENTY_API_KEY
+      ? {
+          url: e.TWENTY_API_URL,
+          apiKey: e.TWENTY_API_KEY,
+          webUrl: (e.TWENTY_WEB_URL || e.TWENTY_API_URL.replace(/\/graphql\/?$/, '')).replace(/\/$/, ''),
+          ownerField: e.TWENTY_PERSON_OWNER_FIELD,
+          podField: e.TWENTY_PERSON_POD_FIELD,
+        }
+      : null,
   staffSync: {
     mode: e.STAFF_SYNC,
     source: e.STAFF_SOURCE,

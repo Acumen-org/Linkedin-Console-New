@@ -6,6 +6,7 @@ import {
   Hourglass,
   Inbox as InboxIcon,
   Layers,
+  Link2,
   Lock,
   Mail,
   MessagesSquare,
@@ -23,7 +24,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Avatar, Empty, LabelChip, StatusDot } from '../../components/ui';
 import { api, qs } from '../../lib/api';
 import { conversationTitle, timeAgo } from '../../lib/format';
-import { useLabels } from '../../lib/queries';
+import { useAppConfig, useLabels } from '../../lib/queries';
 import type { Account, Conversation } from '../../types';
 import { isSyncing, SyncProgress } from '../accounts/SyncProgress';
 import { isOverdue } from './ConversationActions';
@@ -35,6 +36,7 @@ const VIEWS = [
   { id: 'replied', label: 'Replied', icon: Reply },
   { id: 'no_reply', label: 'No reply yet', icon: SendHorizontal },
   { id: 'followups', label: 'Follow-ups', icon: BellRing },
+  { id: 'crm_needed', label: 'Needs CRM binding', icon: Link2 },
   { id: 'unread', label: 'Unread', icon: Mail },
   { id: 'awaiting', label: 'Awaiting reply', icon: Hourglass },
   { id: 'starred', label: 'Starred', icon: Star },
@@ -55,6 +57,7 @@ export function InboxPage() {
   const newChat = !conversationId && accountId ? params.get('newChat') : null;
   const threadOpen = !!conversationId || !!newChat;
   const labels = useLabels();
+  const appConfig = useAppConfig();
   const [search, setSearch] = useState(params.get('q') ?? '');
   const [q, setQ] = useState(search);
   useEffect(() => {
@@ -93,7 +96,7 @@ export function InboxPage() {
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">Inbox</div>
         <div className="flex-1 overflow-y-auto p-2">
-          {VIEWS.map((v) => (
+          {VIEWS.filter((v) => v.id !== 'crm_needed' || !!appConfig.data?.twentyUrl).map((v) => (
             <button
               key={v.id}
               onClick={() => setParam('view', v.id === 'all' ? '' : v.id)}

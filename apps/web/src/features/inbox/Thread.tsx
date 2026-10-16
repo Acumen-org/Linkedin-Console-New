@@ -12,6 +12,7 @@ import { toast } from '../../lib/toast';
 import type { Conversation, Message, Note, User } from '../../types';
 import { Composer } from './Composer';
 import { LabelPicker, ReminderMenu, SnoozeMenu } from './ConversationActions';
+import { CrmBindingBar } from './CrmBinding';
 import { MessageBubble } from './MessageBubble';
 
 export function Thread({ conversationId }: { conversationId: string }) {
@@ -223,6 +224,8 @@ export function Thread({ conversationId }: { conversationId: string }) {
             </Link>
           )}
         </div>
+
+        <CrmBindingBar conversation={c} canReply={canReply} />
 
         {/* Messages */}
         <div
