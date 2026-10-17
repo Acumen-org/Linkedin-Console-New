@@ -1422,6 +1422,12 @@ try {
     assert.ok(m && m.sent >= 1, JSON.stringify(r.data.staff));
     assert.ok(m.conversations >= 1);
     assert.ok(m.lastActiveAt);
+    // Outreach report fields (per rep and pod): present and well-typed.
+    assert.ok('pod' in m, 'pod field present');
+    assert.equal(typeof m.replies, 'number');
+    assert.ok(m.replies <= m.newChats, 'replies never exceed new chats');
+    assert.equal(typeof m.followupsOpen, 'number');
+    assert.equal(typeof m.followupsOverdue, 'number');
     assert.equal((await member('GET', '/api/activity/staff')).status, 403, 'staff cannot see it');
     assert.equal((await reader('GET', '/api/activity/staff')).status, 403);
 

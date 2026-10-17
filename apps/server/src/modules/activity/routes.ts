@@ -44,23 +44,39 @@ export default async function activityRoutes(app: FastifyInstance) {
         SELECT m.sent_by_user_id, m.conversation_id, m.status, m.created_at,
                -- First message of the conversation = a new chat this teammate started.
                NOT EXISTS (SELECT 1 FROM messages p WHERE p.conversation_id = m.conversation_id AND p.sent_at < m.sent_at) AS opened,
+               -- Did that new chat get a reply from the prospect afterwards (outreach that worked)?
+               EXISTS (SELECT 1 FROM messages r WHERE r.conversation_id = m.conversation_id AND r.direction = 'INBOUND' AND r.sent_at > m.sent_at) AS got_reply,
                -- Time to reply: from the prospect's message just before this one (if the last word was theirs).
                (SELECT CASE WHEN p.direction = 'INBOUND' THEN extract(epoch FROM m.sent_at - p.sent_at) END
                 FROM messages p WHERE p.conversation_id = m.conversation_id AND p.sent_at < m.sent_at
                 ORDER BY p.sent_at DESC LIMIT 1) AS reply_seconds
         FROM messages m WHERE ${sentWhere(from, to, q.accountId)}
+      ),
+      -- Open follow-ups, charged to the teammate responsible for the conversation (its assignee, else who set it).
+      followups AS (
+        SELECT coalesce(c.assigned_to, r.created_by) AS user_id,
+               count(*)::int AS open,
+               count(*) FILTER (WHERE r.due_at <= now())::int AS overdue
+        FROM reminders r JOIN conversations c ON c.id = r.conversation_id
+        WHERE r.status = 'OPEN' ${q.accountId ? sql`AND r.account_id = ${q.accountId}` : sql``}
+        GROUP BY coalesce(c.assigned_to, r.created_by)
       )
-      SELECT u.id, u.name, u.email, u.role, u.disabled_at,
+      SELECT u.id, u.name, u.email, u.role, u.disabled_at, u.pod,
              count(s.*) FILTER (WHERE s.status = 'SENT')::int AS sent,
              count(s.*) FILTER (WHERE s.status = 'FAILED')::int AS failed,
              count(DISTINCT s.conversation_id)::int AS conversations,
              count(DISTINCT s.conversation_id) FILTER (WHERE s.opened AND s.status = 'SENT')::int AS new_chats,
+             count(DISTINCT s.conversation_id) FILTER (WHERE s.opened AND s.status = 'SENT' AND s.got_reply)::int AS replies,
              round(percentile_cont(0.5) WITHIN GROUP (ORDER BY s.reply_seconds) / 60)::int AS median_reply_minutes,
+             coalesce(f.open, 0) AS followups_open,
+             coalesce(f.overdue, 0) AS followups_overdue,
              max(s.created_at) AS last_active_at
-      FROM users u LEFT JOIN sent s ON s.sent_by_user_id = u.id
+      FROM users u
+      LEFT JOIN sent s ON s.sent_by_user_id = u.id
+      LEFT JOIN followups f ON f.user_id = u.id
       WHERE u.role <> 'AUDITOR'
-      GROUP BY u.id
-      HAVING count(s.*) > 0 OR (u.role = 'MEMBER' AND u.disabled_at IS NULL)
+      GROUP BY u.id, f.open, f.overdue
+      HAVING count(s.*) > 0 OR coalesce(f.open, 0) > 0 OR (u.role = 'MEMBER' AND u.disabled_at IS NULL)
       ORDER BY count(s.*) DESC, u.name`;
     return { from: from.toISOString(), to: to.toISOString(), staff: rows };
   });
