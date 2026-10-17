@@ -13,7 +13,7 @@ import { IDLE_URL, jitter, sleep } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
 import { extract } from './extract.ts';
 import { conversationsFromPage, threadIdFromPath } from './inbox-dom.ts';
-import { encodeUrn, forgetTemplate, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
+import { encodeUrn, forgetTemplate, hasSessionCookie, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import type { Command } from './streams.ts';
 
@@ -263,6 +263,44 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
 
   /** Background syncs report when they're done (the app tracks first-sync progress and retries). */
   const done = (cmd: Command, outcome: Outcome) => result(cmd, outcome);
+
+  /**
+   * Log back in with the stored LinkedIn password after LinkedIn signed the account out. Fills the login form
+   * and submits; if LinkedIn then asks for 2FA or a CAPTCHA, we stop and leave it for a person (never solved
+   * here). The password is used only to fill the form — never logged.
+   */
+  async function login(cmd: Extract<Command, { type: 'login' }>) {
+    try {
+      const outcome = await ctx.pageLock(async () => {
+        await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        const pass = page.locator('#password');
+        if (await pass.count()) {
+          const user = page.locator('#username');
+          if (await user.count()) await user.fill(cmd.username);
+          await pass.fill(cmd.password);
+          await page
+            .locator('button[type=submit]')
+            .first()
+            .click()
+            .catch(() => {});
+          await page.waitForLoadState('domcontentloaded', { timeout: 60_000 }).catch(() => {});
+          await sleep(4000);
+        }
+        const url = page.url();
+        // A human step LinkedIn now wants (one-time code, device check, puzzle): leave it alone.
+        const challenged = /\/(checkpoint|challenge)\b|two-step|verification|captcha/i.test(url);
+        return { loggedIn: await hasSessionCookie(ctx), challenged };
+      });
+      await checkSession(); // let the health monitor set CONNECTED (or keep NEEDS_ATTENTION)
+      logger.info({ ok: outcome.loggedIn, challenge: outcome.challenged }, 'auto login attempt');
+      return done(cmd, {
+        ok: outcome.loggedIn,
+        error: outcome.loggedIn ? undefined : outcome.challenged ? 'needs a person (2FA or CAPTCHA)' : 'login not accepted',
+      });
+    } catch (e) {
+      return done(cmd, { ok: false, error: (e as Error).message.split('\n')[0] });
+    }
+  }
   const attempt = async (cmd: Command, fn: () => Promise<unknown>) => {
     try {
       await fn();
@@ -274,6 +312,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
 
   return async function handle(cmd: Command): Promise<unknown> {
     if (cmd.type === 'check_session') return checkSession();
+    if (cmd.type === 'login') return login(cmd); // runs while signed out, so before the CONNECTED-only guard
     if (cmd.type === 'fetch_media') return downloads(() => fetchMedia(cmd));
     if (cmd.type === 'send_message' || cmd.type === 'start_chat') return sends(() => send(cmd));
     // Someone opened this conversation: its history goes before the rest of the background work.

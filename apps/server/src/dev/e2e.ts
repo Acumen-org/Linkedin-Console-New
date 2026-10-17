@@ -2325,6 +2325,28 @@ try {
     assert.equal((await owner('DELETE', `/api/accounts/${accountId}/credentials`)).status, 200);
   });
 
+  await step('auto re-login: the stored password is sent to the browser when LinkedIn signs out, throttled', async () => {
+    await sql`UPDATE accounts SET status = 'CONNECTED' WHERE id = ${accountId}`;
+    assert.equal(
+      (await owner('PUT', `/api/accounts/${accountId}/credentials`, { username: 'auto@e2e.test', password: 'auto-pw' })).status,
+      200,
+    );
+    await blocking.del(`lu:autologin:${accountId}`);
+    const before = commands.length;
+    await emit('session', { status: 'NEEDS_ATTENTION', self: null });
+    const loginCmd: any = await until(async () => commands.slice(before).find((c) => c.type === 'login'), Boolean, 'auto login command sent');
+    assert.equal(loginCmd.username, 'auto@e2e.test');
+    // Throttled: another sign-out within the window does not trigger a second login.
+    const after = commands.length;
+    await emit('session', { status: 'NEEDS_ATTENTION', self: null });
+    await sleep(500);
+    assert.equal(commands.slice(after).filter((c) => c.type === 'login').length, 0, 'not retried within the throttle window');
+    // Clean up.
+    await blocking.del(`lu:autologin:${accountId}`);
+    await owner('DELETE', `/api/accounts/${accountId}/credentials`);
+    await sql`UPDATE accounts SET status = 'CONNECTED' WHERE id = ${accountId}`;
+  });
+
   await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {
     const stub = (who: string, participants: any[], at: number) => ({
       urn: conv(who),

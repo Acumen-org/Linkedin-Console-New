@@ -17,6 +17,7 @@ import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newId } from '../lib/ids.ts';
 import { publish, redis } from '../lib/redis.ts';
+import { credentialsEnabled, decryptSecret } from '../lib/secretbox.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
 import { catchUp, catchUpWindow, missedWhileAway, refreshFirstSync, startFirstSync } from './first-sync.ts';
@@ -326,6 +327,25 @@ export async function onContacts(accountId: string, data: BridgeEventMap['contac
   if (data.items.length) await publish(accountRoom(accountId), 'connections.updated', { accountId, count: data.items.length });
 }
 
+/** One auto re-login attempt per window: a failed one (2FA/CAPTCHA) must not hammer LinkedIn or risk a lockout. */
+const AUTO_LOGIN_EVERY_SEC = 30 * 60;
+
+/** LinkedIn signed the account out: if a password is stored, tell the browser to log back in by itself. */
+async function maybeAutoLogin(accountId: string) {
+  if (!credentialsEnabled()) return;
+  if (!(await redis.set(`lu:autologin:${accountId}`, '1', 'EX', AUTO_LOGIN_EVERY_SEC, 'NX'))) return;
+  const [a] = await sql`SELECT li_username, li_password_enc FROM accounts WHERE id = ${accountId}`;
+  if (!a?.liUsername || !a?.liPasswordEnc) return;
+  let password: string;
+  try {
+    password = decryptSecret(a.liPasswordEnc);
+  } catch {
+    return;
+  }
+  await sendCommand(accountId, { type: 'login', username: a.liUsername as string, password });
+  await audit({ accountId, action: 'account.auto_login' });
+}
+
 export async function onSession(accountId: string, data: BridgeEventMap['session']) {
   const [before] = await sql`SELECT status FROM accounts WHERE id = ${accountId}`;
   if (!before) return;
@@ -357,6 +377,8 @@ export async function onSession(accountId: string, data: BridgeEventMap['session
       if (!(await startFirstSync(accountId))) await catchUp(accountId);
     }
   }
+  // Signed out (or never signed in) but a password is stored: have the browser log back in by itself.
+  if (data.status === 'NEEDS_ATTENTION' || data.status === 'AWAITING_LOGIN') await maybeAutoLogin(accountId).catch(() => {});
 }
 
 /**

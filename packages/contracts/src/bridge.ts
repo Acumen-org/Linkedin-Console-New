@@ -169,6 +169,8 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'mark_read'; threadId: string }
   | { type: 'fetch_media'; url: string }
   | { type: 'check_session' }
+  /** Log back in with the stored LinkedIn password when the session dropped (2FA/CAPTCHA still needs a human). */
+  | { type: 'login'; username: string; password: string }
 );
 
 export type FetchMediaReply = { ok: true; path: string; mime: string; size: number } | { ok: false; error: string };
