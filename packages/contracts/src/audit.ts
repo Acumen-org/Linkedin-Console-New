@@ -37,6 +37,8 @@ export const AUDIT_ACTIONS = {
   'account.imported': { label: 'Imported a LinkedIn data archive', category: 'account' },
   'account.auto_paused': { label: 'Sending paused automatically (LinkedIn warning)', category: 'account' },
   'account.grants_changed': { label: 'Changed who can access an account', category: 'account' },
+  'account.credentials_set': { label: 'Set the stored LinkedIn login', category: 'account' },
+  'account.credentials_cleared': { label: 'Removed the stored LinkedIn login', category: 'account' },
   'user.created': { label: 'Added a teammate', category: 'user' },
   'user.updated': { label: 'Changed a teammate', category: 'user' },
   'user.owner_transferred': { label: 'Handed over ownership', category: 'user' },

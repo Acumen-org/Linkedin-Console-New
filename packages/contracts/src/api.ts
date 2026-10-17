@@ -94,6 +94,8 @@ export interface Account {
   /** Automatic follow-up after this many business days without a reply (0 = off). */
   followupDays?: number;
   hasProxy: boolean;
+  /** A LinkedIn login (email + password) is stored for this account (the password is never returned). */
+  hasCredentials?: boolean;
   lastSeenAt: string | null;
   /** Since when the browser has been reporting without a break (null while it is down). */
   onlineSince?: string | null;

@@ -1,5 +1,19 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, LogIn, MonitorPlay, Pause, Play, Plug, Plus, RotateCw, Settings2, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import {
+  History,
+  KeyRound,
+  LogIn,
+  MonitorPlay,
+  Pause,
+  Play,
+  Plug,
+  Plus,
+  RotateCw,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../../App';
@@ -85,7 +99,9 @@ function AccountCard({
 }) {
   const me = useMe();
   const qc = useQueryClient();
+  const [showCreds, setShowCreds] = useState(false);
   const full = a.level === 'FULL';
+  const ownerOrAdmin = isAdmin(me) || a.ownerUserId === me.id;
   const needsLogin = a.status === 'AWAITING_LOGIN' || a.status === 'NEEDS_ATTENTION';
   const canLogin = full || a.ownerUserId === me.id;
   // The account's browser stopped (server restart, crash, update): start it again, then log in if LinkedIn asks.
@@ -216,7 +232,20 @@ function AccountCard({
             >
               <RotateCw size={16} />
             </button>
-            {(isAdmin(me) || a.ownerUserId === me.id) && (
+            {ownerOrAdmin && (
+              <button
+                onClick={() => setShowCreds(true)}
+                className={`btn-ghost ${a.hasCredentials ? 'text-emerald-600' : ''}`}
+                title={
+                  a.hasCredentials
+                    ? 'LinkedIn login saved — update it'
+                    : 'Save the LinkedIn login (for the Live-window gate and auto re-login)'
+                }
+              >
+                <KeyRound size={16} />
+              </button>
+            )}
+            {ownerOrAdmin && (
               <button onClick={remove} className="btn-ghost text-red-600" title="Disconnect">
                 <Trash2 size={16} />
               </button>
@@ -224,6 +253,7 @@ function AccountCard({
           </>
         )}
       </div>
+      {showCreds && <CredentialsModal a={a} onClose={() => setShowCreds(false)} />}
     </div>
   );
 }
@@ -395,6 +425,82 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
 }
 
 type GrantRow = { userId: string; name: string; role: string; level: Level | null };
+
+function CredentialsModal({ a, onClose }: { a: Account; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const done = (msg: string) => {
+    qc.invalidateQueries({ queryKey: ['accounts'] });
+    toast(msg, 'success');
+    onClose();
+  };
+  const save = async () => {
+    try {
+      await api.put(`/api/accounts/${a.id}/credentials`, { username: username.trim(), password });
+      done('LinkedIn login saved');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  const clear = async () => {
+    if (!confirm('Remove the stored LinkedIn login?')) return;
+    try {
+      await api.del(`/api/accounts/${a.id}/credentials`);
+      done('LinkedIn login removed');
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+  return (
+    <Modal title={`LinkedIn login · ${a.label}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Stored encrypted on your server. It opens the Live window and lets the browser log back in by itself when LinkedIn signs out (a
+          2FA or CAPTCHA prompt still needs a person). The password is never shown again.
+        </p>
+        <div>
+          <label className="label">LinkedIn email</label>
+          <input
+            className="input"
+            autoComplete="off"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={a.hasCredentials ? 'Saved — type to replace' : 'name@example.com'}
+          />
+        </div>
+        <div>
+          <label className="label">LinkedIn password</label>
+          <input
+            className="input"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={a.hasCredentials ? 'Saved — type to replace' : ''}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          {a.hasCredentials ? (
+            <button className="btn-ghost text-red-600" onClick={clear}>
+              Remove
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={save} disabled={!username.trim() || !password}>
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function GrantsModal({ a, onClose }: { a: Account; onClose: () => void }) {
   const grants = useQuery({ queryKey: ['grants', a.id], queryFn: () => api.get<GrantRow[]>(`/api/accounts/${a.id}/grants`) });

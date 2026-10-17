@@ -13,6 +13,7 @@ import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newAccountId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
+import { credentialsEnabled, encryptSecret } from '../../lib/secretbox.ts';
 import { firstSyncRunning, loadAllChats, restartFirstSync, retryMissingHistory, syncReport } from '../../worker/first-sync.ts';
 
 const Timezone = z.string().regex(/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+)*$/, 'Invalid timezone');
@@ -27,7 +28,8 @@ const ProxyUrl = z
 export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
-  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy, a.sync_state AS sync,
+  (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy,
+  (a.li_password_enc IS NOT NULL) AS has_credentials, a.sync_state AS sync,
   a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, a.inbox_check, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
 
 async function loadAccount(id: string) {
@@ -159,6 +161,41 @@ export default async function accountRoutes(app: FastifyInstance) {
     await redis.del(`li:cmd:${id}`, `li:tpl:${id}`, `li:ever:${id}`, `li:bridge-target:${id}`);
     await audit({ userId: user.id, action: 'account.deleted', accountLabel: a.label, meta: { accountId: id }, ip: req.ip, req });
     await publish(`acc:${id}`, 'account.deleted', { id });
+    return { ok: true };
+  });
+
+  // The LinkedIn login (email + password), set by the owner or an admin. The password is encrypted at rest and
+  // never returned; it gates the Live window and lets the browser log back in by itself when LinkedIn signs out.
+  app.put('/api/accounts/:id/credentials', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'FULL');
+    const [a] = await sql`SELECT owner_user_id FROM accounts WHERE id = ${id}`;
+    if (!a) throw new HttpError(404, 'Account not found');
+    if (!isAdminRole(user.role) && a.ownerUserId !== user.id)
+      throw new HttpError(403, 'Only the account owner or an admin can set the LinkedIn login');
+    if (!credentialsEnabled()) throw new HttpError(400, 'Storing a LinkedIn login is off until CREDENTIALS_KEY is set on the server');
+    const { username, password } = z
+      .object({ username: z.string().trim().min(1).max(200), password: z.string().min(1).max(200) })
+      .parse(req.body);
+    await sql`UPDATE accounts SET li_username = ${username}, li_password_enc = ${encryptSecret(password)} WHERE id = ${id}`;
+    await audit({ userId: user.id, accountId: id, action: 'account.credentials_set', ip: req.ip });
+    await publish([`acc:${id}`, ADMINS_ROOM], 'account.updated', await loadAccount(id));
+    return { ok: true };
+  });
+
+  // Remove the stored LinkedIn login.
+  app.delete('/api/accounts/:id/credentials', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'FULL');
+    const [a] = await sql`SELECT owner_user_id FROM accounts WHERE id = ${id}`;
+    if (!a) throw new HttpError(404, 'Account not found');
+    if (!isAdminRole(user.role) && a.ownerUserId !== user.id)
+      throw new HttpError(403, 'Only the account owner or an admin can remove the LinkedIn login');
+    await sql`UPDATE accounts SET li_username = NULL, li_password_enc = NULL WHERE id = ${id}`;
+    await audit({ userId: user.id, accountId: id, action: 'account.credentials_cleared', ip: req.ip });
+    await publish([`acc:${id}`, ADMINS_ROOM], 'account.updated', await loadAccount(id));
     return { ok: true };
   });
 

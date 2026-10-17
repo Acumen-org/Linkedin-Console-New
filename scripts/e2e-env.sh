@@ -29,5 +29,6 @@ TWENTY_API_URL=http://api:4100/graphql
 TWENTY_API_KEY=e2e-twenty-key
 CRM_SYNC=on
 AUTO_RECOVERY=off
+CREDENTIALS_KEY=ZTJlZTJlZTJlZTJlZTJlZTJlZTJlZTJlZTJlZTJlZTI=
 ENV
 echo "Wrote .env for the test stack."

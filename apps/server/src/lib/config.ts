@@ -77,6 +77,10 @@ const Env = z.object({
   // Restart account browsers that stop reporting or whose containers are gone (off for test stacks: their
   // accounts have no real browser).
   AUTO_RECOVERY: z.enum(['on', 'off']).default('on'),
+  // Encrypts stored LinkedIn account passwords at rest (AES-256-GCM): a base64-encoded 32-byte key
+  // (`openssl rand -base64 32`). Unset = storing a LinkedIn login, the Live-window password gate and
+  // auto re-login stay off; everything else works as before.
+  CREDENTIALS_KEY: z.string().default(''),
 });
 
 const parsed = Env.safeParse(process.env);
@@ -104,6 +108,9 @@ const problems = [
   !!e.TWENTY_API_URL !== !!e.TWENTY_API_KEY ? 'Twenty CRM needs both TWENTY_API_URL and TWENTY_API_KEY' : '',
   e.STAFF_SYNC === 'provision' && !microsoftEnabled
     ? 'STAFF_SYNC=provision needs Microsoft sign-in (provisioned members have no password)'
+    : '',
+  e.CREDENTIALS_KEY && Buffer.from(e.CREDENTIALS_KEY, 'base64').length !== 32
+    ? 'CREDENTIALS_KEY must be a base64-encoded 32-byte key (generate one with `openssl rand -base64 32`)'
     : '',
 ].filter(Boolean);
 if (problems.length) {
@@ -137,6 +144,7 @@ export const config = {
   passwordSignin: e.PASSWORD_SIGNIN,
   crmSync: e.CRM_SYNC === 'on',
   autoRecovery: e.AUTO_RECOVERY === 'on',
+  credentialsKey: e.CREDENTIALS_KEY ? Buffer.from(e.CREDENTIALS_KEY, 'base64') : null,
   twenty:
     e.TWENTY_API_URL && e.TWENTY_API_KEY
       ? {

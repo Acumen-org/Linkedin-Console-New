@@ -2264,6 +2264,36 @@ try {
     await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0, status = 'CONNECTED' WHERE id = ${accountId}`;
   });
 
+  await step('LinkedIn login: owner/admin only, encrypted at rest, never returned', async () => {
+    // Staff (REPLY access) cannot set it.
+    assert.equal(
+      (await member('PUT', `/api/accounts/${accountId}/credentials`, { username: 'x@e2e.test', password: 'pw' })).status,
+      403,
+      'staff cannot set the LinkedIn login',
+    );
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.hasCredentials, false, 'not set yet');
+
+    // Owner sets it.
+    assert.equal(
+      (await owner('PUT', `/api/accounts/${accountId}/credentials`, { username: 'friendy@e2e.test', password: 's3cret-pw' })).status,
+      200,
+    );
+    const a = (await owner('GET', `/api/accounts/${accountId}`)).data;
+    assert.equal(a.hasCredentials, true);
+    // The stored login is never exposed on the account payload.
+    assert.ok(!JSON.stringify(a).includes('s3cret-pw') && !('liUsername' in a) && !('liPasswordEnc' in a), 'login never returned');
+
+    // Stored encrypted (not plaintext) in the database.
+    const [row] = await sql`SELECT li_username, li_password_enc FROM accounts WHERE id = ${accountId}`;
+    assert.equal(row.liUsername, 'friendy@e2e.test');
+    assert.match(row.liPasswordEnc, /^v1:/, 'password encrypted');
+    assert.ok(!row.liPasswordEnc.includes('s3cret-pw'), 'ciphertext does not contain the password');
+
+    // Clearing it.
+    assert.equal((await owner('DELETE', `/api/accounts/${accountId}/credentials`)).status, 200);
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.hasCredentials, false, 'cleared');
+  });
+
   await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {
     const stub = (who: string, participants: any[], at: number) => ({
       urn: conv(who),
