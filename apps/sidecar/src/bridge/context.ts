@@ -41,13 +41,24 @@ export interface BridgeContext {
    * Runs UI actions in the bridge window one at a time (LinkedIn should see one human, not parallel
    * clicks). 'high' jumps the queue: a teammate's send never waits behind background syncs.
    */
-  exclusive<T>(fn: () => Promise<T>, priority?: Priority): Promise<T>;
+  exclusive: ExclusiveRunner;
   /** Short hold on the bridge page: one navigation or one in-page request at a time. */
   pageLock<T>(fn: () => Promise<T>): Promise<T>;
 }
 
+export interface ExclusiveRunner {
+  <T>(fn: () => Promise<T>, priority?: Priority): Promise<T>;
+  /** Is a teammate's send (a 'high' job) waiting behind the running job? */
+  highPending(): boolean;
+  /**
+   * Run any waiting 'high' jobs right now, from inside a long-running 'normal' job (e.g. a background sync)
+   * at a safe point — so a teammate's send goes out within seconds instead of waiting for the sync to finish.
+   */
+  runPendingHigh(): Promise<void>;
+}
+
 /** One job at a time; queued 'high' jobs run before queued 'normal' ones. */
-export function createExclusiveRunner(label = 'browser action') {
+export function createExclusiveRunner(label = 'browser action'): ExclusiveRunner {
   const queues: Record<Priority, (() => Promise<void>)[]> = { high: [], normal: [] };
   let running = false;
   async function drain() {
@@ -55,8 +66,8 @@ export function createExclusiveRunner(label = 'browser action') {
     for (let job = queues.high.shift() ?? queues.normal.shift(); job; job = queues.high.shift() ?? queues.normal.shift()) await job();
     running = false;
   }
-  return function exclusive<T>(fn: () => Promise<T>, priority: Priority = 'normal'): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
+  const exclusive = ((fn, priority: Priority = 'normal') =>
+    new Promise((resolve, reject) => {
       queues[priority].push(() =>
         Promise.resolve()
           .then(fn)
@@ -66,8 +77,12 @@ export function createExclusiveRunner(label = 'browser action') {
           }),
       );
       if (!running) drain();
-    });
+    })) as ExclusiveRunner;
+  exclusive.highPending = () => queues.high.length > 0;
+  exclusive.runPendingHigh = async () => {
+    for (let job = queues.high.shift(); job; job = queues.high.shift()) await job();
   };
+  return exclusive;
 }
 
 /** Remembers keys for a while to drop duplicate events (same data seen via HTTP and realtime). */

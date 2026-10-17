@@ -36,6 +36,13 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   const background = createExclusiveRunner('background command');
   const downloads = createLimiter(2);
   const backToIdle = () => ctx.pageLock(() => page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' })).catch(() => {});
+  // Between scrolls, a long background sync calls this so a waiting teammate send goes out now instead of
+  // hanging "sending" until it times out. Returns true when a send ran (the page moved; the loader reopens).
+  const yieldToSends = async () => {
+    if (!ctx.exclusive.highPending()) return false;
+    await ctx.exclusive.runPendingHigh();
+    return true;
+  };
   const result = (cmd: Command, data: Outcome) => ctx.streams.emit('result', { cmdId: cmd.cmdId, type: cmd.type, ...data });
 
   async function existingFiles(files: FileRef[] = []) {
@@ -223,7 +230,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
       const onProgress = cmd.progress
         ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'connections', loaded, total, done: false })
         : undefined;
-      const fromDom = await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25, { onProgress });
+      const fromDom = await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25, { onProgress, yieldToSends });
       if (fromDom.length) {
         await ctx.streams.emit('contacts', {
           connections: true,
@@ -246,7 +253,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
       ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'conversations', loaded, total, done: false })
       : undefined;
     ctx.state.recognisedConversations.clear();
-    const threads = await ctx.actions.loadInbox(page, { scrolls: cmd.scrolls ?? 6, target: cmd.target ?? 0, onProgress });
+    const threads = await ctx.actions.loadInbox(page, { scrolls: cmd.scrolls ?? 6, target: cmd.target ?? 0, onProgress, yieldToSends });
     await sleep(1500); // the last responses are still being read
     const ids = new Set(threads.map((t) => threadIdFromPath(t.path)).filter((id) => id && id !== 'new'));
     const self = ctx.state.selfUrn;

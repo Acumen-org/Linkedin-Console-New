@@ -46,6 +46,11 @@ async function waitEnabled(locator: Locator, timeoutMs: number) {
 /** Progress while a list loads: loaded so far, and the total when known. */
 interface LoadOptions {
   onProgress?: (loaded: number, total: number | null) => Promise<void> | void;
+  /**
+   * Called between scrolls so a waiting teammate send can go out mid-sync instead of hanging. Returns true
+   * when a send actually ran (which navigates the page away), so the loader reopens its list and carries on.
+   */
+  yieldToSends?: () => Promise<boolean>;
 }
 
 export interface ActionOptions {
@@ -139,7 +144,7 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
      */
     async loadInbox(
       page: Page,
-      { scrolls = 4, target = 0, onProgress }: LoadOptions & { scrolls?: number; target?: number } = {},
+      { scrolls = 4, target = 0, onProgress, yieldToSends }: LoadOptions & { scrolls?: number; target?: number } = {},
     ): Promise<DomThread[]> {
       await navigate(page, IDLE_URL);
       await jitter(4000, 6000);
@@ -178,6 +183,14 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
       let last = 0;
       let stable = 0;
       for (let i = 0; i < maxScrolls && stable < 3; i++) {
+        // Let a teammate's send go out between scrolls. A send moves the page, so reopen the inbox after.
+        if (await yieldToSends?.()) {
+          await navigate(page, IDLE_URL);
+          await jitter(3000, 5000);
+          const b = await list.boundingBox().catch(() => null);
+          if (b) await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height / 2, 300));
+          await collect();
+        }
         await page.mouse.wheel(0, rand(700, 1100));
         await jitter(1500, 3000);
         await collect();
@@ -196,7 +209,7 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
      * loaded/total (LinkedIn's own "N connections"). Returns the profiles in the DOM (fallback if no JSON
      * is intercepted).
      */
-    async loadConnections(page: Page, maxScrolls = 25, { onProgress }: LoadOptions = {}): Promise<DomProfile[]> {
+    async loadConnections(page: Page, maxScrolls = 25, { onProgress, yieldToSends }: LoadOptions = {}): Promise<DomProfile[]> {
       await navigate(page, CONNECTIONS_URL);
       await jitter(4000, 6000);
       const total = await page
@@ -212,6 +225,10 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
       let lastCount = 0;
       let stable = 0;
       for (let i = 0; i < maxScrolls && stable < 3; i++) {
+        if (await yieldToSends?.()) {
+          await navigate(page, CONNECTIONS_URL);
+          await jitter(3000, 5000);
+        }
         await page.mouse.wheel(0, rand(900, 1400));
         await jitter(1800, 3500);
         const more = page.getByRole('button', { name: /show more results/i });
