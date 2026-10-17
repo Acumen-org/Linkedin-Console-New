@@ -2334,7 +2334,11 @@ try {
     await blocking.del(`lu:autologin:${accountId}`);
     const before = commands.length;
     await emit('session', { status: 'NEEDS_ATTENTION', self: null });
-    const loginCmd: any = await until(async () => commands.slice(before).find((c) => c.type === 'login'), Boolean, 'auto login command sent');
+    const loginCmd: any = await until(
+      async () => commands.slice(before).find((c) => c.type === 'login'),
+      Boolean,
+      'auto login command sent',
+    );
     assert.equal(loginCmd.username, 'auto@e2e.test');
     // Throttled: another sign-out within the window does not trigger a second login.
     const after = commands.length;
