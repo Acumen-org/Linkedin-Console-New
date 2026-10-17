@@ -66,18 +66,27 @@ jobs:
           nomad fmt -check "$JOB_FILE" || echo "::warning::$JOB_FILE is not in nomad fmt style (cosmetic)"
           nomad job validate -var "tag=$TAG" "$JOB_FILE"
 
+      # Harbor shares one public IP with the app and Nomad, so a brief network/gateway blip there fails the
+      # whole deploy. Retry the login a few times with backoff instead of giving up on the first timeout.
       - name: Log in to Harbor
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          for i in 1 2 3 4 5; do
+            if echo "$HARBOR_PASSWORD" | docker login "$REGISTRY" -u "$HARBOR_USERNAME" --password-stdin; then exit 0; fi
+            echo "::warning::Harbor login attempt $i failed; retrying in $((i * 10))s"
+            sleep $((i * 10))
+          done
+          echo "::error::Harbor login failed after 5 attempts — is $REGISTRY reachable? (it shares an IP with the app/Nomad; check for an outage)"
+          exit 1
 
       - name: Build the images
         run: |
           cp .env.example .env
           CHROME_REFRESH=$(date +%G-W%V) docker compose --profile images build
 
+      # push-images.sh retries each push, so a transient Harbor blip mid-upload doesn't fail the deploy.
       - name: Push the images to Harbor
         run: ./scripts/push-images.sh
 
