@@ -2260,7 +2260,8 @@ try {
     assert.deepEqual(calls.at(-1), { op: 'recreate', id: accountId }, 'recreated after repeated restarts');
     assert.equal((calls as { op: string }[]).filter((c) => c.op === 'recreate').length, recreatesBefore + 1);
     assert.equal((await account()).recoverAttempts, 3);
-    await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
+    // Leave the account healthy for the steps that follow (they need it CONNECTED).
+    await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0, status = 'CONNECTED' WHERE id = ${accountId}`;
   });
 
   await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {
