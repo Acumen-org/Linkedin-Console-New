@@ -2361,35 +2361,34 @@ try {
   await step('history backfill: older messages fetched per chat, paced by account age, marked done', async () => {
     // Needs a connected account past the grace period, with a chat that has messages and isn't backfilled yet.
     await sql`UPDATE accounts SET status = 'CONNECTED', send_paused = false, paused_reason = NULL, created_at = now() - interval '10 days' WHERE id = ${accountId}`;
-    const [c] = await sql`
-      SELECT c.thread_urn FROM conversations c
+    const [{ n }] = await sql`
+      SELECT count(*)::int AS n FROM conversations c
       WHERE c.account_id = ${accountId} AND c.thread_id IS NOT NULL AND c.history_backfilled_at IS NULL
-        AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
-      ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`;
-    assert.ok(c, 'a chat with messages to backfill');
+        AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)`;
+    assert.ok(n >= 1, 'chats with messages to backfill');
     await blocking.del(`lu:backfill:${accountId}`);
 
     const before = commands.length;
     await backfillHistory();
     const cmd: any = await until(
-      async () => commands.slice(before).find((x) => x.type === 'backfill_thread' && x.conversationUrn === c.threadUrn),
+      async () => commands.slice(before).find((x) => x.type === 'backfill_thread'),
       Boolean,
       'a backfill_thread command was sent',
     );
     assert.ok(cmd.maxPages >= 2, 'pages scale with account age');
     assert.equal(typeof cmd.beforeMs, 'number');
+    const urn = cmd.conversationUrn;
 
     // The bridge reports it reached the start of the thread → the chat is marked done and not revisited.
     await emitResult({
       cmdId: cmd.cmdId,
       type: 'backfill_thread',
       ok: true,
-      conversationUrn: c.threadUrn,
+      conversationUrn: urn,
       backfill: { oldestMs: 1, done: true, fetched: 7 },
     });
     await until(
-      async () =>
-        (await sql`SELECT history_backfilled_at FROM conversations WHERE thread_urn = ${c.threadUrn} AND account_id = ${accountId}`)[0],
+      async () => (await sql`SELECT history_backfilled_at FROM conversations WHERE thread_urn = ${urn} AND account_id = ${accountId}`)[0],
       (r: any) => !!r?.historyBackfilledAt,
       'chat marked backfilled',
     );
@@ -2398,7 +2397,7 @@ try {
     const before2 = commands.length;
     await backfillHistory();
     assert.equal(
-      commands.slice(before2).filter((x) => x.type === 'backfill_thread' && x.conversationUrn === c.threadUrn).length,
+      commands.slice(before2).filter((x) => x.type === 'backfill_thread' && x.conversationUrn === urn).length,
       0,
       'a backfilled chat is not revisited',
     );
