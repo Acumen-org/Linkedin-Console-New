@@ -138,6 +138,8 @@ export interface CommandResult {
   warning?: 'limited' | 'restricted';
   /** A conversation list load: what the page listed, what LinkedIn's data brought, what came from the page. */
   inbox?: InboxCheck;
+  /** A history backfill: the oldest message time now held (ms), whether the thread's start was reached, count added. */
+  backfill?: { oldestMs: number | null; done: boolean; fetched: number };
 }
 
 export interface InboxCheck {
@@ -164,6 +166,11 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'sync_inbox'; scrolls?: number; target?: number }
   /** priority: someone opened this conversation, so it goes before other background work. */
   | { type: 'sync_thread'; conversationUrn: string; threadId: string | null; allowOpen: boolean; priority?: boolean }
+  /**
+   * Backfill older messages of a thread, paging back from `beforeMs` (the oldest message held, null = from the
+   * newest). Fetches up to `maxPages` older pages, then reports the new oldest and whether it reached the start.
+   */
+  | { type: 'backfill_thread'; conversationUrn: string; threadId: string | null; beforeMs: number | null; maxPages?: number }
   /** progress: report loaded/total while scrolling (the first full sync). */
   | { type: 'sync_connections'; maxScrolls?: number; progress?: boolean }
   | { type: 'mark_read'; threadId: string }

@@ -19,6 +19,7 @@ import { autoFollowups } from '../worker/auto-followups.ts';
 import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
 import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
+import { backfillHistory } from '../worker/history-backfill.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { recoverAccounts } from '../worker/recovery.ts';
 import { reminderSyncTick } from '../worker/reminder-sync.ts';
@@ -2355,6 +2356,52 @@ try {
     await blocking.del(`lu:autologin:${accountId}`);
     await owner('DELETE', `/api/accounts/${accountId}/credentials`);
     await sql`UPDATE accounts SET status = 'CONNECTED' WHERE id = ${accountId}`;
+  });
+
+  await step('history backfill: older messages fetched per chat, paced by account age, marked done', async () => {
+    // Needs a connected account past the grace period, with a chat that has messages and isn't backfilled yet.
+    await sql`UPDATE accounts SET status = 'CONNECTED', send_paused = false, paused_reason = NULL, created_at = now() - interval '10 days' WHERE id = ${accountId}`;
+    const [c] = await sql`
+      SELECT c.thread_urn FROM conversations c
+      WHERE c.account_id = ${accountId} AND c.thread_id IS NOT NULL AND c.history_backfilled_at IS NULL
+        AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
+      ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`;
+    assert.ok(c, 'a chat with messages to backfill');
+    await blocking.del(`lu:backfill:${accountId}`);
+
+    const before = commands.length;
+    await backfillHistory();
+    const cmd: any = await until(
+      async () => commands.slice(before).find((x) => x.type === 'backfill_thread' && x.conversationUrn === c.threadUrn),
+      Boolean,
+      'a backfill_thread command was sent',
+    );
+    assert.ok(cmd.maxPages >= 2, 'pages scale with account age');
+    assert.equal(typeof cmd.beforeMs, 'number');
+
+    // The bridge reports it reached the start of the thread → the chat is marked done and not revisited.
+    await emitResult({
+      cmdId: cmd.cmdId,
+      type: 'backfill_thread',
+      ok: true,
+      conversationUrn: c.threadUrn,
+      backfill: { oldestMs: 1, done: true, fetched: 7 },
+    });
+    await until(
+      async () =>
+        (await sql`SELECT history_backfilled_at FROM conversations WHERE thread_urn = ${c.threadUrn} AND account_id = ${accountId}`)[0],
+      (r: any) => !!r?.historyBackfilledAt,
+      'chat marked backfilled',
+    );
+    // Not picked again now that it's done.
+    await blocking.del(`lu:backfill:${accountId}`);
+    const before2 = commands.length;
+    await backfillHistory();
+    assert.equal(
+      commands.slice(before2).filter((x) => x.type === 'backfill_thread' && x.conversationUrn === c.threadUrn).length,
+      0,
+      'a backfilled chat is not revisited',
+    );
   });
 
   await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {

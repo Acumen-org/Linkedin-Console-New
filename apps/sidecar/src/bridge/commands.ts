@@ -198,6 +198,73 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   }
 
   /** A conversation's recent history, quietly (LinkedIn's own request) or by opening it when allowed. */
+  /**
+   * Backfill a thread's older messages by replaying LinkedIn's own "load older" request (learned as
+   * `messagesOlder`), paging back from `beforeMs` until no older messages remain or `maxPages` is reached.
+   * The reader ingests each response automatically (it's a real network request). Quiet: no thread is opened,
+   * so nothing is marked read. If the paginated request isn't learned yet, prime it once by opening a thread
+   * and scrolling its message pane up (only an already-read thread, so we never mark one read).
+   */
+  async function backfillThread(cmd: Extract<Command, { type: 'backfill_thread' }>): Promise<Outcome> {
+    const tpl = ctx.state.templates.messagesOlder;
+    if (!tpl) {
+      if (cmd.threadId) {
+        await ctx.exclusive(async () => {
+          try {
+            await ctx.actions.openThread(page, cmd.threadId as string);
+            const pane = page.locator('.msg-s-message-list-container, .msg-s-message-list').first();
+            const box = await pane.boundingBox().catch(() => null);
+            for (let i = 0; i < 4 && box; i++) {
+              await page.mouse.move(box.x + box.width / 2, box.y + 60);
+              await page.mouse.wheel(0, -1200);
+              await jitter(1200, 2200);
+            }
+          } finally {
+            await backToIdle();
+          }
+        });
+      }
+      return { ok: false, error: 'learning the older-messages request', conversationUrn: cmd.conversationUrn };
+    }
+    let before = cmd.beforeMs;
+    let fetched = 0;
+    let done = false;
+    for (let p = 0; p < (cmd.maxPages ?? 5); p++) {
+      const url = tpl.url
+        .replace(/conversationUrn:urn%3Ali%3Amsg_conversation%3A%28.*?%29(?=[,)&]|$)/, `conversationUrn:${encodeUrn(cmd.conversationUrn)}`)
+        .replace(/deliveredAt:\d+/, before != null ? `deliveredAt:${before}` : '$&');
+      const r = await inPageFetch(ctx, url, tpl.headers); // the reader ingests the response automatically
+      if (r.status === 429)
+        return {
+          ok: false,
+          error: 'LinkedIn is limiting this account right now',
+          warning: 'limited',
+          conversationUrn: cmd.conversationUrn,
+        };
+      if (r.status !== 200) {
+        if (isFormatRejection(r.status)) forgetTemplate(ctx, 'messagesOlder');
+        else return { ok: false, error: `LinkedIn ${r.status}`, conversationUrn: cmd.conversationUrn };
+        break;
+      }
+      const msgs = extract(r.text ? JSON.parse(r.text) : {}).messages;
+      const times = msgs.map((m) => Number(m.sentAt)).filter((n) => Number.isFinite(n));
+      if (!times.length) {
+        done = true;
+        break;
+      }
+      const oldest = Math.min(...times);
+      if (before != null && oldest >= before) {
+        done = true; // no progress — we've reached the start of the thread
+        break;
+      }
+      before = oldest;
+      fetched += msgs.length;
+      await sleep(2000 + Math.random() * 2500); // gentle pace between pages
+      await yieldToSends();
+    }
+    return { ok: true, conversationUrn: cmd.conversationUrn, backfill: { oldestMs: before, done, fetched } };
+  }
+
   async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>): Promise<Outcome> {
     const tpl = ctx.state.templates.messages;
     if (tpl) {
@@ -344,6 +411,15 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
             }));
           await done(cmd, outcome);
           return jitter(2000, 5000); // pause between history syncs, without holding the window
+        }
+        case 'backfill_thread': {
+          const outcome = await backfillThread(cmd).catch((e: Error) => ({
+            ok: false,
+            error: e.message.split('\n')[0],
+            conversationUrn: cmd.conversationUrn,
+          }));
+          await done(cmd, outcome);
+          return jitter(2000, 5000);
         }
         case 'mark_read':
           return ctx.exclusive(async () => {

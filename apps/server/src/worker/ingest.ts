@@ -425,6 +425,10 @@ export async function onResult(accountId: string, r: BridgeEventMap['result']) {
       if (r.ok && saved) await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
     }
   }
+  // History backfill paged a thread back to its first message: don't revisit it.
+  if (r.type === 'backfill_thread' && r.ok && r.conversationUrn && r.backfill?.done) {
+    await sql`UPDATE conversations SET history_backfilled_at = now() WHERE account_id = ${accountId} AND thread_urn = ${r.conversationUrn}`;
+  }
   if (owner && !r.ok && !sentAnyway) await publish(userRoom(owner), 'command.failed', { type: r.type, error: r.error, accountId });
   if (owner && r.ok && r.type === 'start_chat') await publish(userRoom(owner), 'command.ok', { type: r.type, accountId });
 }

@@ -11,6 +11,7 @@ import { alertAccountStatus } from './alerts.ts';
 import { autoFollowups } from './auto-followups.ts';
 import { nudgeUnbound } from './crm-binding.ts';
 import { crmSyncTick } from './crm-sync.ts';
+import { backfillHistory } from './history-backfill.ts';
 import { notifyDueReminders } from './push.ts';
 import { recoverAccounts } from './recovery.ts';
 import { reminderSyncTick } from './reminder-sync.ts';
@@ -108,6 +109,7 @@ export function startScheduler() {
     retryPendingHistory,
     autoFollowups,
     notifyDueReminders,
+    backfillHistory,
   ];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));

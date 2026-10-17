@@ -34,8 +34,11 @@ export interface BridgeContext {
     collectingConnections: boolean;
     /** Conversations LinkedIn's data described since the current conversation list load started. */
     recognisedConversations: Set<string>;
-    /** LinkedIn's own GraphQL requests, captured so we can re-run them quietly. */
-    templates: Partial<Record<'messages' | 'conversations' | 'send', RequestTemplate>>;
+    /**
+     * LinkedIn's own GraphQL requests, captured so we can re-run them quietly. `messages` is the recent page of
+     * a thread; `messagesOlder` is a paginated request (with a deliveredAt cursor), replayed to backfill history.
+     */
+    templates: Partial<Record<'messages' | 'messagesOlder' | 'conversations' | 'send', RequestTemplate>>;
   };
   /**
    * Runs UI actions in the bridge window one at a time (LinkedIn should see one human, not parallel
