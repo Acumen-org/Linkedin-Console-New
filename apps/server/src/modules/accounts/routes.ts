@@ -7,13 +7,14 @@ import { audit } from '../../core/audit.ts';
 import { requireAdmin, requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
 import { applyGrants } from '../../core/grants.ts';
+import { LIVE_UNLOCK_SECONDS, liveUnlockKey } from '../../core/live-gate.ts';
 import { effectiveCapSql, rampDaysLeftSql } from '../../core/send-limits.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { newAccountId } from '../../lib/ids.ts';
 import { publish, redis } from '../../lib/redis.ts';
-import { credentialsEnabled, encryptSecret } from '../../lib/secretbox.ts';
+import { credentialsEnabled, encryptSecret, secretEquals } from '../../lib/secretbox.ts';
 import { firstSyncRunning, loadAllChats, restartFirstSync, retryMissingHistory, syncReport } from '../../worker/first-sync.ts';
 
 const Timezone = z.string().regex(/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+)*$/, 'Invalid timezone');
@@ -196,6 +197,40 @@ export default async function accountRoutes(app: FastifyInstance) {
     await sql`UPDATE accounts SET li_username = NULL, li_password_enc = NULL WHERE id = ${id}`;
     await audit({ userId: user.id, accountId: id, action: 'account.credentials_cleared', ip: req.ip });
     await publish([`acc:${id}`, ADMINS_ROOM], 'account.updated', await loadAccount(id));
+    return { ok: true };
+  });
+
+  // Whether this user still needs to enter the LinkedIn password before opening the Live window.
+  app.get('/api/accounts/:id/live-unlock', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'REPLY');
+    const [a] = await sql`SELECT (li_password_enc IS NOT NULL) AS has_credentials FROM accounts WHERE id = ${id}`;
+    if (!a) throw new HttpError(404, 'Account not found');
+    const unlocked = !a.hasCredentials || (await redis.get(liveUnlockKey(user.id, id))) === '1';
+    return { hasCredentials: a.hasCredentials as boolean, unlocked };
+  });
+
+  // Enter the stored LinkedIn password to unlock the Live window for a while (rate-limited against guessing).
+  app.post('/api/accounts/:id/live-unlock', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params as { id: string };
+    await assertAccount(user, id, 'REPLY');
+    const [a] = await sql`SELECT li_password_enc FROM accounts WHERE id = ${id}`;
+    if (!a) throw new HttpError(404, 'Account not found');
+    if (!a.liPasswordEnc) throw new HttpError(400, 'No LinkedIn login is stored for this account');
+    const { password } = z.object({ password: z.string().min(1).max(200) }).parse(req.body);
+    const failKey = `lu:liveunlockfail:${user.id}:${id}`;
+    const fails = Number((await redis.get(failKey)) ?? 0);
+    if (fails >= 5) throw new HttpError(429, 'Too many wrong attempts. Wait a few minutes and try again.');
+    if (!secretEquals(a.liPasswordEnc, password)) {
+      await redis.set(failKey, fails + 1, 'EX', 600);
+      await audit({ userId: user.id, accountId: id, action: 'live.unlock_failed', ip: req.ip });
+      throw new HttpError(401, 'Wrong LinkedIn password');
+    }
+    await redis.del(failKey);
+    await redis.set(liveUnlockKey(user.id, id), '1', 'EX', LIVE_UNLOCK_SECONDS);
+    await audit({ userId: user.id, accountId: id, action: 'live.unlocked', ip: req.ip });
     return { ok: true };
   });
 

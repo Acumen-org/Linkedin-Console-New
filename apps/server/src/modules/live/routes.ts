@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { accountLevel } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { SESSION_COOKIE, userFromToken } from '../../core/auth.ts';
+import { liveUnlockKey } from '../../core/live-gate.ts';
 import { sql } from '../../lib/db.ts';
 import { redis } from '../../lib/redis.ts';
 
@@ -20,11 +21,19 @@ export default async function liveRoutes(app: FastifyInstance) {
     if (!accountId || !ACCOUNT_ID_RE.test(accountId)) return reply.code(404).send('not found');
 
     const level = await accountLevel(user, accountId);
-    const [a] = await sql`SELECT owner_user_id, status FROM accounts WHERE id = ${accountId}`;
+    const [a] =
+      await sql`SELECT owner_user_id, status, (li_password_enc IS NOT NULL) AS has_credentials FROM accounts WHERE id = ${accountId}`;
     if (!a) return reply.code(404).send('not found');
     const ownerLogin = a.ownerUserId === user.id && a.status !== 'CONNECTED';
     const control = level === 'FULL' || ownerLogin;
     if (!control && level !== 'REPLY') return reply.code(403).send('forbidden');
+
+    // When a LinkedIn password is stored, the Live window stays locked until the user enters it (unlock lasts a
+    // while). Even FULL access and the owner must unlock first — the whole point is to gate the real session.
+    if (a.hasCredentials && (await redis.get(liveUnlockKey(user.id, accountId))) !== '1') {
+      reply.header('X-LU-Locked', '1');
+      return reply.code(403).send('locked');
+    }
 
     if (await redis.set(`lu:liveaudit:${user.id}:${accountId}`, '1', 'EX', 1800, 'NX')) {
       await audit({

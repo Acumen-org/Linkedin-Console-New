@@ -2294,6 +2294,37 @@ try {
     assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.hasCredentials, false, 'cleared');
   });
 
+  await step('Live window gated by the LinkedIn password (unlock, rate-limited)', async () => {
+    const live = (cookie: string) => fetch(`${CADDY}/live/${accountId}/`, { headers: cookie ? { cookie } : {} }).then((r) => r.status);
+    // Storing a login turns the gate on.
+    assert.equal(
+      (await owner('PUT', `/api/accounts/${accountId}/credentials`, { username: 'friendy@e2e.test', password: 'live-pw' })).status,
+      200,
+    );
+    assert.deepEqual((await owner('GET', `/api/accounts/${accountId}/live-unlock`)).data, { hasCredentials: true, unlocked: false });
+    // Locked at the Caddy gate until unlocked — even for the owner/admin.
+    if (CADDY !== 'off') assert.equal(await live(owner.cookie()), 403, 'Live locked until the password is entered');
+    // Wrong password refused; the right one unlocks.
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/live-unlock`, { password: 'nope' })).status, 401);
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/live-unlock`, { password: 'live-pw' })).status, 200);
+    assert.equal((await owner('GET', `/api/accounts/${accountId}/live-unlock`)).data.unlocked, true);
+    // After unlocking the gate lets the request through (no real pod in the test, so the proxy may 5xx — just not denied).
+    if (CADDY !== 'off') {
+      const s = await live(owner.cookie());
+      assert.ok(s !== 401 && s !== 403, `auth passes after unlock (got ${s})`);
+    }
+    // Staff without the password can't unlock, and guessing is rate-limited.
+    assert.equal((await member('POST', `/api/accounts/${accountId}/live-unlock`, { password: 'guess' })).status, 401);
+    for (let i = 0; i < 5; i++) await member('POST', `/api/accounts/${accountId}/live-unlock`, { password: 'guess' });
+    assert.equal(
+      (await member('POST', `/api/accounts/${accountId}/live-unlock`, { password: 'guess' })).status,
+      429,
+      'locked out after repeated wrong tries',
+    );
+    // Clean up so later steps don't face the gate.
+    assert.equal((await owner('DELETE', `/api/accounts/${accountId}/credentials`)).status, 200);
+  });
+
   await step('chat list: page fallback never overwrites LinkedIn data; history only for recent chats by itself', async () => {
     const stub = (who: string, participants: any[], at: number) => ({
       urn: conv(who),

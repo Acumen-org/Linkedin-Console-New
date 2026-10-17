@@ -25,6 +25,8 @@ export const AUDIT_ACTIONS = {
   'reminder.set': { label: 'Set a follow-up reminder', category: 'conversation' },
   'reminder.closed': { label: 'Closed a follow-up reminder', category: 'conversation' },
   'live.opened': { label: 'Opened Live LinkedIn', category: 'live' },
+  'live.unlocked': { label: 'Unlocked Live LinkedIn with the LinkedIn password', category: 'live' },
+  'live.unlock_failed': { label: 'Wrong LinkedIn password for Live LinkedIn', category: 'live' },
   'account.created': { label: 'Connected a LinkedIn account', category: 'account' },
   'account.deleted': { label: 'Disconnected a LinkedIn account', category: 'account' },
   'account.updated': { label: 'Changed account settings', category: 'account' },
