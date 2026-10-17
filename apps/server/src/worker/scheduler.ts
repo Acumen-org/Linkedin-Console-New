@@ -12,6 +12,7 @@ import { alertAccountStatus } from './alerts.ts';
 import { autoFollowups } from './auto-followups.ts';
 import { nudgeUnbound } from './crm-binding.ts';
 import { crmSyncTick } from './crm-sync.ts';
+import { retryStuckConnections } from './first-sync.ts';
 import { backfillHistory } from './history-backfill.ts';
 import { notifyDueReminders } from './push.ts';
 import { recoverAccounts } from './recovery.ts';
@@ -108,6 +109,7 @@ export function startScheduler() {
     expireStuckSends,
     staffSync,
     retryPendingHistory,
+    retryStuckConnections,
     autoFollowups,
     notifyDueReminders,
     backfillHistory,

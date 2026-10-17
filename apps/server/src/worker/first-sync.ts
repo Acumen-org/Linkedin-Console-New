@@ -150,6 +150,40 @@ export async function refreshFirstSync(accountId: string, force = false) {
   });
 }
 
+/**
+ * A full connection sync that stops advancing — the pod was recreated mid-scroll (a deploy, a restart) so its
+ * result was lost — is never completed on its own: `fullConnectionsRequested` blocks re-issuing it. Re-send it
+ * when the loaded count hasn't moved for a while and the account is connected, so a large connection list
+ * eventually finishes instead of staying stuck (e.g. 327 of 2427 forever).
+ */
+export async function retryStuckConnections() {
+  const rows = await sql<{ id: string; syncState: SyncState | null }[]>`
+    SELECT id, sync_state FROM accounts WHERE status = 'CONNECTED' AND sync_state IS NOT NULL`;
+  for (const { id, syncState: s } of rows) {
+    if (!s || s.finishedAt || !s.fullConnectionsRequested || !s.connections || s.connections.done) continue;
+    const loaded = s.connections.loaded ?? 0;
+    const key = `lu:connstall:${id}`;
+    const now = Date.now();
+    const prev = await redis.get(key);
+    if (!prev) {
+      await redis.set(key, `${loaded}:${now}`, 'EX', 6 * 3600);
+      continue;
+    }
+    const [prevLoaded, prevAt] = prev.split(':').map(Number);
+    if (loaded > prevLoaded) {
+      await redis.set(key, `${loaded}:${now}`, 'EX', 6 * 3600); // still progressing
+      continue;
+    }
+    if (now - prevAt < 12 * 60_000) continue; // give the running sync time before calling it stuck
+    const cmdId = await sendCommand(id, { type: 'sync_connections', maxScrolls: FULL_CONNECTION_SCROLLS, progress: true });
+    await mutate(id, (st) => {
+      st.fullConnectionsCmdId = cmdId;
+      st.connectionsStartedAt = null;
+    });
+    await redis.set(key, `${loaded}:${now}`, 'EX', 6 * 3600);
+  }
+}
+
 /** Progress reported by the bridge while a list loads. */
 export async function onProgress(accountId: string, p: BridgeEventMap['progress']) {
   // A "Load all chats" run: its own progress (the first sync may be long finished).

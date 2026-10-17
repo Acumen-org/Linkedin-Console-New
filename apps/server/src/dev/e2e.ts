@@ -20,6 +20,7 @@ import { autoFollowups } from '../worker/auto-followups.ts';
 import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
 import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
+import { retryStuckConnections } from '../worker/first-sync.ts';
 import { backfillHistory } from '../worker/history-backfill.ts';
 import { notifyDueReminders } from '../worker/push.ts';
 import { recoverAccounts } from '../worker/recovery.ts';
@@ -2366,6 +2367,40 @@ try {
     await blocking.del(`lu:autologin:${accountId}`);
     await owner('DELETE', `/api/accounts/${accountId}/credentials`);
     await sql`UPDATE accounts SET status = 'CONNECTED' WHERE id = ${accountId}`;
+  });
+
+  await step('stuck full connection sync is retried when it stops advancing', async () => {
+    const [orig] = await sql`SELECT sync_state FROM accounts WHERE id = ${accountId}`;
+    // A full connection sync that was interrupted (pod recreated mid-scroll): done:false, loaded frozen.
+    const state = {
+      startedAt: new Date(Date.now() - 3600_000).toISOString(),
+      finishedAt: null,
+      conversations: { loaded: 49, target: 100, done: true },
+      history: { done: 10, total: 10 },
+      connections: { loaded: 327, total: 2427, done: false, etaMinutes: null },
+      fullConnectionsRequested: true,
+      fullConnectionsCmdId: 'old-cmd',
+      connectionsStartedAt: new Date(Date.now() - 3600_000).toISOString(),
+    };
+    await sql`UPDATE accounts SET status = 'CONNECTED', sync_state = ${sql.json(state as never)} WHERE id = ${accountId}`;
+    // First pass just records the current progress; nothing is retried yet.
+    await blocking.del(`lu:connstall:${accountId}`);
+    const before = commands.length;
+    await retryStuckConnections();
+    assert.equal(commands.slice(before).filter((c) => c.type === 'sync_connections').length, 0, 'not retried on the first look');
+    // Make it look stalled (no progress for >12 min) and un-advanced, then it is re-sent.
+    await blocking.set(`lu:connstall:${accountId}`, `327:${Date.now() - 13 * 60_000}`);
+    await retryStuckConnections();
+    const cmd: any = await until(
+      async () => commands.slice(before).find((c) => c.type === 'sync_connections' && c.maxScrolls >= 100),
+      Boolean,
+      'the full connection sync was re-sent',
+    );
+    const after = (await sql`SELECT sync_state FROM accounts WHERE id = ${accountId}`)[0].syncState;
+    assert.equal(after.fullConnectionsCmdId, cmd.cmdId, 'tracks the new command so its result completes the list');
+    // Restore the original sync state for later steps.
+    await sql`UPDATE accounts SET sync_state = ${orig?.syncState ? sql.json(orig.syncState as never) : null} WHERE id = ${accountId}`;
+    await blocking.del(`lu:connstall:${accountId}`);
   });
 
   await step('history backfill: older messages fetched per chat, paced by account age, marked done', async () => {
