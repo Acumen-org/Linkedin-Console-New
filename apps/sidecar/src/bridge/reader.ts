@@ -147,7 +147,10 @@ export function createReader(ctx: BridgeContext) {
       if (!LINKEDIN_DATA.test(url)) return;
       if (res.ok() && isCreateMessageRequest(res.request().method(), url)) rememberSendTemplate(res.request());
       if (!USEFUL_DATA.test(url)) return;
-      if (!(res.headers()['content-type'] ?? '').includes('json')) return;
+      // LinkedIn's messaging GraphQL now answers with content-type `application/graphql` (it used to be a
+      // `…+json` type); the body is still JSON. Accept both, or every conversation/message response is dropped
+      // and only realtime events get through (old chats never sync). res.json() still parses a graphql body.
+      if (!/json|graphql/.test(res.headers()['content-type'] ?? '')) return;
       try {
         rememberTemplate(res.request());
         await handleJson(await res.json(), url, isCreateMessageRequest(res.request().method(), url));

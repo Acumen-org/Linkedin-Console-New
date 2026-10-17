@@ -124,6 +124,59 @@ test('normalized conversations response', () => {
   assert.equal(m.reactions[0].emoji, '👍');
 });
 
+// LinkedIn's current messaging GraphQL: conversations are embedded directly under
+// data.messengerConversationsBySyncToken.elements[] (participants inline, no `included` table).
+const embeddedConversationsResponse = {
+  data: {
+    _type: 'com.linkedin.restli.common.CollectionResponse',
+    messengerConversationsBySyncToken: {
+      _type: 'com.linkedin.restli.common.CollectionResponse',
+      elements: [
+        {
+          entityUrn: CONV,
+          backendUrn: 'urn:li:messagingThread:2-ZTAbc123==',
+          unreadCount: 3,
+          lastActivityAt: 1759500000000,
+          categories: ['INBOX', 'PRIMARY_INBOX'],
+          title: null,
+          conversationParticipants: [participant(SELF, 'Me', 'Self'), participant(JANE, 'Jane', 'Doe')],
+          messages: {
+            elements: [
+              {
+                _type: 'com.linkedin.messenger.Message',
+                entityUrn: 'urn:li:msg_message:(urn:li:fsd_profile:ACoAASELF,2-EMB1)',
+                body: { text: 'embedded hi' },
+                deliveredAt: 1759500000000,
+                sender: participant(JANE, 'Jane', 'Doe'),
+                conversation: CONV,
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+};
+
+test('embedded conversations response (current messengerConversations format)', () => {
+  const x = extract(embeddedConversationsResponse);
+  assert.equal(x.selfUrn, SELF);
+  assert.equal(x.conversations.length, 1);
+  const c = x.conversations[0];
+  assert.equal(c.threadId, '2-ZTAbc123==');
+  assert.equal(c.unreadCount, 3);
+  assert.equal(c.folder, 'focused');
+  assert.deepEqual(
+    c.participants.map((p) => p.name),
+    ['Jane Doe'],
+  );
+  const m = x.messages.find((m) => m.text === 'embedded hi');
+  assert.ok(m, 'embedded message is extracted');
+  assert.equal(m.conversationUrn, CONV);
+  assert.equal(m.senderUrn, JANE);
+  assert.equal(m.fromSelf, false);
+});
+
 test('realtime decorated message', () => {
   const x = extract(realtimeEvent, SELF);
   assert.equal(x.messages.length, 1);

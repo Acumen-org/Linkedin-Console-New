@@ -16,6 +16,9 @@ import { alertAccountStatus } from './alerts.ts';
 const PAUSE_MIN = [2, 5, 15, 30, 60];
 /** Restarts before the admins are told (about 20 minutes of trying). */
 const ALERT_AFTER = 3;
+/** Plain restarts that didn't help before we recreate the containers (a restart keeps /tmp, so container-local
+ * corruption — e.g. a stale Xvfb lock — can't clear; fresh containers keep the profile volume / LinkedIn session). */
+const RECREATE_AFTER = 3;
 /** A just-created account gets this long before a missing pod counts as a problem. */
 const GRACE_MIN = 3;
 
@@ -32,6 +35,7 @@ async function restart(pods: Pods, a: Record<string, any>, pod: PodStatus | unde
   let error: string | null = null;
   try {
     if (!pod || pod.chrome === 'missing' || pod.sidecar === 'missing') await pods.create(a.id, podSpecOf(a));
+    else if (attempt >= RECREATE_AFTER) await pods.recreate(a.id, podSpecOf(a));
     else await pods.restart(a.id);
   } catch (err) {
     error = (err as Error).message;

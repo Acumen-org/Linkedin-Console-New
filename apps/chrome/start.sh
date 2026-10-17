@@ -4,6 +4,12 @@ set -eu
 SCREEN_W="${SCREEN_W:-1440}"
 SCREEN_H="${SCREEN_H:-900}"
 
+# A killed container leaves Xvfb's lock behind in /tmp (which survives a plain `docker restart`): Xvfb then
+# refuses to start ("Server is already active for display 99"), Chrome never gets a display, and the pod
+# crash-loops until it is recreated. Remove it so a restart can heal on its own.
+rm -f /tmp/.X99-lock
+rm -rf /tmp/.X11-unix/X99
+
 Xvfb :99 -screen 0 "${SCREEN_W}x${SCREEN_H}x24" -nolisten tcp &
 export DISPLAY=:99
 sleep 1

@@ -2250,6 +2250,16 @@ try {
     ourPod = { chrome: 'running', sidecar: 'running', running: true, current: true };
     await recoverAccounts({ pods: fakePods });
     assert.equal((calls as { op: string }[]).filter((c) => c.op === 'recreate').length, 2, 'up to date: left alone');
+
+    // A pod that keeps failing plain restarts is recreated instead (fresh containers heal container-local
+    // corruption like a stale Xvfb lock; the profile volume / LinkedIn session is kept).
+    ourPod = { chrome: 'exited', sidecar: 'running', running: false };
+    await sql`UPDATE accounts SET status = 'OFFLINE', recover_attempts = 2, recover_next_at = now() - interval '1 second' WHERE id = ${accountId}`;
+    const recreatesBefore = (calls as { op: string }[]).filter((c) => c.op === 'recreate').length;
+    await recoverAccounts({ pods: fakePods });
+    assert.deepEqual(calls.at(-1), { op: 'recreate', id: accountId }, 'recreated after repeated restarts');
+    assert.equal((calls as { op: string }[]).filter((c) => c.op === 'recreate').length, recreatesBefore + 1);
+    assert.equal((await account()).recoverAttempts, 3);
     await sql`UPDATE accounts SET recover_next_at = NULL, recover_attempts = 0 WHERE id = ${accountId}`;
   });
 
