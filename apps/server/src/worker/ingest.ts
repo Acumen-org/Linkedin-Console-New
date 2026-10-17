@@ -389,6 +389,7 @@ async function autoPause(accountId: string, warning: string, detail?: string) {
   const reason = detail ?? (warning === 'restricted' ? 'LinkedIn restricted the account' : 'LinkedIn limit warning');
   const [a] = await sql`
     UPDATE accounts SET send_paused = true, paused_reason = ${reason},
+      ramp_level = ${config.sendRamp.on ? 0 : sql`ramp_level`},
       ramp_started_at = ${config.sendRamp.on ? sql`now()` : sql`ramp_started_at`}
     WHERE id = ${accountId} AND NOT send_paused
     RETURNING id, send_paused, paused_reason`;

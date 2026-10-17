@@ -1,5 +1,6 @@
 import { ADMINS_ROOM, accountRoom } from '@linkedin-console/contracts';
 import { sendCommand } from '../core/bridge.ts';
+import { advanceRamp } from '../core/send-limits.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
 import { emitWebhook } from '../core/webhooks.ts';
 import { config } from '../lib/config.ts';
@@ -110,6 +111,7 @@ export function startScheduler() {
     autoFollowups,
     notifyDueReminders,
     backfillHistory,
+    advanceRamp,
   ];
   setInterval(() => {
     for (const job of jobs) job().catch((err) => logger.error({ err, job: job.name }, 'scheduled job failed'));

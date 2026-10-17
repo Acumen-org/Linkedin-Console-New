@@ -9,6 +9,7 @@ import os from 'node:os';
 import { AUDIT_ACTIONS } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { hashPassword } from '../core/auth.ts';
+import { advanceRamp } from '../core/send-limits.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
 import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
@@ -1284,11 +1285,20 @@ try {
     assert.match(capped.data.error, /new chats/);
     await sql`UPDATE accounts SET new_chat_cap = 20 WHERE id = ${accountId}`;
 
-    // A newly connected account ramps up: 20 today, +10 per day, up to its cap.
-    await sql`UPDATE accounts SET ramp_started_at = now() - interval '2 days 1 hour' WHERE id = ${accountId}`;
+    // A newly connected account ramps up: 20, +10 per healthy day, up to its cap (ramp_level = healthy days so far).
+    await sql`UPDATE accounts SET ramp_started_at = now() - interval '2 days 1 hour', ramp_level = 2 WHERE id = ${accountId}`;
     const ramping = (await owner('GET', `/api/accounts/${accountId}`)).data;
     assert.equal(ramping.effectiveSendCap, 40);
     assert.equal(ramping.rampDaysLeft, 4);
+    // A healthy day advances the ramp one step; an unhealthy day holds it.
+    await blocking.del(`lu:ramp:${accountId}`);
+    await advanceRamp();
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.effectiveSendCap, 50, 'advanced on a healthy day');
+    await blocking.del(`lu:ramp:${accountId}`);
+    await sql`UPDATE accounts SET status = 'OFFLINE' WHERE id = ${accountId}`;
+    await advanceRamp();
+    await sql`UPDATE accounts SET status = 'CONNECTED' WHERE id = ${accountId}`;
+    assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.effectiveSendCap, 50, 'held on an unhealthy day');
     assert.equal((await owner('PATCH', `/api/accounts/${accountId}`, { skipRamp: true })).status, 200);
     assert.equal((await owner('GET', `/api/accounts/${accountId}`)).data.effectiveSendCap, 80);
 

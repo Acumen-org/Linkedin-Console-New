@@ -8,19 +8,38 @@ import { redis } from '../lib/redis.ts';
 import { alertAdmins } from '../worker/alerts.ts';
 import { audit } from './audit.ts';
 
-/** The cap in effect today: newly connected accounts start low and grow a step per day up to their cap. */
+/** The cap in effect now: newly connected accounts start low and grow a step per *healthy* day (ramp_level). */
 export const effectiveCapSql = sql`
   CASE WHEN a.ramp_started_at IS NULL THEN a.daily_send_cap
-       ELSE least(a.daily_send_cap,
-                  ${config.sendRamp.start}::int + ${config.sendRamp.step}::int * floor(extract(epoch FROM now() - a.ramp_started_at) / 86400)::int)
+       ELSE least(a.daily_send_cap, ${config.sendRamp.start}::int + ${config.sendRamp.step}::int * a.ramp_level)
   END`;
 
-/** Days until the ramp reaches the account's cap (null = no ramp running). */
+/** Healthy days until the ramp reaches the account's cap (null = no ramp running). */
 export const rampDaysLeftSql = sql`
   CASE WHEN a.ramp_started_at IS NULL THEN NULL
-       ELSE greatest(0, ceil((a.daily_send_cap - ${config.sendRamp.start}::int)::numeric / ${config.sendRamp.step}::int)::int
-                        - floor(extract(epoch FROM now() - a.ramp_started_at) / 86400)::int)
+       ELSE greatest(0, ceil((a.daily_send_cap - ${config.sendRamp.start}::int)::numeric / ${config.sendRamp.step}::int)::int - a.ramp_level)
   END`;
+
+/**
+ * Once a day per account, move the ramp one step closer to the full cap — but only on a *healthy* day
+ * (connected, not paused, no LinkedIn warning). Unhealthy days hold; a LinkedIn warning resets it (autoPause).
+ * The same ramp_level also paces history backfill, so sync rate grows with the account too.
+ */
+export async function advanceRamp() {
+  const accounts = await sql`
+    SELECT id, status, send_paused, paused_reason, daily_send_cap, ramp_level FROM accounts WHERE ramp_started_at IS NOT NULL`;
+  for (const a of accounts) {
+    // ~once per day per account.
+    if (!(await redis.set(`lu:ramp:${a.id}`, '1', 'EX', 23 * 3600, 'NX'))) continue;
+    const healthy = a.status === 'CONNECTED' && !a.sendPaused && !a.pausedReason;
+    if (!healthy) continue; // hold the ramp on an unhealthy day
+    const steps = Math.max(1, Math.ceil((a.dailySendCap - config.sendRamp.start) / config.sendRamp.step));
+    const next = (a.rampLevel as number) + 1;
+    // Reaching the top retires the ramp (full rate from now on).
+    if (next >= steps) await sql`UPDATE accounts SET ramp_level = ${steps}, ramp_started_at = NULL WHERE id = ${a.id}`;
+    else await sql`UPDATE accounts SET ramp_level = ${next} WHERE id = ${a.id}`;
+  }
+}
 
 /** Throws when this account may not send now (status, pause, today's caps). `kind` = reply or new chat. */
 export async function assertCanSend(accountId: string, kind: 'reply' | 'new_chat' = 'reply') {

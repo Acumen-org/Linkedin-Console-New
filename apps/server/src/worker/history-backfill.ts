@@ -13,17 +13,18 @@ const MAX_THREADS_PER_RUN = 6;
 const MAX_PAGES = 10;
 
 export async function backfillHistory() {
-  const accounts = await sql<{ id: string; ageDays: number }[]>`
-    SELECT id, extract(epoch FROM now() - created_at) / 86400 AS age_days
+  const accounts = await sql<{ id: string; level: number }[]>`
+    SELECT id, CASE WHEN ramp_started_at IS NULL THEN 30 ELSE ramp_level END AS level
     FROM accounts
     WHERE status = 'CONNECTED' AND NOT send_paused AND paused_reason IS NULL
       AND created_at < now() - make_interval(days => ${GRACE_DAYS})`;
   for (const a of accounts) {
-    const age = Number(a.ageDays);
-    // Pace grows with the account's tenure here: more threads per batch, shorter cooldown, deeper per command.
-    const threadsPerRun = Math.max(1, Math.min(MAX_THREADS_PER_RUN, 1 + Math.floor(age / 3)));
-    const cooldownSec = Math.max(30, Math.min(180, Math.round(180 - age * 10)));
-    const maxPages = Math.max(2, Math.min(MAX_PAGES, 2 + Math.floor(age / 7)));
+    // Pace grows with the account's warm-up level (healthy days ramped), the same one that paces the send cap:
+    // more threads per batch, shorter cooldown, deeper per command. A finished ramp (level 30) runs at full rate.
+    const level = Number(a.level);
+    const threadsPerRun = Math.max(1, Math.min(MAX_THREADS_PER_RUN, 1 + Math.floor(level / 3)));
+    const cooldownSec = Math.max(30, Math.min(180, Math.round(180 - level * 10)));
+    const maxPages = Math.max(2, Math.min(MAX_PAGES, 2 + Math.floor(level / 7)));
     // One batch per account per cooldown (gentle; the cooldown shrinks as the account gets older).
     if (!(await redis.set(`lu:backfill:${a.id}`, '1', 'EX', cooldownSec, 'NX'))) continue;
     const convos = await sql<{ threadUrn: string; threadId: string | null; oldestMs: number | null }[]>`

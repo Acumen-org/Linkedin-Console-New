@@ -149,7 +149,9 @@ function AccountCard({
         <div className="text-xs text-slate-500">
           Connected by {a.ownerName} · {a.timezone}
           {a.hasProxy ? ' · via proxy' : ''} · limit {a.effectiveSendCap ?? a.dailySendCap}/day
-          {a.rampDaysLeft ? ` (ramping up to ${a.dailySendCap} in ${a.rampDaysLeft} day${a.rampDaysLeft === 1 ? '' : 's'})` : ''}
+          {a.rampDaysLeft
+            ? ` (ramping up to ${a.dailySendCap} over ${a.rampDaysLeft} more healthy day${a.rampDaysLeft === 1 ? '' : 's'})`
+            : ''}
           {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
         </div>
