@@ -1313,7 +1313,12 @@ try {
     );
     assert.match(paused.pausedReason, /limit/);
     assert.equal(paused.effectiveSendCap, 20, 'ramp restarted');
-    assert.equal((await sql`SELECT 1 FROM audit_log WHERE account_id = ${accountId} AND action = 'account.auto_paused'`).length, 1);
+    // The pause's UPDATE commits just before its audit row, so poll rather than read once (avoids a flake).
+    await until(
+      async () => (await sql`SELECT 1 FROM audit_log WHERE account_id = ${accountId} AND action = 'account.auto_paused'`).length,
+      (n) => n === 1,
+      'auto-pause is audited',
+    );
     const blocked = await member('POST', `/api/conversations/${janeId}/messages`, { text: 'more', clientId: crypto.randomUUID() });
     assert.equal(blocked.status, 409);
     assert.match(blocked.data.error, /paused: LinkedIn/);
