@@ -173,6 +173,27 @@ export default async function conversationRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Records that this user opened (read) the conversation, for staff activity and "seen by". Debounced per
+  // user+chat so re-renders don't flood it. Unlike /read it never marks the thread read on LinkedIn.
+  app.post<{ Params: Params }>('/api/conversations/:id/view', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params;
+    const { conversation } = await conversationForUser(user, id, 'READ');
+    if (await redis.set(`lu:view:${user.id}:${id}`, '1', 'EX', 300, 'NX')) {
+      await sql`
+        INSERT INTO conversation_views (id, conversation_id, account_id, user_id)
+        VALUES (${newId('cv')}, ${id}, ${conversation.accountId}, ${user.id})`;
+      await audit({
+        userId: user.id,
+        accountId: conversation.accountId,
+        action: 'conversation.read',
+        meta: { conversationId: id },
+        ip: req.ip,
+      });
+    }
+    return { ok: true };
+  });
+
   // Collision guard: one teammate replies at a time.
   app.post<{ Params: Params }>('/api/conversations/:id/lock', async (req) => {
     const user = requireUser(req);

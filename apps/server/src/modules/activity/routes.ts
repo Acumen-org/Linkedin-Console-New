@@ -60,6 +60,13 @@ export default async function activityRoutes(app: FastifyInstance) {
         FROM reminders r JOIN conversations c ON c.id = r.conversation_id
         WHERE r.status = 'OPEN' ${q.accountId ? sql`AND r.account_id = ${q.accountId}` : sql``}
         GROUP BY coalesce(c.assigned_to, r.created_by)
+      ),
+      -- Chats this teammate opened (read) in the range.
+      reads AS (
+        SELECT user_id, count(DISTINCT conversation_id)::int AS chats_read
+        FROM conversation_views
+        WHERE viewed_at >= ${from} AND viewed_at < ${to} ${q.accountId ? sql`AND account_id = ${q.accountId}` : sql``}
+        GROUP BY user_id
       )
       SELECT u.id, u.name, u.email, u.role, u.disabled_at, u.pod,
              count(s.*) FILTER (WHERE s.status = 'SENT')::int AS sent,
@@ -70,13 +77,15 @@ export default async function activityRoutes(app: FastifyInstance) {
              round(percentile_cont(0.5) WITHIN GROUP (ORDER BY s.reply_seconds) / 60)::int AS median_reply_minutes,
              coalesce(f.open, 0) AS followups_open,
              coalesce(f.overdue, 0) AS followups_overdue,
+             coalesce(rd.chats_read, 0) AS chats_read,
              max(s.created_at) AS last_active_at
       FROM users u
       LEFT JOIN sent s ON s.sent_by_user_id = u.id
       LEFT JOIN followups f ON f.user_id = u.id
+      LEFT JOIN reads rd ON rd.user_id = u.id
       WHERE u.role <> 'AUDITOR'
-      GROUP BY u.id, f.open, f.overdue
-      HAVING count(s.*) > 0 OR coalesce(f.open, 0) > 0 OR (u.role = 'MEMBER' AND u.disabled_at IS NULL)
+      GROUP BY u.id, f.open, f.overdue, rd.chats_read
+      HAVING count(s.*) > 0 OR coalesce(f.open, 0) > 0 OR coalesce(rd.chats_read, 0) > 0 OR (u.role = 'MEMBER' AND u.disabled_at IS NULL)
       ORDER BY count(s.*) DESC, u.name`;
     return { from: from.toISOString(), to: to.toISOString(), staff: rows };
   });

@@ -21,6 +21,7 @@ interface StaffRow {
   medianReplyMinutes: number | null;
   followupsOpen: number;
   followupsOverdue: number;
+  chatsRead: number;
   lastActiveAt: string | null;
 }
 
@@ -63,7 +64,7 @@ const rateStr = (replies: number, newChats: number) => {
 };
 
 type PodGroup = { pod: string | null; rows: StaffRow[]; total: Totals };
-type Totals = { sent: number; newChats: number; replies: number; followupsOpen: number; followupsOverdue: number };
+type Totals = { sent: number; newChats: number; replies: number; followupsOpen: number; followupsOverdue: number; chatsRead: number };
 
 const addTotals = (rows: StaffRow[]): Totals =>
   rows.reduce(
@@ -73,8 +74,9 @@ const addTotals = (rows: StaffRow[]): Totals =>
       replies: t.replies + s.replies,
       followupsOpen: t.followupsOpen + s.followupsOpen,
       followupsOverdue: t.followupsOverdue + s.followupsOverdue,
+      chatsRead: t.chatsRead + s.chatsRead,
     }),
-    { sent: 0, newChats: 0, replies: 0, followupsOpen: 0, followupsOverdue: 0 },
+    { sent: 0, newChats: 0, replies: 0, followupsOpen: 0, followupsOverdue: 0, chatsRead: 0 },
   );
 
 /** Group staff by pod, pods first (alphabetical), "No pod" last. */
@@ -108,6 +110,7 @@ function downloadSummaryCsv(staff: StaffRow[]) {
     'New chats',
     'Replies',
     'Reply rate %',
+    'Chats read',
     'Follow-ups open',
     'Follow-ups overdue',
     'Median reply (min)',
@@ -125,6 +128,7 @@ function downloadSummaryCsv(staff: StaffRow[]) {
         s.newChats,
         s.replies,
         replyRate(s.replies, s.newChats) ?? '',
+        s.chatsRead,
         s.followupsOpen,
         s.followupsOverdue,
         s.medianReplyMinutes ?? '',
@@ -261,6 +265,9 @@ export function ActivityPage() {
                 <th className="px-4 py-2 text-right" title="New chats that got a reply ÷ new chats started">
                   Reply rate
                 </th>
+                <th className="px-4 py-2 text-right" title="Distinct chats this teammate opened in the period">
+                  Read
+                </th>
                 <th className="px-4 py-2 text-right" title="Open follow-up reminders (overdue in red)">
                   Follow-ups
                 </th>
@@ -279,6 +286,7 @@ export function ActivityPage() {
                   <td className="px-4 py-1.5 text-right">{g.total.newChats}</td>
                   <td className="px-4 py-1.5 text-right">{g.total.replies}</td>
                   <td className="px-4 py-1.5 text-right">{rateStr(g.total.replies, g.total.newChats)}</td>
+                  <td className="px-4 py-1.5 text-right">{g.total.chatsRead}</td>
                   <td className="px-4 py-1.5 text-right">
                     {g.total.followupsOpen}
                     {g.total.followupsOverdue ? ` (${g.total.followupsOverdue} overdue)` : ''}
@@ -300,6 +308,7 @@ export function ActivityPage() {
                     <td className="px-4 py-2 text-right">{s.newChats}</td>
                     <td className="px-4 py-2 text-right">{s.replies}</td>
                     <td className="px-4 py-2 text-right">{rateStr(s.replies, s.newChats)}</td>
+                    <td className="px-4 py-2 text-right">{s.chatsRead}</td>
                     <td className="px-4 py-2 text-right">
                       {s.followupsOpen}
                       {s.followupsOverdue ? <span className="text-red-600"> ({s.followupsOverdue})</span> : null}

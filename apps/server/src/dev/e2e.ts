@@ -1440,6 +1440,7 @@ try {
     assert.ok(m.replies <= m.newChats, 'replies never exceed new chats');
     assert.equal(typeof m.followupsOpen, 'number');
     assert.equal(typeof m.followupsOverdue, 'number');
+    assert.equal(typeof m.chatsRead, 'number');
     assert.equal((await member('GET', '/api/activity/staff')).status, 403, 'staff cannot see it');
     assert.equal((await reader('GET', '/api/activity/staff')).status, 403);
 
@@ -1463,6 +1464,30 @@ try {
     const [log] =
       await sql`SELECT meta FROM audit_log WHERE action = 'activity.exported' AND user_id = ${ownerId} ORDER BY id DESC LIMIT 1`;
     assert.equal(log?.meta.staffUserId, memberId);
+  });
+
+  await step('reading a chat is tracked (recorded, debounced, counted in activity, audited)', async () => {
+    const [cv] = await sql`SELECT id FROM conversations WHERE account_id = ${accountId} LIMIT 1`;
+    assert.ok(cv, 'a conversation to open');
+    await redis.del(`lu:view:${memberId}:${cv.id}`);
+    const count = async () =>
+      (await sql`SELECT count(*)::int AS n FROM conversation_views WHERE user_id = ${memberId} AND conversation_id = ${cv.id}`)[0].n;
+    const before = await count();
+    assert.equal((await member('POST', `/api/conversations/${cv.id}/view`)).status, 200);
+    assert.equal(await count(), before + 1, 'open recorded');
+    // Debounced: an immediate second open doesn't add another row.
+    assert.equal((await member('POST', `/api/conversations/${cv.id}/view`)).status, 200);
+    assert.equal(await count(), before + 1, 'debounced');
+    // Audited, and counted as a read in staff activity.
+    assert.ok(
+      (await sql`SELECT 1 FROM audit_log WHERE action = 'conversation.read' AND user_id = ${memberId} AND account_id = ${accountId}`)
+        .length >= 1,
+      'read is audited',
+    );
+    const rep = (await owner('GET', `/api/activity/staff?accountId=${accountId}`)).data.staff.find((x: any) => x.id === memberId);
+    assert.ok(rep && rep.chatsRead >= 1, 'chats read counted in activity');
+    // READ access is enough to open; no account access is refused.
+    assert.equal((await reader('POST', `/api/conversations/${cv.id}/view`)).status, 200);
   });
 
   if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {

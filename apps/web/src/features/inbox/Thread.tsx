@@ -44,6 +44,12 @@ export function Thread({ conversationId }: { conversationId: string }) {
     if (c && c.unreadCount > 0) api.post(`/api/conversations/${c.id}/read`).catch(() => {});
   }, [c?.id, c?.unreadCount]);
 
+  // Record that this teammate opened the chat (staff activity / "seen by"); debounced server-side.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per opened conversation
+  useEffect(() => {
+    if (c?.id) api.post(`/api/conversations/${c.id}/view`).catch(() => {});
+  }, [c?.id]);
+
   // LinkedIn typing + teammates composing.
   useEffect(
     () =>
