@@ -68,6 +68,8 @@ function registryAuth(ref: string): string | null {
 export async function ensureImage(ref: string) {
   if (await docker.imageId(ref)) return;
   await docker.pull(ref, registryAuth(ref));
+  // A new image just landed (a deploy): drop old unused ones so the disk doesn't fill up over many deploys.
+  docker.pruneImages().catch(() => {});
 }
 
 export async function createPod({ id, timezone, language, proxyServer }: PodSpec): Promise<PodStatus> {

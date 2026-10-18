@@ -10,6 +10,7 @@
 import http from 'node:http';
 import { ACCOUNT_ID_RE } from '@linkedin-console/contracts';
 import { config } from './config.ts';
+import { docker } from './docker.ts';
 import { createPod, deletePod, listPods, type PodSpec, recreatePod, restartPod, status } from './pods.ts';
 
 class BadRequest extends Error {}
@@ -63,3 +64,14 @@ http
     });
   })
   .listen(config.port, () => console.log(JSON.stringify({ level: 'info', msg: `pod-agent listening on :${config.port}` })));
+
+// Backstop against the host disk filling with old images from many deploys (ensureImage also prunes on a pull).
+const prune = () =>
+  docker
+    .pruneImages()
+    .then(
+      (bytes) => bytes > 0 && console.log(JSON.stringify({ level: 'info', msg: `pruned ${(bytes / 1e9).toFixed(1)}GB of unused images` })),
+    )
+    .catch(() => {});
+setInterval(prune, 6 * 3600_000);
+setTimeout(prune, 60_000); // once shortly after start

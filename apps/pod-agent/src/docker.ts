@@ -123,6 +123,19 @@ export const docker = {
       },
     ),
   pull: pullImage,
+  /**
+   * Free disk by removing images no container uses (every deploy adds new SHA-tagged images; they pile up and
+   * eventually fill the host, so pulls fail with "no space left on device") plus the build cache. Best-effort.
+   * Returns bytes reclaimed.
+   */
+  pruneImages: async () => {
+    const unused = enc(JSON.stringify({ dangling: ['false'] }));
+    const img = await call<{ SpaceReclaimed?: number }>('POST', `/images/prune?filters=${unused}`).catch(
+      () => ({}) as { SpaceReclaimed?: number },
+    );
+    const build = await call<{ SpaceReclaimed?: number }>('POST', '/build/prune').catch(() => ({}) as { SpaceReclaimed?: number });
+    return (img.SpaceReclaimed ?? 0) + (build.SpaceReclaimed ?? 0);
+  },
   listByLabel: (label: string) =>
     call<{ Labels: Record<string, string> }[]>('GET', `/containers/json?all=1&filters=${enc(JSON.stringify({ label: [label] }))}`),
 };
