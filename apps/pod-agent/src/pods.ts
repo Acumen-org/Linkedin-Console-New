@@ -68,8 +68,6 @@ function registryAuth(ref: string): string | null {
 export async function ensureImage(ref: string) {
   if (await docker.imageId(ref)) return;
   await docker.pull(ref, registryAuth(ref));
-  // A new image just landed (a deploy): drop old unused ones so the disk doesn't fill up over many deploys.
-  docker.pruneImages().catch(() => {});
 }
 
 export async function createPod({ id, timezone, language, proxyServer }: PodSpec): Promise<PodStatus> {
@@ -122,6 +120,9 @@ export async function createPod({ id, timezone, language, proxyServer }: PodSpec
     });
   }
   await ensureStarted(n.sidecar);
+  // The new chrome/sidecar images are now referenced by this pod, so dropping unused ones can't delete them:
+  // clean up old images from past deploys so the host disk doesn't fill up (until:1h keeps anything just pulled).
+  docker.pruneImages().catch(() => {});
   return status(id);
 }
 

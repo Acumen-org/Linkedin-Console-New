@@ -129,7 +129,9 @@ export const docker = {
    * Returns bytes reclaimed.
    */
   pruneImages: async () => {
-    const unused = enc(JSON.stringify({ dangling: ['false'] }));
+    // `until: 1h` protects freshly pulled images that a pod is about to use (pulled but not yet referenced by a
+    // created container), so pruning can never delete the image a create is in the middle of using.
+    const unused = enc(JSON.stringify({ dangling: ['false'], until: ['1h'] }));
     const img = await call<{ SpaceReclaimed?: number }>('POST', `/images/prune?filters=${unused}`).catch(
       () => ({}) as { SpaceReclaimed?: number },
     );
