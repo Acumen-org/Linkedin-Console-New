@@ -194,6 +194,20 @@ export default async function conversationRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Who on the team has opened this conversation, most recent first (for "seen by" in the thread).
+  app.get<{ Params: Params }>('/api/conversations/:id/views', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params;
+    await conversationForUser(user, id, 'READ');
+    return sql`
+      SELECT v.user_id, u.name, max(v.viewed_at) AS last_viewed_at, count(*)::int AS views
+      FROM conversation_views v JOIN users u ON u.id = v.user_id
+      WHERE v.conversation_id = ${id}
+      GROUP BY v.user_id, u.name
+      ORDER BY max(v.viewed_at) DESC
+      LIMIT 50`;
+  });
+
   // Collision guard: one teammate replies at a time.
   app.post<{ Params: Params }>('/api/conversations/:id/lock', async (req) => {
     const user = requireUser(req);

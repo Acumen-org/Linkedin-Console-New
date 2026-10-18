@@ -1488,6 +1488,9 @@ try {
     assert.ok(rep && rep.chatsRead >= 1, 'chats read counted in activity');
     // READ access is enough to open; no account access is refused.
     assert.equal((await reader('POST', `/api/conversations/${cv.id}/view`)).status, 200);
+    // "Seen by" lists who opened it.
+    const seen = (await owner('GET', `/api/conversations/${cv.id}/views`)).data;
+    assert.ok(Array.isArray(seen) && seen.some((v: any) => v.userId === memberId && v.views >= 1), 'seen-by lists the viewer');
   });
 
   if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {

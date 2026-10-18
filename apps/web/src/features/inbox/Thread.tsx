@@ -176,6 +176,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
                 ))}
               </div>
             )}
+            <SeenBy conversationId={c.id} meId={me.id} />
           </div>
           <select
             value={c.assignedTo ?? ''}
@@ -363,5 +364,28 @@ function NotesPanel({ conversationId, onClose }: { conversationId: string; onClo
         </button>
       </div>
     </aside>
+  );
+}
+
+/** "Seen by" — which teammates have opened this conversation (most recent first). */
+function SeenBy({ conversationId, meId }: { conversationId: string; meId: string }) {
+  const views = useQuery({
+    queryKey: ['conv-views', conversationId],
+    queryFn: () =>
+      api.get<{ userId: string; name: string; lastViewedAt: string; views: number }[]>(`/api/conversations/${conversationId}/views`),
+    staleTime: 60_000,
+  });
+  const rows = views.data ?? [];
+  if (!rows.length) return null;
+  const label = (r: { userId: string; name: string }) => (r.userId === meId ? 'you' : r.name);
+  const names = rows.map(label);
+  const shown = names.slice(0, 3).join(', ');
+  const extra = names.length > 3 ? ` +${names.length - 3}` : '';
+  const title = rows.map((r) => `${label(r)} — ${timeAgo(r.lastViewedAt)}`).join('\n');
+  return (
+    <div className="mt-1 truncate text-xs text-slate-400" title={title}>
+      Seen by {shown}
+      {extra}
+    </div>
   );
 }
