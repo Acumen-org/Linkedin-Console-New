@@ -51,6 +51,8 @@ interface LoadOptions {
    * when a send actually ran (which navigates the page away), so the loader reopens its list and carries on.
    */
   yieldToSends?: () => Promise<boolean>;
+  /** Called with each newly collected batch as a long list scrolls, so progress is saved even if the tab crashes. */
+  onProfiles?: (profiles: DomProfile[]) => Promise<void> | void;
 }
 
 export interface ActionOptions {
@@ -209,7 +211,7 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
      * loaded/total (LinkedIn's own "N connections"). Returns the profiles in the DOM (fallback if no JSON
      * is intercepted).
      */
-    async loadConnections(page: Page, maxScrolls = 25, { onProgress, yieldToSends }: LoadOptions = {}): Promise<DomProfile[]> {
+    async loadConnections(page: Page, maxScrolls = 25, { onProgress, yieldToSends, onProfiles }: LoadOptions = {}): Promise<DomProfile[]> {
       await navigate(page, CONNECTIONS_URL);
       await jitter(4000, 6000);
       const total = await page
@@ -220,10 +222,48 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
           return match ? Number(match[1].replace(/[^\d]/g, '')) || null : null;
         })
         .catch(() => null);
-      const listed = () =>
-        page.locator('main a[href*="/in/"]').evaluateAll((as) => new Set(as.map((a) => (a as HTMLAnchorElement).pathname)).size);
+      // Collect the cards currently in the DOM each scroll (a long list drops the ones far above, and the tab
+      // can crash on a huge list) and keep them in this Map, so progress survives virtualization and a crash.
+      const cards = new Map<string, DomProfile>();
+      const collect = async () => {
+        const found = await page
+          .evaluate(() => {
+            const out: { publicId: string; name: string; headline: string; avatarUrl: string | null }[] = [];
+            for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>('main a[href*="/in/"]'))) {
+              const m = a.href.match(/linkedin\.com\/in\/([^/?#]+)/);
+              if (!m) continue;
+              const text = (a.innerText || '')
+                .split('\n')
+                .map((s) => s.trim())
+                .filter(Boolean);
+              if (!text.length) continue;
+              const card = a.closest<HTMLElement>('li, [data-view-name], div');
+              const lines = (card?.innerText || '')
+                .split('\n')
+                .map((s) => s.trim())
+                .filter(Boolean);
+              out.push({
+                publicId: decodeURIComponent(m[1]),
+                name: text[0],
+                headline: lines.find((l) => l !== text[0] && l.length > 3 && !/^message$/i.test(l)) ?? '',
+                avatarUrl: card?.querySelector('img')?.src ?? null,
+              });
+            }
+            return out;
+          })
+          .catch(() => [] as DomProfile[]);
+        for (const c of found) if (c.name && !cards.get(c.publicId)?.name) cards.set(c.publicId, c);
+      };
+      await collect();
+      let emitted = 0;
       let lastCount = 0;
       let stable = 0;
+      const flush = async () => {
+        if (onProfiles && cards.size > emitted) {
+          await onProfiles([...cards.values()].slice(emitted)); // only the new ones; saved as we go
+          emitted = cards.size;
+        }
+      };
       for (let i = 0; i < maxScrolls && stable < 3; i++) {
         if (await yieldToSends?.()) {
           await navigate(page, CONNECTIONS_URL);
@@ -236,36 +276,16 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
           await more.click().catch(() => {});
           await jitter(2000, 3000);
         }
-        const count = await listed().catch(() => lastCount);
+        await collect();
+        await flush();
+        const count = cards.size;
         await onProgress?.(count, total);
         if (total && count >= total) break;
         stable = count === lastCount ? stable + 1 : 0;
         lastCount = count;
       }
-      return page.evaluate(() => {
-        const out = new Map<string, { publicId: string; name: string; headline: string; avatarUrl: string | null }>();
-        for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>('main a[href*="/in/"]'))) {
-          const m = a.href.match(/linkedin\.com\/in\/([^/?#]+)/);
-          if (!m) continue;
-          const text = (a.innerText || '')
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          if (!text.length || out.get(m[1])?.name) continue;
-          const card = a.closest<HTMLElement>('li, [data-view-name], div');
-          const lines = (card?.innerText || '')
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          out.set(m[1], {
-            publicId: decodeURIComponent(m[1]),
-            name: text[0],
-            headline: lines.find((l) => l !== text[0] && l.length > 3 && !/^message$/i.test(l)) ?? '',
-            avatarUrl: card?.querySelector('img')?.src ?? null,
-          });
-        }
-        return [...out.values()];
-      });
+      await flush();
+      return [...cards.values()];
     },
   };
 }

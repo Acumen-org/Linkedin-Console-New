@@ -297,13 +297,17 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
       const onProgress = cmd.progress
         ? (loaded: number, total: number | null) => ctx.streams.emit('progress', { kind: 'connections', loaded, total, done: false })
         : undefined;
-      const fromDom = await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25, { onProgress, yieldToSends });
-      if (fromDom.length) {
-        await ctx.streams.emit('contacts', {
+      // Save each batch as it is collected (not only at the end), so a crash mid-scroll keeps the progress.
+      const emit = (profiles: { publicId: string; name: string; headline: string; avatarUrl: string | null }[]) =>
+        ctx.streams.emit('contacts', {
           connections: true,
-          items: fromDom.map((p) => ({ ...p, urn: `public:${p.publicId}`, profileUrl: `https://www.linkedin.com/in/${p.publicId}/` })),
+          items: profiles.map((p) => ({ ...p, urn: `public:${p.publicId}`, profileUrl: `https://www.linkedin.com/in/${p.publicId}/` })),
         });
-      }
+      await ctx.actions.loadConnections(page, cmd.maxScrolls ?? 25, {
+        onProgress,
+        yieldToSends,
+        onProfiles: (batch) => (batch.length ? emit(batch) : undefined),
+      });
     } finally {
       ctx.state.collectingConnections = false;
       await backToIdle();
