@@ -237,7 +237,7 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
                 .map((s) => s.trim())
                 .filter(Boolean);
               if (!text.length) continue;
-              const card = a.closest<HTMLElement>('li, [data-view-name], div');
+              const card = a.closest<HTMLElement>('li') ?? a.closest<HTMLElement>('[data-view-name], div');
               const lines = (card?.innerText || '')
                 .split('\n')
                 .map((s) => s.trim())
@@ -248,6 +248,9 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
                 headline: lines.find((l) => l !== text[0] && l.length > 3 && !/^message$/i.test(l)) ?? '',
                 avatarUrl: card?.querySelector('img')?.src ?? null,
               });
+              // Drop the card from the DOM once captured: a huge connection list (thousands) otherwise grows the
+              // page until the tab runs out of memory and crashes. New cards keep loading below as we scroll.
+              a.closest<HTMLElement>('li')?.remove();
             }
             return out;
           })
