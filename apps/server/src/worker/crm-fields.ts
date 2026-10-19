@@ -63,7 +63,6 @@ export async function syncPersonFields(limit = BATCH) {
           WHERE c.participants->0->>'urn' = ${b.memberUrn} AND NOT c.is_group AND m.direction = 'OUTBOUND' AND m.status = 'SENT') AS last_sent,
         (SELECT max(m.sent_at) FROM messages m JOIN conversations c ON c.id = m.conversation_id
           WHERE c.participants->0->>'urn' = ${b.memberUrn} AND NOT c.is_group AND m.direction = 'INBOUND') AS last_received,
-        EXISTS (SELECT 1 FROM contacts ct WHERE ct.member_urn = ${b.memberUrn} AND ct.is_connection) AS connected,
         (SELECT min(r.due_at) FROM reminders r JOIN conversations c ON c.id = r.conversation_id
           WHERE r.status = 'OPEN' AND c.participants->0->>'urn' = ${b.memberUrn}) AS next_follow_up,
         (SELECT c.id FROM conversations c WHERE c.participants->0->>'urn' = ${b.memberUrn} AND NOT c.is_group
@@ -72,7 +71,10 @@ export async function syncPersonFields(limit = BATCH) {
       const lastReceived = s.lastReceived as Date | null;
       const values = await present(
         {
-          linkedinStatus: s.connected ? LINKEDIN_STATUS.CONNECTED : LINKEDIN_STATUS.NOT_CONNECTED,
+          // A Person reaches Twenty only after a reply, and the console only messages existing connections, so a
+          // bound prospect is Connected (master plan L3). Not derived from the connection list, which is
+          // incomplete on large accounts and would wrongly show "Not connected". (REQUEST_SENT is out of scope.)
+          linkedinStatus: LINKEDIN_STATUS.CONNECTED,
           lastLinkedinMessageSentAt: iso(lastSent),
           lastLinkedinMessageReceivedAt: iso(lastReceived),
           linkedinReplyStatus: lastReceived && (!lastSent || lastReceived > lastSent) ? REPLY_STATUS.REPLIED : REPLY_STATUS.NO_REPLY,
