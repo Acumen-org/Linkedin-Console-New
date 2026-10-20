@@ -37,7 +37,9 @@ async function handleBridgeEvent(ev: BridgeEvent) {
     case 'contacts':
       return onContacts(ev.accountId, ev.data);
     case 'result':
-      if (ev.data.type.startsWith('sync_')) return onSyncResult(ev.accountId, ev.data);
+      // Background list/history syncs (sync_inbox, sync_connections, backfill_conversations) update sync state;
+      // everything else (sends, media) goes to onResult.
+      if (ev.data.type.startsWith('sync_') || ev.data.type === 'backfill_conversations') return onSyncResult(ev.accountId, ev.data);
       return onResult(ev.accountId, ev.data);
     case 'progress':
       return onProgress(ev.accountId, ev.data);
