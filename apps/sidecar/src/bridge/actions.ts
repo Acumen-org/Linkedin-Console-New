@@ -212,83 +212,96 @@ export function createActions(healer: Healer | null, { fastSend, navigate }: Act
      * is intercepted).
      */
     async loadConnections(page: Page, maxScrolls = 25, { onProgress, yieldToSends, onProfiles }: LoadOptions = {}): Promise<DomProfile[]> {
-      await navigate(page, CONNECTIONS_URL);
-      await jitter(4000, 6000);
-      const total = await page
-        .locator('main')
-        .first()
-        .evaluate((m) => {
-          const match = (m as HTMLElement).innerText.slice(0, 4000).match(/(\d[\d.,\s]*)\s+connections?\b/i);
-          return match ? Number(match[1].replace(/[^\d]/g, '')) || null : null;
-        })
-        .catch(() => null);
-      // Collect the cards currently in the DOM each scroll (a long list drops the ones far above, and the tab
-      // can crash on a huge list) and keep them in this Map, so progress survives virtualization and a crash.
-      const cards = new Map<string, DomProfile>();
-      const collect = async () => {
-        const found = await page
-          .evaluate(() => {
-            const out: { publicId: string; name: string; headline: string; avatarUrl: string | null }[] = [];
-            for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>('main a[href*="/in/"]'))) {
-              const m = a.href.match(/linkedin\.com\/in\/([^/?#]+)/);
-              if (!m) continue;
-              const text = (a.innerText || '')
-                .split('\n')
-                .map((s) => s.trim())
-                .filter(Boolean);
-              if (!text.length) continue;
-              const card = a.closest<HTMLElement>('li') ?? a.closest<HTMLElement>('[data-view-name], div');
-              const lines = (card?.innerText || '')
-                .split('\n')
-                .map((s) => s.trim())
-                .filter(Boolean);
-              out.push({
-                publicId: decodeURIComponent(m[1]),
-                name: text[0],
-                headline: lines.find((l) => l !== text[0] && l.length > 3 && !/^message$/i.test(l)) ?? '',
-                avatarUrl: card?.querySelector('img')?.src ?? null,
-              });
-              // Drop the card from the DOM once captured: a huge connection list (thousands) otherwise grows the
-              // page until the tab runs out of memory and crashes. New cards keep loading below as we scroll.
-              a.closest<HTMLElement>('li')?.remove();
-            }
-            return out;
-          })
-          .catch(() => [] as DomProfile[]);
-        for (const c of found) if (c.name && !cards.get(c.publicId)?.name) cards.set(c.publicId, c);
-      };
-      await collect();
-      let emitted = 0;
-      let lastCount = 0;
-      let stable = 0;
-      const flush = async () => {
-        if (onProfiles && cards.size > emitted) {
-          await onProfiles([...cards.values()].slice(emitted)); // only the new ones; saved as we go
-          emitted = cards.size;
-        }
-      };
-      for (let i = 0; i < maxScrolls && stable < 3; i++) {
-        if (await yieldToSends?.()) {
-          await navigate(page, CONNECTIONS_URL);
-          await jitter(3000, 5000);
-        }
-        await page.mouse.wheel(0, rand(900, 1400));
-        await jitter(1800, 3500);
-        const more = page.getByRole('button', { name: /show more results/i });
-        if (await more.isVisible().catch(() => false)) {
-          await more.click().catch(() => {});
-          await jitter(2000, 3000);
-        }
-        await collect();
-        await flush();
-        const count = cards.size;
-        await onProgress?.(count, total);
-        if (total && count >= total) break;
-        stable = count === lastCount ? stable + 1 : 0;
-        lastCount = count;
+      // Thousands of connection cards each decode a profile photo, which is what makes the tab run out of memory
+      // and crash. Block image/media/font loads during the sync so the renderer stays light (we still read the
+      // avatar URL from the <img> src attribute, which is set regardless of whether the image actually loaded).
+      const blockHeavy = (route: import('patchright').Route) =>
+        (['image', 'media', 'font'].includes(route.request().resourceType()) ? route.abort() : route.continue()).catch(() => {});
+      await page.route('**/*', blockHeavy).catch(() => {});
+      try {
+        return await loadConnectionsInner();
+      } finally {
+        await page.unroute('**/*', blockHeavy).catch(() => {});
       }
-      await flush();
-      return [...cards.values()];
+      async function loadConnectionsInner(): Promise<DomProfile[]> {
+        await navigate(page, CONNECTIONS_URL);
+        await jitter(4000, 6000);
+        const total = await page
+          .locator('main')
+          .first()
+          .evaluate((m) => {
+            const match = (m as HTMLElement).innerText.slice(0, 4000).match(/(\d[\d.,\s]*)\s+connections?\b/i);
+            return match ? Number(match[1].replace(/[^\d]/g, '')) || null : null;
+          })
+          .catch(() => null);
+        // Collect the cards currently in the DOM each scroll (a long list drops the ones far above, and the tab
+        // can crash on a huge list) and keep them in this Map, so progress survives virtualization and a crash.
+        const cards = new Map<string, DomProfile>();
+        const collect = async () => {
+          const found = await page
+            .evaluate(() => {
+              const out: { publicId: string; name: string; headline: string; avatarUrl: string | null }[] = [];
+              for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>('main a[href*="/in/"]'))) {
+                const m = a.href.match(/linkedin\.com\/in\/([^/?#]+)/);
+                if (!m) continue;
+                const text = (a.innerText || '')
+                  .split('\n')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                if (!text.length) continue;
+                const card = a.closest<HTMLElement>('li') ?? a.closest<HTMLElement>('[data-view-name], div');
+                const lines = (card?.innerText || '')
+                  .split('\n')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                out.push({
+                  publicId: decodeURIComponent(m[1]),
+                  name: text[0],
+                  headline: lines.find((l) => l !== text[0] && l.length > 3 && !/^message$/i.test(l)) ?? '',
+                  avatarUrl: card?.querySelector('img')?.src ?? null,
+                });
+                // Drop the card from the DOM once captured: a huge connection list (thousands) otherwise grows the
+                // page until the tab runs out of memory and crashes. New cards keep loading below as we scroll.
+                a.closest<HTMLElement>('li')?.remove();
+              }
+              return out;
+            })
+            .catch(() => [] as DomProfile[]);
+          for (const c of found) if (c.name && !cards.get(c.publicId)?.name) cards.set(c.publicId, c);
+        };
+        await collect();
+        let emitted = 0;
+        let lastCount = 0;
+        let stable = 0;
+        const flush = async () => {
+          if (onProfiles && cards.size > emitted) {
+            await onProfiles([...cards.values()].slice(emitted)); // only the new ones; saved as we go
+            emitted = cards.size;
+          }
+        };
+        for (let i = 0; i < maxScrolls && stable < 3; i++) {
+          if (await yieldToSends?.()) {
+            await navigate(page, CONNECTIONS_URL);
+            await jitter(3000, 5000);
+          }
+          await page.mouse.wheel(0, rand(900, 1400));
+          await jitter(1800, 3500);
+          const more = page.getByRole('button', { name: /show more results/i });
+          if (await more.isVisible().catch(() => false)) {
+            await more.click().catch(() => {});
+            await jitter(2000, 3000);
+          }
+          await collect();
+          await flush();
+          const count = cards.size;
+          await onProgress?.(count, total);
+          if (total && count >= total) break;
+          stable = count === lastCount ? stable + 1 : 0;
+          lastCount = count;
+        }
+        await flush();
+        return [...cards.values()];
+      }
     },
   };
 }
