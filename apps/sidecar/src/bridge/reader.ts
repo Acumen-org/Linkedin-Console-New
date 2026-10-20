@@ -132,15 +132,21 @@ export function createReader(ctx: BridgeContext) {
     const url = req.url();
     if (!url.includes('voyagerMessagingGraphQL/graphql')) return;
     const headers = replayableHeaders(req);
-    let key: 'messages' | 'messagesOlder' | 'conversations' | null = null;
+    let key: 'messages' | 'messagesOlder' | 'conversations' | 'conversationsOlder' | null = null;
     // A messengerMessages request WITH a deliveredAt cursor is LinkedIn's "load older messages" request:
     // keep it so we can replay it to backfill a thread's history back to its first message.
     if (/queryId=messengerMessages\./.test(url) && /conversationUrn/.test(url))
       key = /deliveredAt/.test(url) ? 'messagesOlder' : 'messages';
-    else if (/queryId=messengerConversations\./.test(url) && !/syncToken|lastUpdatedBefore/.test(url)) key = 'conversations';
+    // The conversation LIST: the first page (no cursor) is `conversations`; the "load older" page (with a
+    // syncToken or lastUpdatedBefore cursor, or the messengerConversationsBySyncToken query) is
+    // `conversationsOlder`, replayed to backfill the whole list without DOM scrolling.
+    else if (/queryId=messengerConversations(BySyncToken)?\./.test(url))
+      key = /syncToken|lastUpdatedBefore/.test(url) ? 'conversationsOlder' : 'conversations';
     if (key && ctx.state.templates[key]?.url !== url) {
       ctx.state.templates[key] = { url, headers };
       saveTemplates();
+      // Log the real paginated-list request once so its cursor format can be read without guessing.
+      if (key === 'conversationsOlder') logger.info({ url }, 'learned the load-older-conversations request');
     }
   }
 

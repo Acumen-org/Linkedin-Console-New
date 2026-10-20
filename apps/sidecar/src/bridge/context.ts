@@ -38,7 +38,7 @@ export interface BridgeContext {
      * LinkedIn's own GraphQL requests, captured so we can re-run them quietly. `messages` is the recent page of
      * a thread; `messagesOlder` is a paginated request (with a deliveredAt cursor), replayed to backfill history.
      */
-    templates: Partial<Record<'messages' | 'messagesOlder' | 'conversations' | 'send', RequestTemplate>>;
+    templates: Partial<Record<'messages' | 'messagesOlder' | 'conversations' | 'conversationsOlder' | 'send', RequestTemplate>>;
   };
   /**
    * Runs UI actions in the bridge window one at a time (LinkedIn should see one human, not parallel

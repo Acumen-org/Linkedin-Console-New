@@ -173,6 +173,12 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'backfill_thread'; conversationUrn: string; threadId: string | null; beforeMs: number | null; maxPages?: number }
   /** progress: report loaded/total while scrolling (the first full sync). */
   | { type: 'sync_connections'; maxScrolls?: number; progress?: boolean }
+  /**
+   * Backfill the conversation LIST by replaying LinkedIn's own "load older conversations" GraphQL (learned as
+   * `conversationsOlder`), paging back by the cursor until no older conversations remain or `maxPages` is hit.
+   * No DOM scrolling, so it reaches hundreds of chats without crashing the tab. The reader ingests each page.
+   */
+  | { type: 'backfill_conversations'; maxPages?: number }
   | { type: 'mark_read'; threadId: string }
   | { type: 'fetch_media'; url: string }
   | { type: 'check_session' }

@@ -265,6 +265,56 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     return { ok: true, conversationUrn: cmd.conversationUrn, backfill: { oldestMs: before, done, fetched } };
   }
 
+  /**
+   * Backfill the conversation LIST by replaying LinkedIn's own "load older conversations" request (learned as
+   * `conversationsOlder`), paging back by `lastUpdatedBefore` until no older conversations remain or `maxPages`.
+   * Reaches hundreds of chats without DOM scrolling (which virtualizes and stalls / crashes the tab). The reader
+   * ingests each page automatically. If the paginated request isn't learned yet, prime it by scrolling the inbox
+   * once (which fires LinkedIn's own older-list request), then try again next run.
+   */
+  async function backfillConversations(cmd: Extract<Command, { type: 'backfill_conversations' }>): Promise<Outcome> {
+    const tpl = ctx.state.templates.conversationsOlder;
+    if (!tpl) {
+      await ctx.exclusive(() => ctx.actions.loadInbox(page, { scrolls: 6, yieldToSends }));
+      return { ok: false, error: 'learning the older-conversations request' };
+    }
+    // The list is paged by a `lastUpdatedBefore:<ms>` cursor (same idea as a thread's `deliveredAt`). If LinkedIn
+    // instead uses an opaque syncToken for this account, a timestamp cursor doesn't apply — report so, don't guess.
+    if (!/lastUpdatedBefore/.test(tpl.url)) {
+      logger.warn({ url: tpl.url }, 'conversationsOlder has no lastUpdatedBefore cursor; list backfill needs the real format');
+      return { ok: false, error: 'older-conversations request uses an unsupported cursor' };
+    }
+    let before: number | null = null;
+    let fetched = 0;
+    let done = false;
+    for (let p = 0; p < (cmd.maxPages ?? 40); p++) {
+      const url = tpl.url.replace(/lastUpdatedBefore:\d+/, before != null ? `lastUpdatedBefore:${before}` : '$&');
+      const r = await inPageFetch(ctx, url, tpl.headers); // the reader ingests the response automatically
+      if (r.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now', warning: 'limited' };
+      if (r.status !== 200) {
+        if (isFormatRejection(r.status)) forgetTemplate(ctx, 'conversationsOlder');
+        else return { ok: false, error: `LinkedIn ${r.status}` };
+        break;
+      }
+      const convos = extract(r.text ? JSON.parse(r.text) : {}).conversations;
+      const times = convos.map((c) => Number(c.lastActivityAt)).filter((n) => Number.isFinite(n));
+      if (!times.length) {
+        done = true;
+        break;
+      }
+      const oldest = Math.min(...times);
+      if (before != null && oldest >= before) {
+        done = true; // no progress — we've reached the oldest conversation
+        break;
+      }
+      before = oldest;
+      fetched += convos.length;
+      await sleep(2000 + Math.random() * 2500); // gentle pace between pages
+      await yieldToSends();
+    }
+    return { ok: true, backfill: { oldestMs: before, done, fetched } };
+  }
+
   async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>): Promise<Outcome> {
     const tpl = ctx.state.templates.messages;
     if (tpl) {
@@ -430,6 +480,11 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
             await ctx.actions.openThread(page, cmd.threadId);
             await backToIdle();
           });
+        case 'backfill_conversations': {
+          const outcome = await backfillConversations(cmd).catch((e: Error) => ({ ok: false, error: e.message.split('\n')[0] }));
+          await done(cmd, outcome);
+          return jitter(2000, 5000);
+        }
         case 'sync_connections':
           return attempt(cmd, () => ctx.exclusive(() => syncConnections(cmd)));
       }
