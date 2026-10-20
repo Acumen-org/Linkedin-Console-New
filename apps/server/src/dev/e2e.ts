@@ -1125,9 +1125,11 @@ try {
     });
     const page = (offset: number, limit = 10) =>
       member('GET', `/api/accounts/${accountId}/connections?q=${encodeURIComponent(`Pager${tag}`)}&offset=${offset}&limit=${limit}`);
+    // Wait for both the count AND the first page to be in: the two run as separate statements, so mid-ingest the
+    // count can already read 25 while the items read is still catching up (a race, not a product bug).
     const first = await until(
       () => page(0),
-      (r) => r.data?.matching === 25,
+      (r) => r.data?.matching === 25 && r.data.items.length === 10,
       'all 25 synced',
     );
     assert.equal(first.data.items.length, 10);
