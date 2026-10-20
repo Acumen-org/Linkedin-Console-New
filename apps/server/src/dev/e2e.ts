@@ -2564,24 +2564,28 @@ try {
     const before = commands.length;
     assert.equal((await owner('POST', `/api/accounts/${accountId}/load-all-chats`)).status, 200);
     const cmd: any = await until(
-      async () => commands.slice(before).find((c) => c.type === 'sync_inbox' && c.target >= 1000),
+      async () => commands.slice(before).find((c) => c.type === 'backfill_conversations'),
       Boolean,
       'whole list requested',
     );
     assert.equal((await owner('POST', `/api/accounts/${accountId}/load-all-chats`)).status, 409, 'one at a time');
-    await emit('progress', { kind: 'conversations', loaded: 340, total: cmd.target, done: false });
+    await emit('progress', { kind: 'conversations', loaded: 340, total: null, done: false });
     await until(
       async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data.allChats?.loaded,
       (n) => n === 340,
       'progress',
     );
-    await emitResult({ cmdId: cmd.cmdId, type: 'sync_inbox', ok: true, inbox: { listed: 612, recognised: 600, fromPage: 12 } });
-    const done = await until(
+    await emitResult({
+      cmdId: cmd.cmdId,
+      type: 'backfill_conversations',
+      ok: true,
+      backfill: { oldestMs: null, done: true, fetched: 612 },
+    });
+    await until(
       async () => (await owner('GET', `/api/accounts/${accountId}/sync-report`)).data,
-      (r) => !r.allChats && r.inboxCheck?.listed === 612,
-      'finished',
+      (r) => !r.allChats,
+      'finished (progress cleared)',
     );
-    assert.equal(done.inboxCheck.full, true);
   });
 
   await step('NEEDS_ATTENTION status reaches the account', async () => {
