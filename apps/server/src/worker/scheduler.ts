@@ -43,6 +43,20 @@ async function scheduleConnectionSync() {
   }
 }
 
+/**
+ * Pull each connected account's whole conversation list (all categories) roughly once a day via LinkedIn's own
+ * paging — the first-sync/realtime path only keeps the recent Focused chats, so Archived/InMail and older chats
+ * on big inboxes would otherwise never arrive. The bridge de-dupes, so this only adds what's missing.
+ */
+async function scheduleConversationBackfill() {
+  const connected = await sql`SELECT id FROM accounts WHERE status = 'CONNECTED'`;
+  for (const { id } of connected) {
+    if (await redis.set(`lu:convbackfill:${id}`, '1', 'EX', 24 * 3600 + Math.floor(Math.random() * 3600), 'NX')) {
+      await sendCommand(id, { type: 'backfill_conversations' });
+    }
+  }
+}
+
 /** Snoozed conversations whose time is up come back to the inbox. */
 async function wakeSnoozed() {
   const woken = await sql`
@@ -105,6 +119,7 @@ export function startScheduler() {
     detectOfflinePods,
     recoverAccounts,
     scheduleConnectionSync,
+    scheduleConversationBackfill,
     wakeSnoozed,
     expireStuckSends,
     staffSync,

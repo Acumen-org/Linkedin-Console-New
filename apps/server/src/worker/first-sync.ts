@@ -39,6 +39,9 @@ export async function startFirstSync(accountId: string): Promise<boolean> {
     UPDATE accounts SET sync_state = ${sql.json(state as never)} WHERE id = ${accountId} AND sync_state IS NULL RETURNING id`;
   if (!started) return false;
   await sendCommand(accountId, { type: 'sync_inbox', target: FIRST_SYNC_CONVERSATIONS });
+  // The full list across all categories (Focused, Archived, InMail) via LinkedIn's own paging — the DOM scroll
+  // above only reaches ~50 on a large inbox. Runs in the background after the quick first page.
+  await sendCommand(accountId, { type: 'backfill_conversations' });
   await sendCommand(accountId, { type: 'sync_connections', maxScrolls: QUICK_CONNECTION_SCROLLS, progress: true });
   await publishState(accountId);
   return true;
@@ -240,11 +243,11 @@ async function recordInboxCheck(accountId: string, inbox: InboxCheck) {
 
 const LOAD_KEY = (accountId: string) => `lu:inboxload:${accountId}`;
 
-/** "Load all chats": the whole conversation list, at the usual human pace, with progress. */
+/** "Load all chats": the whole conversation list across every category, via LinkedIn's own paging, with progress. */
 export async function loadAllChats(accountId: string) {
   if (await redis.get(LOAD_KEY(accountId))) return false;
   await redis.set(LOAD_KEY(accountId), JSON.stringify({ loaded: 0, startedAt: new Date().toISOString() }), 'EX', 3 * 3600);
-  await sendCommand(accountId, { type: 'sync_inbox', target: ALL_CHATS });
+  await sendCommand(accountId, { type: 'backfill_conversations' });
   return true;
 }
 
@@ -254,10 +257,18 @@ export async function allChatsLoading(accountId: string): Promise<{ loaded: numb
   return raw ? JSON.parse(raw) : null;
 }
 
-const ALL_CHATS = 3000;
-
 export async function onSyncResult(accountId: string, r: BridgeEventMap['result']) {
   if (r.type === 'sync_inbox' && r.inbox) await recordInboxCheck(accountId, r.inbox);
+  if (r.type === 'backfill_conversations') {
+    // The full-list load finished: clear any "Load all chats" progress and mark the conversation sync done.
+    if (await redis.get(LOAD_KEY(accountId))) {
+      await redis.del(LOAD_KEY(accountId));
+      await publish([accountRoom(accountId), ADMINS_ROOM], 'account.updated', { id: accountId, allChats: null });
+    }
+    await mutate(accountId, (state) => {
+      state.conversations.done = true;
+    });
+  }
   if (r.type === 'sync_thread' && r.ok && r.conversationUrn) {
     await sql`
       UPDATE conversations SET history_synced_at = now()

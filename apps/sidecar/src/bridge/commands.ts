@@ -28,6 +28,22 @@ const LIMIT_NOTICE =
 type SendCommand = Extract<Command, { type: 'send_message' | 'start_chat' }>;
 type Outcome = Omit<CommandResult, 'cmdId' | 'type'>;
 
+/** LinkedIn's conversation-list responses carry the next page's cursor at `…metadata.nextCursor`; find it anywhere. */
+function nextCursorOf(json: unknown): string | null {
+  let found: string | null = null;
+  const walk = (v: unknown) => {
+    if (found || !v || typeof v !== 'object') return;
+    const nc = (v as Record<string, unknown>).nextCursor;
+    if (typeof nc === 'string' && nc) {
+      found = nc;
+      return;
+    }
+    for (const val of Object.values(v)) walk(val);
+  };
+  walk(json);
+  return found;
+}
+
 export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSession: () => Promise<unknown>) {
   const { page } = ctx;
   const fast = config.sendMode === 'fast';
@@ -266,53 +282,54 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   }
 
   /**
-   * Backfill the conversation LIST by replaying LinkedIn's own "load older conversations" request (learned as
-   * `conversationsOlder`), paging back by `lastUpdatedBefore` until no older conversations remain or `maxPages`.
-   * Reaches hundreds of chats without DOM scrolling (which virtualizes and stalls / crashes the tab). The reader
-   * ingests each page automatically. If the paginated request isn't learned yet, prime it by scrolling the inbox
-   * once (which fires LinkedIn's own older-list request), then try again next run.
+   * Backfill the conversation LIST by replaying LinkedIn's own conversation-list request across every category
+   * (Focused inbox, Archived, InMail), paging each by the opaque `nextCursor` LinkedIn returns in the response's
+   * metadata until it runs out or `maxPages` is hit. This reaches ALL of an account's chats (hundreds): the DOM
+   * list virtualizes and stalls after ~50, and `lastUpdatedBefore` is now ignored by LinkedIn — only `nextCursor`
+   * actually pages. No DOM, so it never crashes the tab; the reader ingests each page automatically. The first
+   * page of each category primes the cursor with `lastUpdatedBefore:<now>`. Categories overlap (a chat can be in
+   * several), so the reader de-dupes by URN. If no list request is learned yet, prime it by opening the inbox.
    */
   async function backfillConversations(cmd: Extract<Command, { type: 'backfill_conversations' }>): Promise<Outcome> {
-    const tpl = ctx.state.templates.conversationsOlder;
+    const tpl = ctx.state.templates.conversations ?? ctx.state.templates.conversationsOlder;
     if (!tpl) {
       await ctx.exclusive(() => ctx.actions.loadInbox(page, { scrolls: 6, yieldToSends }));
-      return { ok: false, error: 'learning the older-conversations request' };
+      return { ok: false, error: 'learning the conversation-list request' };
     }
-    // The list is paged by a `lastUpdatedBefore:<ms>` cursor (same idea as a thread's `deliveredAt`). If LinkedIn
-    // instead uses an opaque syncToken for this account, a timestamp cursor doesn't apply — report so, don't guess.
-    if (!/lastUpdatedBefore/.test(tpl.url)) {
-      logger.warn({ url: tpl.url }, 'conversationsOlder has no lastUpdatedBefore cursor; list backfill needs the real format');
-      return { ok: false, error: 'older-conversations request uses an unsupported cursor' };
-    }
-    let before: number | null = null;
+    // LinkedIn's own categories; a conversation can belong to more than one (the reader de-dupes by URN).
+    const categories = ['INBOX', 'ARCHIVE', 'INMAIL'];
+    // Strip any cursor the learned request carried so we control paging per category.
+    const base = tpl.url.replace(/,lastUpdatedBefore:\d+/, '').replace(/,nextCursor:[^,)]*/, '');
+    const addVar = (url: string, kv: string) => `${url.slice(0, -1)},${kv})`; // insert before the closing ')'
     let fetched = 0;
-    let done = false;
-    for (let p = 0; p < (cmd.maxPages ?? 40); p++) {
-      const url = tpl.url.replace(/lastUpdatedBefore:\d+/, before != null ? `lastUpdatedBefore:${before}` : '$&');
-      const r = await inPageFetch(ctx, url, tpl.headers); // the reader ingests the response automatically
-      if (r.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now', warning: 'limited' };
-      if (r.status !== 200) {
-        if (isFormatRejection(r.status)) forgetTemplate(ctx, 'conversationsOlder');
-        else return { ok: false, error: `LinkedIn ${r.status}` };
-        break;
+    let done = true;
+    for (const cat of categories) {
+      const catUrl = base.replace(/category:[A-Z_]+/, `category:${cat}`);
+      let next: string | null = null;
+      for (let p = 0; p < (cmd.maxPages ?? 40); p++) {
+        const url = next ? addVar(catUrl, `nextCursor:${encodeURIComponent(next)}`) : addVar(catUrl, `lastUpdatedBefore:${Date.now()}`);
+        const r = await inPageFetch(ctx, url, tpl.headers); // the reader ingests the response automatically
+        if (r.status === 429) return { ok: false, error: 'LinkedIn is limiting this account right now', warning: 'limited' };
+        if (r.status !== 200) {
+          if (isFormatRejection(r.status)) forgetTemplate(ctx, 'conversations');
+          else {
+            done = false;
+            break; // transient error: move to the next category, this one can resume next run
+          }
+          break;
+        }
+        const json = r.text ? JSON.parse(r.text) : {};
+        const convos = extract(json).conversations;
+        fetched += convos.length;
+        await ctx.streams.emit('progress', { kind: 'conversations', loaded: fetched, total: null, done: false });
+        const nc = nextCursorOf(json);
+        if (!convos.length || !nc || nc === next) break; // end of this category
+        next = nc;
+        await sleep(2000 + Math.random() * 2500); // gentle pace between pages
+        await yieldToSends();
       }
-      const convos = extract(r.text ? JSON.parse(r.text) : {}).conversations;
-      const times = convos.map((c) => Number(c.lastActivityAt)).filter((n) => Number.isFinite(n));
-      if (!times.length) {
-        done = true;
-        break;
-      }
-      const oldest = Math.min(...times);
-      if (before != null && oldest >= before) {
-        done = true; // no progress — we've reached the oldest conversation
-        break;
-      }
-      before = oldest;
-      fetched += convos.length;
-      await sleep(2000 + Math.random() * 2500); // gentle pace between pages
-      await yieldToSends();
     }
-    return { ok: true, backfill: { oldestMs: before, done, fetched } };
+    return { ok: true, backfill: { oldestMs: null, done, fetched } };
   }
 
   async function syncThread(cmd: Extract<Command, { type: 'sync_thread' }>): Promise<Outcome> {
