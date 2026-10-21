@@ -148,7 +148,7 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
     const q = String(query);
     if (q.includes('LinkedInConsoleFindPeople')) {
       const f = variables.filter;
-      const link = f.linkedinLink?.primaryLinkUrl?.ilike?.replaceAll('%', '').toLowerCase();
+      const link = (f.linkedinLink?.primaryLinkUrl?.like ?? f.linkedinLink?.primaryLinkUrl?.ilike)?.replaceAll('%', '').toLowerCase();
       const first = f.and?.[0]?.name?.firstName?.eq;
       const last = f.and?.[1]?.name?.lastName?.eq;
       const hits = twentyPeople.filter((x) =>

@@ -89,8 +89,11 @@ export function linkedinKey(url: string | null | undefined) {
 export async function peopleWithLinkedin(profileUrl: string): Promise<string[]> {
   const key = linkedinKey(profileUrl);
   if (!key) return [];
+  // `like` (case-sensitive), not `ilike`: some Twenty versions silently ignore `ilike` on a LINKS composite
+  // sub-field and return everything, which then matches nothing. Vanity ids are lowercase, and `key` is lowercased,
+  // so a case-sensitive substring match is correct here; the exact-key filter below is the final guard.
   const found = await twentyQuery<PeopleResult>(FIND_PEOPLE, {
-    filter: { linkedinLink: { primaryLinkUrl: { ilike: `%${key.replace(/[%_]/g, '')}%` } } },
+    filter: { linkedinLink: { primaryLinkUrl: { like: `%${key.replace(/[%_]/g, '')}%` } } },
   });
   return found.people.edges.filter((e) => linkedinKey(e.node.linkedinLink?.primaryLinkUrl) === key).map((e) => e.node.id);
 }
