@@ -11,6 +11,7 @@ import { currentSubscription, disablePush, enablePush, pushSupported } from '../
 import { useAppConfig, useLabels, useTemplates } from '../../lib/queries';
 import { toast } from '../../lib/toast';
 import type { Template, Webhook, WebhookEvent } from '../../types';
+import { CrmBindingsTab } from './CrmBindingsTab';
 import { IntegrationsTab } from './IntegrationsTab';
 
 const TABS = [
@@ -19,16 +20,18 @@ const TABS = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'webhooks', label: 'Webhooks', admin: true },
   { id: 'integrations', label: 'Twenty CRM', admin: true },
+  { id: 'bindings', label: 'CRM bindings', crm: true },
 ];
 
 export function SettingsPage() {
   const me = useMe();
+  const config = useAppConfig();
   const { tab = 'templates' } = useParams();
   return (
     <PageScroll>
       <PageHeader title="Settings" />
       <div className="mb-5 flex gap-1 border-b border-slate-200">
-        {TABS.filter((t) => !t.admin || isAdmin(me)).map((t) => (
+        {TABS.filter((t) => (!t.admin || isAdmin(me)) && (!t.crm || !!config.data?.twentyUrl)).map((t) => (
           <NavLink
             key={t.id}
             to={`/settings/${t.id}`}
@@ -45,6 +48,7 @@ export function SettingsPage() {
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'webhooks' && isAdmin(me) && <WebhooksTab />}
       {tab === 'integrations' && isAdmin(me) && <IntegrationsTab />}
+      {tab === 'bindings' && <CrmBindingsTab />}
     </PageScroll>
   );
 }

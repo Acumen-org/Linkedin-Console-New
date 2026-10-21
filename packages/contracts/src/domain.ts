@@ -30,6 +30,7 @@ export const CONVERSATION_VIEWS = [
   'no_reply',
   'followups',
   'crm_needed',
+  'crm_bound',
   'unread',
   'awaiting',
   'starred',

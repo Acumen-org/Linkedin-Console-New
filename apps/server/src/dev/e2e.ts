@@ -201,6 +201,13 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
         },
       });
     }
+    if (q.includes('LinkedInConsolePeopleByIds')) {
+      const ids: string[] = variables.filter.id.in;
+      const hits = twentyPeople.filter((x) => ids.includes(x.id));
+      return json({
+        data: { people: { edges: hits.map((x) => ({ node: { id: x.id, name: { firstName: x.firstName, lastName: x.lastName } } })) } },
+      });
+    }
     if (q.includes('LinkedInConsolePerson(')) {
       const x = twentyPeople.find((y) => y.id === variables.filter.id.eq);
       const node = x
@@ -1830,6 +1837,41 @@ try {
         assert.equal(audited[0]?.meta.method, 'new');
       },
     );
+    await step('CRM bindings view: who is bound to which Twenty Person, the crm_bound filter, scoped by account', async () => {
+      const res = await owner('GET', '/api/crm/bindings');
+      assert.equal(res.status, 200);
+      const list = res.data.bindings as any[];
+      const janeRow = list.find((b: any) => b.personId === janeInTwenty);
+      assert.ok(janeRow, `Jane in the bindings list: ${JSON.stringify(list)}`);
+      assert.equal(janeRow.personName, 'Jane Doe', 'the Twenty Person name is resolved');
+      assert.equal(janeRow.method, 'auto_link');
+      assert.equal(janeRow.replied, true);
+      assert.ok(janeRow.accountLabels.includes('E2E account'));
+      assert.ok(janeRow.personUrl?.endsWith(`/object/person/${janeInTwenty}`), janeRow.personUrl);
+      // Both an automatic (link match) and a manual (added new) binding are carried, for the auto/manual filter.
+      assert.ok(
+        list.some((b: any) => b.method === 'auto_link') && list.some((b: any) => b.method === 'new'),
+        'auto and manual bindings both listed',
+      );
+      assert.ok(res.data.summary.bound >= 2, JSON.stringify(res.data.summary));
+
+      // The crm_bound inbox filter is the mirror of crm_needed: only bound 1:1 conversations.
+      const bound = await owner('GET', `/api/conversations?accountId=${accountId}&view=crm_bound`);
+      assert.ok(
+        bound.data.some((c: any) => c.id === janeId),
+        'Jane shows in the In Twenty CRM view',
+      );
+      assert.ok(
+        bound.data.every((c: any) => c.crmBinding === 'bound'),
+        'only bound conversations in crm_bound',
+      );
+
+      // A teammate granted the account sees its bindings and the scoped summary; no account access = empty, not an error.
+      const asMember = await member('GET', '/api/crm/bindings');
+      assert.equal(asMember.status, 200);
+      assert.ok(asMember.data.bindings.length >= 1);
+      assert.equal(typeof asMember.data.summary.needsBinding, 'number');
+    });
     await step(
       'Twenty fields written: the LinkedIn summary on the Person, a LinkedIn conversation record per chat, only changes',
       async () => {

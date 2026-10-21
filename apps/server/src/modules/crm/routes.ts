@@ -3,13 +3,15 @@
 // Also the list of Twenty users, for linking teammates to them on the Team page.
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { conversationForUser } from '../../core/access.ts';
+import { accessibleAccountIds, conversationForUser } from '../../core/access.ts';
 import { requireAdmin, requireUser } from '../../core/auth.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
-import { searchPeople, twentyWebUrl, workspaceMembers } from '../../lib/twenty.ts';
+import { peopleByIds, searchPeople, twentyWebUrl, workspaceMembers } from '../../lib/twenty.ts';
 import { addAsNew, bindToExisting, crmFields, prospectOf, unbindByAdmin } from '../../worker/crm-binding.ts';
+
+const personUrl = (personId: string | null) => (personId && twentyWebUrl() ? `${twentyWebUrl()}/object/person/${personId}` : null);
 
 type Params = { id: string };
 
@@ -25,11 +27,15 @@ export default async function crmRoutes(app: FastifyInstance) {
     const prospect = await prospectOf(conversation.accountId, conversation.participants ?? []);
     const [me] = await sql`SELECT twenty_member_id, pod FROM users WHERE id = ${user.id}`;
     const fields = await crmFields().catch(() => ({ owner: null, pod: null, source: false, memberId: false }));
+    const personId = conversation.twentyPersonId as string | null;
+    // The bound Person's name, for the inline badge; best-effort (a Twenty outage just leaves it null).
+    const personName = personId ? ((await peopleByIds([personId]).catch(() => null))?.get(personId) ?? null) : null;
     return {
       binding: conversation.crmBinding as 'needed' | 'bound' | null,
       reason: conversation.crmBindingReason as string | null,
-      personId: conversation.twentyPersonId as string | null,
-      personUrl: conversation.twentyPersonId ? `${twentyWebUrl()}/object/person/${conversation.twentyPersonId}` : null,
+      personId,
+      personUrl: personUrl(personId),
+      personName,
       prospect: { name: prospect.name, headline: prospect.headline, profileUrl: prospect.profileUrl, identified: !!prospect.memberUrn },
       // What "Add as new" will set, and what is missing for it.
       owner: { field: fields.owner, memberId: (me?.twentyMemberId as string | null) ?? null },
@@ -68,6 +74,75 @@ export default async function crmRoutes(app: FastifyInstance) {
     await conversationForUser(admin, req.params.id, 'READ');
     await unbindByAdmin(req.params.id, admin, req.ip);
     return { ok: true };
+  });
+
+  // Every bound prospect and the Twenty Person they map to, plus a scoped summary (bound / needs binding / unbound):
+  // which LinkedIn prospect is bound to which Person, who bound them and how. Admins see all accounts; everyone else
+  // only the accounts they are granted (same as the inbox). A binding spans every 1:1 conversation with the prospect
+  // in those accounts: the representative conversation (its newest) backs the admin Unbind and the Twenty link.
+  app.get('/api/crm/bindings', async (req) => {
+    requireCrm();
+    const user = requireUser(req);
+    const ids = await accessibleAccountIds(user);
+    if (!ids.length) return { bindings: [], summary: { bound: 0, needsBinding: 0, unbound: 0 } };
+
+    // One prospect (member URN) can have several 1:1 conversations across accounts: fold them together.
+    const rows = await sql<
+      {
+        memberUrn: string;
+        personId: string;
+        method: string;
+        boundAt: Date;
+        boundByName: string | null;
+        prospect: string;
+        accountLabels: string[];
+        replied: boolean;
+        conversationId: string;
+      }[]
+    >`
+      WITH prospect AS (
+        SELECT c.participants->0->>'urn' AS member_urn,
+               coalesce(max(c.title), max(c.participants->0->>'name'), 'LinkedIn Member') AS prospect,
+               array_agg(DISTINCT a.label ORDER BY a.label) AS account_labels,
+               bool_or(EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')) AS replied,
+               (array_agg(c.id ORDER BY c.last_message_at DESC NULLS LAST))[1] AS conversation_id
+        FROM conversations c JOIN accounts a ON a.id = c.account_id
+        WHERE NOT c.is_group AND c.account_id IN ${sql(ids)} AND c.participants->0->>'urn' LIKE 'urn:li:%'
+        GROUP BY c.participants->0->>'urn'
+      )
+      SELECT b.member_urn, b.person_id, b.method, b.bound_at, u.name AS bound_by_name,
+             p.prospect, p.account_labels, p.replied, p.conversation_id
+      FROM crm_bindings b
+      JOIN prospect p ON p.member_urn = b.member_urn
+      LEFT JOIN users u ON u.id = b.bound_by
+      ORDER BY b.bound_at DESC
+      LIMIT 2000`;
+
+    // Names from Twenty, best-effort: a Person deleted or merged there (or a Twenty outage) just shows no name.
+    const names = rows.length ? await peopleByIds(rows.map((r) => r.personId)).catch(() => new Map<string, string>()) : new Map();
+    const bindings = rows.map((r) => ({
+      memberUrn: r.memberUrn,
+      prospect: r.prospect,
+      accountLabels: r.accountLabels,
+      replied: r.replied,
+      conversationId: r.conversationId,
+      personId: r.personId,
+      personName: names.get(r.personId) ?? null,
+      personUrl: personUrl(r.personId),
+      method: r.method,
+      boundByName: r.boundByName,
+      boundAt: r.boundAt,
+    }));
+
+    // Scoped to the same accounts: bound prospects, replies still waiting to be bound, and replied-but-undecided.
+    const [summary] = await sql<{ bound: number; needsBinding: number; unbound: number }[]>`
+      SELECT count(DISTINCT participants->0->>'urn') FILTER (WHERE crm_binding = 'bound')::int AS bound,
+             count(*) FILTER (WHERE crm_binding = 'needed')::int AS needs_binding,
+             count(DISTINCT participants->0->>'urn') FILTER (
+               WHERE crm_binding IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')
+             )::int AS unbound
+      FROM conversations c WHERE NOT is_group AND account_id IN ${sql(ids)}`;
+    return { bindings, summary };
   });
 
   // Twenty users, to link teammates to (owner of the Persons they add).
