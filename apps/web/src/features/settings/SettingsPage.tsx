@@ -11,12 +11,14 @@ import { currentSubscription, disablePush, enablePush, pushSupported } from '../
 import { useAppConfig, useLabels, useTemplates } from '../../lib/queries';
 import { toast } from '../../lib/toast';
 import type { Template, Webhook, WebhookEvent } from '../../types';
+import { IntegrationsTab } from './IntegrationsTab';
 
 const TABS = [
   { id: 'templates', label: 'Saved replies' },
   { id: 'labels', label: 'Labels' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'webhooks', label: 'Webhooks', admin: true },
+  { id: 'integrations', label: 'Twenty CRM', admin: true },
 ];
 
 export function SettingsPage() {
@@ -42,6 +44,7 @@ export function SettingsPage() {
       {tab === 'labels' && <LabelsTab />}
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'webhooks' && isAdmin(me) && <WebhooksTab />}
+      {tab === 'integrations' && isAdmin(me) && <IntegrationsTab />}
     </PageScroll>
   );
 }

@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import { type BridgeEvent, EVENTS_STREAM, RESULTS_STREAM } from '@linkedin-console/contracts';
 import { migrate, sql } from './lib/db.ts';
+import { startIntegrations } from './lib/integrations.ts';
 import { logger } from './lib/logger.ts';
 import { newRedis, redis } from './lib/redis.ts';
 import { onProgress, onSyncResult } from './worker/first-sync.ts';
@@ -61,6 +62,7 @@ setInterval(() => {
 }, 30_000).unref();
 
 await migrate();
+await startIntegrations(); // admin-managed Twenty/staff settings over the env defaults
 startScheduler();
 runWebhookDelivery();
 logger.info('worker started');

@@ -118,6 +118,56 @@ if (problems.length) {
   process.exit(1);
 }
 
+const webUrlFrom = (apiUrl: string, webUrl: string) => (webUrl || apiUrl.replace(/\/graphql\/?$/, '')).replace(/\/$/, '');
+
+export type TwentyConn = { url: string; apiKey: string; webUrl: string; ownerField: string; podField: string };
+export type MicrosoftConn = { tenantId: string; clientId: string; clientSecret: string };
+export type StaffSyncConn = {
+  mode: 'off' | 'disable' | 'provision';
+  source: 'twilio' | 'twenty';
+  url: string;
+  apiKey: string;
+  minutes: number;
+};
+
+/** The Twenty/staff/Microsoft integration config can be managed from the admin UI (stored in the DB and loaded by
+ * lib/integrations.ts); whatever it sets overrides the env defaults below. Env stays the fallback, so nothing
+ * changes until an admin edits it. */
+export interface IntegrationOverrides {
+  crmSync?: boolean;
+  twenty?: TwentyConn | null;
+  microsoft?: MicrosoftConn | null;
+  staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
+}
+
+const envMicrosoft: MicrosoftConn | null = microsoftEnabled
+  ? { tenantId: e.MICROSOFT_TENANT_ID, clientId: e.MICROSOFT_CLIENT_ID, clientSecret: e.MICROSOFT_CLIENT_SECRET }
+  : null;
+const envTwenty: TwentyConn | null =
+  e.TWENTY_API_URL && e.TWENTY_API_KEY
+    ? {
+        url: e.TWENTY_API_URL,
+        apiKey: e.TWENTY_API_KEY,
+        webUrl: webUrlFrom(e.TWENTY_API_URL, e.TWENTY_WEB_URL),
+        ownerField: e.TWENTY_PERSON_OWNER_FIELD,
+        podField: e.TWENTY_PERSON_POD_FIELD,
+      }
+    : null;
+const envCrmSync = e.CRM_SYNC === 'on';
+const envStaff: StaffSyncConn = {
+  mode: e.STAFF_SYNC,
+  source: e.STAFF_SOURCE,
+  url: e.TWILIO_CONSOLE_URL,
+  apiKey: e.TWILIO_CONSOLE_API_KEY,
+  minutes: e.STAFF_SYNC_MINUTES,
+};
+
+let overrides: IntegrationOverrides = {};
+/** Called by lib/integrations.ts after it reads the admin settings from the DB (and on each refresh). */
+export function applyIntegrationOverrides(o: IntegrationOverrides) {
+  overrides = o;
+}
+
 export const config = {
   port: e.PORT,
   logLevel: e.LOG_LEVEL,
@@ -138,28 +188,20 @@ export const config = {
   appUrl: e.APP_URL,
   ai: { provider: e.AI_PROVIDER, model: e.AI_MODEL, anthropicKey: e.ANTHROPIC_API_KEY, ollamaUrl: e.OLLAMA_URL },
   vapidSubject: e.VAPID_SUBJECT,
-  microsoft: microsoftEnabled
-    ? { tenantId: e.MICROSOFT_TENANT_ID, clientId: e.MICROSOFT_CLIENT_ID, clientSecret: e.MICROSOFT_CLIENT_SECRET }
-    : null,
   passwordSignin: e.PASSWORD_SIGNIN,
-  crmSync: e.CRM_SYNC === 'on',
   autoRecovery: e.AUTO_RECOVERY === 'on',
   credentialsKey: e.CREDENTIALS_KEY ? Buffer.from(e.CREDENTIALS_KEY, 'base64') : null,
-  twenty:
-    e.TWENTY_API_URL && e.TWENTY_API_KEY
-      ? {
-          url: e.TWENTY_API_URL,
-          apiKey: e.TWENTY_API_KEY,
-          webUrl: (e.TWENTY_WEB_URL || e.TWENTY_API_URL.replace(/\/graphql\/?$/, '')).replace(/\/$/, ''),
-          ownerField: e.TWENTY_PERSON_OWNER_FIELD,
-          podField: e.TWENTY_PERSON_POD_FIELD,
-        }
-      : null,
-  staffSync: {
-    mode: e.STAFF_SYNC,
-    source: e.STAFF_SOURCE,
-    url: e.TWILIO_CONSOLE_URL,
-    apiKey: e.TWILIO_CONSOLE_API_KEY,
-    minutes: e.STAFF_SYNC_MINUTES,
+  // Integration config: env defaults, overridden live by the admin settings (lib/integrations.ts).
+  get microsoft(): MicrosoftConn | null {
+    return overrides.microsoft !== undefined ? overrides.microsoft : envMicrosoft;
   },
-} as const;
+  get crmSync(): boolean {
+    return overrides.crmSync ?? envCrmSync;
+  },
+  get twenty(): TwentyConn | null {
+    return overrides.twenty !== undefined ? overrides.twenty : envTwenty;
+  },
+  get staffSync(): StaffSyncConn {
+    return { ...envStaff, ...(overrides.staffSync ?? {}) };
+  },
+};

@@ -2826,6 +2826,29 @@ try {
   } else {
     console.log('  (Microsoft sign-in and staff sync tests skipped: they need the e2e identity settings, see docs/development.md)');
   }
+
+  await step('integrations settings: admin only, round-trips and validates', async () => {
+    // Members can neither read nor change the integration settings.
+    assert.equal((await member('GET', '/api/integrations')).status, 403);
+    assert.equal((await member('PUT', '/api/integrations', { crmSync: false })).status, 403);
+
+    const got = await owner('GET', '/api/integrations');
+    assert.equal(got.status, 200);
+    assert.equal(typeof got.data.settings.crmSync, 'boolean');
+    assert.ok('mode' in got.data.settings.staffSync, 'returns the staff-sync mode');
+
+    // Toggle CRM sync through the admin API and see it reflected, then restore it.
+    const before = got.data.settings.crmSync as boolean;
+    const put = await owner('PUT', '/api/integrations', { crmSync: !before });
+    assert.equal(put.status, 200);
+    assert.equal(put.data.crmSync, !before);
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmSync, !before);
+    await owner('PUT', '/api/integrations', { crmSync: before });
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmSync, before);
+
+    // A malformed Twenty URL is rejected (nothing stored).
+    assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);
+  });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
   console.log(`✘ setup failed

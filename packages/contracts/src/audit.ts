@@ -63,6 +63,8 @@ export const AUDIT_ACTIONS = {
   'crm.retried': { label: 'Retried the Twenty CRM sync', category: 'settings' },
   'crm.bound': { label: 'Bound a prospect to a Twenty Person', category: 'conversation' },
   'crm.unbound': { label: 'Unbound a prospect from Twenty', category: 'conversation' },
+  'integrations.updated': { label: 'Changed the Twenty / staff integration settings', category: 'settings' },
+  'integrations.fields_applied': { label: 'Set up Twenty fields from the console', category: 'settings' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 

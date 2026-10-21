@@ -268,3 +268,68 @@ export async function conversationObjectFields(): Promise<Set<string> | null> {
 export const resetPersonFieldsCache = () => {
   cache = null;
 };
+
+export interface FieldReport {
+  scope: 'person' | 'object';
+  name: string;
+  label: string;
+  status: 'exists' | 'added' | 'missing';
+}
+
+/**
+ * Check (and with `apply`, add) everything LinkedIn Console needs in Twenty: the Person fields, the LinkedIn
+ * conversation object, its fields and its link to Person. Custom, nullable; nothing existing is ever changed.
+ * Shared by the CLI (scripts/twenty-fields.sh) and the admin Settings UI.
+ */
+export async function syncTwentyFields(apply: boolean): Promise<{ items: FieldReport[]; missing: number }> {
+  const objects = await objectsSchema();
+  const person = objects.get('person');
+  if (!person) throw new TwentyError('Twenty has no "person" object');
+  const items: FieldReport[] = [];
+  let missing = 0;
+  const ensure = async (objectId: string | null, have: Map<string, string>, fields: FieldSpec[], scope: 'person' | 'object') => {
+    for (const f of fields) {
+      if (have.get(f.name)) {
+        items.push({ scope, name: f.name, label: f.label, status: 'exists' });
+        continue;
+      }
+      missing++;
+      if (apply && objectId) {
+        await createField(objectId, f);
+        items.push({ scope, name: f.name, label: f.label, status: 'added' });
+      } else {
+        items.push({ scope, name: f.name, label: f.label, status: 'missing' });
+      }
+    }
+  };
+  await ensure(person.id, person.fields, PERSON_FIELDS, 'person');
+
+  const o = CONVERSATION_OBJECT;
+  let conv = objects.get(o.nameSingular);
+  if (!conv) {
+    missing++;
+    if (apply) {
+      const id = await createConversationObject();
+      conv = (await objectsSchema()).get(o.nameSingular) ?? { id, fields: new Map() };
+      items.push({ scope: 'object', name: o.nameSingular, label: o.labelPlural, status: 'added' });
+    } else {
+      items.push({ scope: 'object', name: o.nameSingular, label: o.labelPlural, status: 'missing' });
+    }
+  } else {
+    items.push({ scope: 'object', name: o.nameSingular, label: o.labelPlural, status: 'exists' });
+  }
+  await ensure(conv?.id ?? null, conv?.fields ?? new Map(), o.fields, 'object');
+  if (conv?.fields.has(o.relation.name)) {
+    items.push({ scope: 'object', name: o.relation.name, label: 'link to Person', status: 'exists' });
+  } else {
+    missing++;
+    if (apply && conv) {
+      await createConversationRelation(conv.id, person.id);
+      items.push({ scope: 'object', name: o.relation.name, label: 'link to Person', status: 'added' });
+    } else {
+      items.push({ scope: 'object', name: o.relation.name, label: 'link to Person', status: 'missing' });
+    }
+  }
+  resetPersonFieldsCache();
+  return { items, missing };
+}

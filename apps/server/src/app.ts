@@ -16,6 +16,7 @@ import conversationRoutes from './modules/conversations/routes.ts';
 import crmRoutes from './modules/crm/routes.ts';
 import dataRoutes from './modules/data/routes.ts';
 import fileRoutes from './modules/files/routes.ts';
+import integrationRoutes from './modules/integrations/routes.ts';
 import labelRoutes from './modules/labels/routes.ts';
 import liveRoutes from './modules/live/routes.ts';
 import networkRoutes from './modules/network/routes.ts';
@@ -42,6 +43,7 @@ const MODULES = [
   auditRoutes,
   activityRoutes,
   crmRoutes,
+  integrationRoutes,
   webhookRoutes,
   pushRoutes,
   aiRoutes,
