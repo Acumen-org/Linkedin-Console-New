@@ -37,6 +37,7 @@ const VIEWS = [
   { id: 'no_reply', label: 'No reply yet', icon: SendHorizontal },
   { id: 'followups', label: 'Follow-ups', icon: BellRing },
   { id: 'crm_needed', label: 'Needs CRM binding', icon: Link2 },
+  { id: 'crm_bound', label: 'In Twenty CRM', icon: Link2 },
   { id: 'unread', label: 'Unread', icon: Mail },
   { id: 'awaiting', label: 'Awaiting reply', icon: Hourglass },
   { id: 'starred', label: 'Starred', icon: Star },
@@ -96,7 +97,7 @@ export function InboxPage() {
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">Inbox</div>
         <div className="flex-1 overflow-y-auto p-2">
-          {VIEWS.filter((v) => v.id !== 'crm_needed' || !!appConfig.data?.twentyUrl).map((v) => (
+          {VIEWS.filter((v) => !(v.id === 'crm_needed' || v.id === 'crm_bound') || !!appConfig.data?.twentyUrl).map((v) => (
             <button
               key={v.id}
               onClick={() => setParam('view', v.id === 'all' ? '' : v.id)}

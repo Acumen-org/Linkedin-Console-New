@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Link2, Search, UserPlus } from 'lucide-react';
+import { Check, ExternalLink, Link2, Search, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { isAdmin, useMe } from '../../App';
 import { Modal } from '../../components/ui';
@@ -12,6 +12,7 @@ interface CrmState {
   reason: string | null;
   personId: string | null;
   personUrl: string | null;
+  personName: string | null;
   prospect: { name: string; headline: string | null; profileUrl: string | null; identified: boolean };
   owner: { field: string | null; memberId: string | null };
   pod: { field: string | null; value: string | null };
@@ -36,7 +37,8 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
   const me = useMe();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const shown = conversation.crmBinding === 'needed' || (conversation.crmBinding === 'bound' && isAdmin(me));
+  // Everyone who can see the thread sees the binding; only admins can undo it.
+  const shown = conversation.crmBinding === 'needed' || conversation.crmBinding === 'bound';
   const state = useQuery({
     queryKey: ['crm', conversation.id, conversation.crmBinding],
     queryFn: () => api.get<CrmState>(`/api/conversations/${conversation.id}/crm`),
@@ -61,17 +63,23 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
   };
 
   if (s.binding === 'bound') {
+    const label = s.personName ? `Twenty: ${s.personName}` : 'In Twenty CRM';
     return (
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs text-slate-600">
-        <Link2 size={13} /> In Twenty CRM
-        {s.personUrl && (
-          <a href={s.personUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
-            Open
+        {s.personUrl ? (
+          <a href={s.personUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-medium text-brand hover:underline">
+            <Check size={13} /> {label}
           </a>
+        ) : (
+          <span className="flex items-center gap-1">
+            <Check size={13} /> {label}
+          </span>
         )}
-        <button type="button" onClick={unbind} className="ml-auto text-slate-500 hover:text-red-600 hover:underline">
-          Unbind (wrong Person)
-        </button>
+        {isAdmin(me) && (
+          <button type="button" onClick={unbind} className="ml-auto text-slate-500 hover:text-red-600 hover:underline">
+            Unbind (wrong Person)
+          </button>
+        )}
       </div>
     );
   }

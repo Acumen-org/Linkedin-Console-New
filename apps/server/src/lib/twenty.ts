@@ -239,6 +239,29 @@ export async function tasksByIds(ids: string[]) {
   return new Map(data.tasks.edges.map((e) => [e.node.id, e.node]));
 }
 
+/**
+ * The display name of each of these Persons, by id (for the CRM bindings list). A Person missing from the answer
+ * (deleted or merged in Twenty) simply isn't in the map. Fetched in chunks so a long list stays one query each.
+ */
+export async function peopleByIds(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    const data = await twentyQuery<{
+      people: { edges: { node: { id: string; name?: { firstName?: string | null; lastName?: string | null } | null } }[] };
+    }>(
+      `query LinkedInConsolePeopleByIds($filter: PersonFilterInput, $first: Int!) {
+        people(filter: $filter, first: $first) { edges { node { id name { firstName lastName } } } }
+      }`,
+      { filter: { id: { in: chunk } }, first: chunk.length },
+    );
+    for (const { node } of data.people.edges)
+      out.set(node.id, `${node.name?.firstName ?? ''} ${node.name?.lastName ?? ''}`.trim() || '(no name)');
+  }
+  return out;
+}
+
 // ---------- Choosing a Person (bind to existing / add as new) ----------
 
 export interface PersonCandidate {
