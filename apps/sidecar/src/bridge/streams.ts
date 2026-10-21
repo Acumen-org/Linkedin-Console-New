@@ -6,8 +6,8 @@ import {
   commandStream,
   EVENTS_STREAM,
   type FetchMediaReply,
-  type ResolveProfileReply,
   RESULTS_STREAM,
+  type ResolveProfileReply,
   replyKey,
 } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
