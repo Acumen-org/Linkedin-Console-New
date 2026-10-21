@@ -24,16 +24,54 @@ type Participant = { urn?: string; name?: string; headline?: string | null; prof
 /** The prospect of a 1:1 conversation, with the vanity profile link from the connections list when known. */
 export async function prospectOf(accountId: string, participants: Participant[]) {
   const p = participants[0] ?? {};
-  const [contact] = p.urn
-    ? await sql`SELECT profile_url, headline, is_connection FROM contacts WHERE account_id = ${accountId} AND member_urn = ${p.urn} LIMIT 1`
+  const urn = p.urn?.startsWith('urn:li:') ? p.urn : null;
+  // The prospect's connection row, found by their member URN directly, or — because the connections list carries
+  // only the vanity id — through the member↔vanity map, which also backfills contacts.member_urn once bridged.
+  const [contact] = urn
+    ? await sql`
+        SELECT c.profile_url, c.headline, c.is_connection FROM contacts c
+        WHERE c.account_id = ${accountId}
+          AND (c.member_urn = ${urn} OR c.public_id = (SELECT public_id FROM linkedin_members WHERE member_urn = ${urn}))
+        ORDER BY (c.member_urn = ${urn}) DESC NULLS LAST LIMIT 1`
     : [];
+  // Even with no connection row, the map may know the prospect's vanity profile (e.g. resolved on demand): that
+  // vanity link is what matches a Twenty Person, where the raw member-URN URL never would.
+  const [mapped] = urn && !contact?.profileUrl ? await sql`SELECT public_id FROM linkedin_members WHERE member_urn = ${urn}` : [];
+  const vanity = mapped ? `https://www.linkedin.com/in/${mapped.publicId}/` : null;
   return {
-    memberUrn: p.urn?.startsWith('urn:li:') ? p.urn : null,
+    memberUrn: urn,
     name: p.name?.trim() || 'LinkedIn Member',
-    profileUrl: (contact?.profileUrl as string | null) ?? p.profileUrl ?? null,
+    profileUrl: (contact?.profileUrl as string | null) ?? vanity ?? p.profileUrl ?? null,
     headline: (contact?.headline as string | null) ?? p.headline ?? null,
     connected: !!contact?.isConnection,
   };
+}
+
+/**
+ * Records member-URN ↔ vanity-public-id pairs (from a profile resolution or any payload that carries both). Also
+ * backfills contacts.member_urn for the matching connection rows, and wakes the prospects who were waiting only
+ * because their vanity link was unknown, so the next bindReplied tick looks at them again.
+ */
+export async function rememberMembers(pairs: { memberUrn: string; publicId: string }[], source: string) {
+  const rows = pairs.filter((m) => m.memberUrn?.startsWith('urn:li:') && m.publicId);
+  if (!rows.length) return;
+  await sql`
+    INSERT INTO linkedin_members ${sql(
+      rows.map((m) => ({ memberUrn: m.memberUrn, publicId: m.publicId, source })) as never,
+      'memberUrn',
+      'publicId',
+      'source',
+    )}
+    ON CONFLICT (member_urn) DO UPDATE SET public_id = excluded.public_id, source = excluded.source, updated_at = now()`;
+  // Fill in the member URN on the connection rows we only knew by vanity id (every account), so later lookups and
+  // other features (search, status) find them directly.
+  await sql`
+    UPDATE contacts c SET member_urn = lm.member_urn, updated_at = now()
+    FROM linkedin_members lm WHERE lm.public_id = c.public_id AND c.member_urn IS NULL AND lm.member_urn IN ${sql(rows.map((m) => m.memberUrn))}`;
+  // Replies queued only for a missing profile link are looked at again right away (as onContacts does for new links).
+  await sql`
+    UPDATE conversations SET crm_binding = NULL
+    WHERE crm_binding = 'needed' AND crm_binding_at <> 'infinity' AND participants->0->>'urn' IN ${sql(rows.map((m) => m.memberUrn))}`;
 }
 
 async function changed(conversations: { id: string; accountId: string }[]) {

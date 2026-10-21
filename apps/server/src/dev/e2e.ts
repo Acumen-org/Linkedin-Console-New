@@ -17,7 +17,7 @@ import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
-import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
+import { markForReview, nudgeUnbound, rememberMembers } from '../worker/crm-binding.ts';
 import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
 import { retryStuckConnections } from '../worker/first-sync.ts';
@@ -1652,6 +1652,98 @@ try {
         assert.equal(log?.meta.method, 'auto_link');
       },
     );
+
+    await step('Twenty CRM: a replier known only by their obfuscated member URN binds once the member↔vanity map bridges it', async () => {
+      // The real production shape: the connections list gives a vanity id with NO member URN; the conversation's
+      // participant is keyed by the obfuscated member URN and its only URL is the obfuscated /in/ACoAAC… form; the
+      // Twenty Person has the vanity link. Nina IS in Twenty, but neither the connection row nor the obfuscated URL
+      // can find her, so auto-bind cannot fire — until the member↔vanity map bridges the two ids.
+      const vanityId = `nina-${tag}`;
+      const vanityUrl = `https://www.linkedin.com/in/${vanityId}/`;
+      const ninaUrn = `urn:li:fsd_profile:ACoAACNINA${tag}`;
+      const obfuscatedUrl = `https://www.linkedin.com/in/ACoAACNINA${tag}/`;
+      const ninaInTwenty = crypto.randomUUID();
+      twentyPeople.push({ id: ninaInTwenty, firstName: 'Nina', lastName: 'Buyer', linkedin: vanityUrl });
+      const createdBefore = twentyCreated;
+
+      // Connection row: vanity id only (urn "public:…" ⇒ contacts.member_urn stays NULL, as in prod).
+      await emit('contacts', {
+        connections: true,
+        items: [
+          {
+            urn: `public:${vanityId}`,
+            publicId: vanityId,
+            name: 'Nina E2E',
+            headline: 'Head of Growth',
+            avatarUrl: null,
+            profileUrl: vanityUrl,
+          },
+        ],
+      });
+      await until(
+        async () => (await sql`SELECT member_urn FROM contacts WHERE account_id = ${accountId} AND public_id = ${vanityId}`)[0],
+        (r) => r !== undefined && r.memberUrn === null,
+        'Nina connection with no member URN',
+      );
+      // The chat: participant keyed by the obfuscated member URN, carrying only the obfuscated profile URL.
+      await emit('conversations', [
+        {
+          urn: conv('NINA'),
+          threadId: `2-NINA${tag}`,
+          title: null,
+          isGroup: false,
+          unreadCount: 0,
+          lastActivityAt: Date.now(),
+          folder: 'focused',
+          participants: [{ urn: ninaUrn, name: 'Nina E2E', headline: 'Nina E2E headline', avatarUrl: null, profileUrl: obfuscatedUrl }],
+        },
+      ]);
+      await emit('messages', [msg('NINA', null, 'Hi Nina, a quick question', Date.now() - 60_000)]);
+      await emit('messages', [msg('NINA', { urn: ninaUrn, name: 'Nina E2E' } as typeof jane, 'Hello, interested', Date.now())]);
+      const [ninaConv] = await until(
+        () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv('NINA')}`,
+        (r) => r.length > 0,
+        'Nina chat',
+      );
+      const ninaId = ninaConv.id as string;
+      await until(
+        async () => (await sql`SELECT count(*)::int AS n FROM messages WHERE conversation_id = ${ninaId}`)[0].n,
+        (n) => n >= 2,
+        'Nina messages',
+      );
+
+      // Before the bridge: she waits — the obfuscated URL matches no Twenty Person, though she is in Twenty.
+      const waiting = await until(
+        () => afterTick(() => binding(ninaId)),
+        (b) => b.crmBinding === 'needed',
+        'Nina waits (id mismatch)',
+        60_000,
+      );
+      assert.equal(waiting.twentyPersonId, null);
+      assert.match(waiting.crmBindingReason, /Not in Twenty yet/);
+
+      // On-demand profile resolution learns Nina's vanity id for her member URN (the capture-dependent step the
+      // sidecar will perform live). It bridges both ids: contacts.member_urn is filled and she is looked at again.
+      await rememberMembers([{ memberUrn: ninaUrn, publicId: vanityId }], 'resolved');
+      assert.equal(
+        (await sql`SELECT member_urn FROM contacts WHERE account_id = ${accountId} AND public_id = ${vanityId}`)[0].memberUrn,
+        ninaUrn,
+        'the connection row now carries the member URN',
+      );
+      assert.equal((await binding(ninaId)).crmBinding, null, 'she is woken for a fresh look');
+
+      // After the bridge: the next tick resolves her vanity link and auto-binds to the existing Person. No create.
+      const bound = await until(
+        () => afterTick(() => binding(ninaId)),
+        (b) => b.crmBinding === 'bound',
+        'Nina bound via the map',
+        60_000,
+      );
+      assert.equal(bound.twentyPersonId, ninaInTwenty);
+      assert.equal(twentyCreated, createdBefore, 'no Person was created');
+      const [log] = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${ninaInTwenty}`;
+      assert.equal(log?.meta.method, 'auto_link');
+    });
 
     await step('Twenty fields: listed first, added only with --apply; Persons of non-repliers marked for review', async () => {
       const run = (apply: boolean) =>
