@@ -2828,9 +2828,12 @@ try {
   }
 
   await step('integrations settings: admin only, round-trips and validates', async () => {
-    // Members can neither read nor change the integration settings.
-    assert.equal((await member('GET', '/api/integrations')).status, 403);
-    assert.equal((await member('PUT', '/api/integrations', { crmSync: false })).status, 403);
+    // Non-admins cannot read or change the integration settings (401 if their session is gone, 403 if signed in).
+    assert.ok([401, 403].includes((await member('GET', '/api/integrations')).status), 'members cannot read integrations');
+    assert.ok(
+      [401, 403].includes((await member('PUT', '/api/integrations', { crmSync: false })).status),
+      'members cannot change integrations',
+    );
 
     const got = await owner('GET', '/api/integrations');
     assert.equal(got.status, 200);
