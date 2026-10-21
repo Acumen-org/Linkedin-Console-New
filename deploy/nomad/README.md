@@ -93,6 +93,76 @@ nomad job revert linkedin-console-new <version>
 
 The account browsers follow the images of the version that runs.
 
+## Database backups
+
+The Nomad stack keeps Postgres in the Docker volume `linkedin-console_pgdata` on worker-7 and, unlike the
+Compose setup, the `scripts/backup.sh` cron does **not** run against it. `deploy/nomad/linkedin-console-backup.nomad.hcl`
+is a **periodic batch job** that fills that gap: every night at 03:30 UTC it runs
+`pg_dump -U linkedin_console -Fc linkedin_console` against the running `postgres` container and writes a
+timestamped `auto-<ts>.dump` into worker-7's `/var/backups/linkedin-console`, keeping the newest 14 (older
+`auto-*.dump` files are pruned; hand-made dumps like `db-postreset.dump` are left alone).
+
+### One-time setup
+
+1. Create the backup directory on worker-7 (root-owned, 700 — the dumps hold private messages and the DB password):
+
+   ```bash
+   sudo mkdir -p /var/backups/linkedin-console && sudo chmod 700 /var/backups/linkedin-console
+   ```
+
+2. Grant the backup job's workload identity read access to the **main** job's variable (where the DB password
+   lives). With a management token:
+
+   ```bash
+   nomad acl policy apply -namespace default -job linkedin-console-backup \
+     linkedin-console-backup deploy/nomad/backup-policy.hcl
+   ```
+
+3. Install the schedule (this is a manual `nomad job run`, not part of CI):
+
+   ```bash
+   nomad job run deploy/nomad/linkedin-console-backup.nomad.hcl
+   ```
+
+### Verify / operate
+
+```bash
+nomad job periodic force linkedin-console-backup     # run one now
+nomad job status linkedin-console-backup             # last runs (each launch is a child job)
+sudo ls -l /var/backups/linkedin-console             # the auto-*.dump files
+```
+
+The dump/restore cycle was verified end-to-end (a `pg_dump -Fc` of a seeded `linkedin_console` DB restored
+cleanly into a fresh scratch Postgres with all rows intact). Retention keeps `keep` (default 14) dumps; change
+it with `-var keep=N` or `-var backup_dir=/path` on `nomad job run`.
+
+### Restore
+
+`pg_restore` a dump into an empty `linkedin_console` database (scratch instance first, then production only after
+the app is stopped). Password is `POSTGRES_PASSWORD` from the Nomad variable.
+
+```bash
+# into a throwaway container, to check a dump restores:
+docker run -d --name pgcheck -e POSTGRES_USER=linkedin_console -e POSTGRES_DB=linkedin_console \
+  -e POSTGRES_PASSWORD=scratch postgres:17
+docker cp /var/backups/linkedin-console/auto-<ts>.dump pgcheck:/tmp/d.dump
+docker exec -e PGPASSWORD=scratch pgcheck \
+  pg_restore -U linkedin_console -d linkedin_console --no-owner /tmp/d.dump
+docker exec -e PGPASSWORD=scratch pgcheck \
+  psql -U linkedin_console -d linkedin_console -c '\dt'   # sanity-check the tables
+docker rm -f pgcheck
+```
+
+To restore into the live volume, stop the app first (`nomad job stop linkedin-console-new`, or scale the group
+to 0) so nothing writes during the restore, then run `pg_restore` against the `postgres` container (restore into
+a freshly-recreated DB, or use `--clean --if-exists`), and start the job again.
+
+### Off-box copies (important)
+
+The dumps sit on the same node as the database, so they do **not** survive worker-7 dying. Copy
+`/var/backups/linkedin-console` off the box regularly (Proxmox Backup Server / NAS / S3) and keep the copies
+**encrypted** — they contain private LinkedIn messages and the database password.
+
 ## Good to know
 
 - Database migrations run by themselves when the new version starts (the api and the worker take turns through a database lock; all pending ones in one transaction).
