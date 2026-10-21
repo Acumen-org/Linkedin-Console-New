@@ -99,6 +99,34 @@ export async function loadSelf(ctx: BridgeContext): Promise<number> {
   return status;
 }
 
+/**
+ * The vanity publicIdentifier for an obfuscated member URN (urn:li:fsd_profile:ACoAA…), via LinkedIn's own
+ * profile finder — the one call that bridges a replier (known only by their member URN) to their connection row
+ * and to a Twenty Person, both of which key people by the vanity id. Null when LinkedIn doesn't return them.
+ */
+export async function resolveVanity(ctx: BridgeContext, memberUrn: string): Promise<{ status: number; publicId: string | null }> {
+  const obf = memberUrn.replace(/^urn:li:fsd_profile:/, '');
+  const r = await inPageFetch(
+    ctx,
+    `${LINKEDIN}/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(obf)}`,
+    {
+      accept: 'application/json',
+      'x-restli-protocol-version': '2.0.0',
+    },
+  );
+  if (r.status !== 200 || !r.text) return { status: r.status, publicId: null };
+  let json: { data?: { elements?: unknown[] }; elements?: unknown[] };
+  try {
+    json = JSON.parse(r.text);
+  } catch {
+    return { status: r.status, publicId: null };
+  }
+  const elements = (json?.data?.elements ?? json?.elements ?? []) as { entityUrn?: string; publicIdentifier?: string }[];
+  // Confirm it is the right person: the finder echoes the member URN we asked for in the element's entityUrn.
+  const el = elements.find((e) => e?.entityUrn === memberUrn) ?? (elements.length === 1 ? elements[0] : undefined);
+  return { status: r.status, publicId: typeof el?.publicIdentifier === 'string' ? el.publicIdentifier : null };
+}
+
 export async function hasSessionCookie(ctx: BridgeContext) {
   return (await ctx.context.cookies(LINKEDIN)).some((c) => c.name === 'li_at' && !!c.value);
 }

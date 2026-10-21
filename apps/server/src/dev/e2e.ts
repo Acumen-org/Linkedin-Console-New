@@ -17,7 +17,7 @@ import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
-import { markForReview, nudgeUnbound, rememberMembers } from '../worker/crm-binding.ts';
+import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
 import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
 import { retryStuckConnections } from '../worker/first-sync.ts';
@@ -427,6 +427,8 @@ const emitResult = (data: unknown) =>
 //   [silent]      nothing at all (browser offline)
 //   [limited]     LinkedIn shows a limit warning: failure with warning 'limited'
 const commands: any[] = [];
+// Obfuscated member URN → vanity id the fake bridge "resolves" (as the real sidecar profile lookup would).
+const vanityByMember: Record<string, string> = {};
 let stopBridge = false;
 async function fakeBridge() {
   let last = '$';
@@ -439,6 +441,17 @@ async function fakeBridge() {
       // History syncs are confirmed like the real bridge does (the conversation's history is then "in").
       if (cmd.type === 'sync_thread')
         await emitResult({ cmdId: cmd.cmdId, type: cmd.type, ok: true, conversationUrn: cmd.conversationUrn });
+      // Profile lookup: reply on the request/response list, like the sidecar's resolve_profile does.
+      if (cmd.type === 'resolve_profile') {
+        const publicId = vanityByMember[cmd.memberUrn];
+        await redis.rpush(
+          `li:reply:${cmd.cmdId}`,
+          JSON.stringify(
+            publicId ? { ok: true, memberUrn: cmd.memberUrn, publicId } : { ok: false, error: 'no vanity id for this member' },
+          ),
+        );
+        continue;
+      }
       if (cmd.type !== 'send_message' || cmd.text.startsWith('[silent]')) continue;
       const echo = msg(cmd.threadId.replace(/^2-/, '').replace(tag, ''), null, cmd.text, Date.now());
       const ok = { cmdId: cmd.cmdId, type: cmd.type, ok: true };
@@ -1712,37 +1725,76 @@ try {
         'Nina messages',
       );
 
-      // Before the bridge: she waits — the obfuscated URL matches no Twenty Person, though she is in Twenty.
-      const waiting = await until(
-        () => afterTick(() => binding(ninaId)),
-        (b) => b.crmBinding === 'needed',
-        'Nina waits (id mismatch)',
-        60_000,
-      );
-      assert.equal(waiting.twentyPersonId, null);
-      assert.match(waiting.crmBindingReason, /Not in Twenty yet/);
-
-      // On-demand profile resolution learns Nina's vanity id for her member URN (the capture-dependent step the
-      // sidecar will perform live). It bridges both ids: contacts.member_urn is filled and she is looked at again.
-      await rememberMembers([{ memberUrn: ninaUrn, publicId: vanityId }], 'resolved');
-      assert.equal(
-        (await sql`SELECT member_urn FROM contacts WHERE account_id = ${accountId} AND public_id = ${vanityId}`)[0].memberUrn,
-        ninaUrn,
-        'the connection row now carries the member URN',
-      );
-      assert.equal((await binding(ninaId)).crmBinding, null, 'she is woken for a fresh look');
-
-      // After the bridge: the next tick resolves her vanity link and auto-binds to the existing Person. No create.
+      // The sidecar can resolve her obfuscated member URN to her vanity id (the live profile lookup). On the first
+      // look, bindReplied asks the bridge, caches the pair, and auto-binds her to the existing Person. No create.
+      vanityByMember[ninaUrn] = vanityId;
       const bound = await until(
         () => afterTick(() => binding(ninaId)),
         (b) => b.crmBinding === 'bound',
-        'Nina bound via the map',
+        'Nina bound via resolution',
         60_000,
       );
+      assert.ok(
+        commands.some((c) => c.type === 'resolve_profile' && c.memberUrn === ninaUrn),
+        'the bridge was asked to resolve her vanity id',
+      );
       assert.equal(bound.twentyPersonId, ninaInTwenty);
+      assert.equal(
+        (await sql`SELECT public_id FROM linkedin_members WHERE member_urn = ${ninaUrn}`)[0]?.publicId,
+        vanityId,
+        'the resolved pair is cached',
+      );
+      assert.equal(
+        (await sql`SELECT member_urn FROM contacts WHERE account_id = ${accountId} AND public_id = ${vanityId}`)[0].memberUrn,
+        ninaUrn,
+        'the connection row now carries the member URN too',
+      );
       assert.equal(twentyCreated, createdBefore, 'no Person was created');
       const [log] = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${ninaInTwenty}`;
       assert.equal(log?.meta.method, 'auto_link');
+
+      // A replier LinkedIn won't resolve (deactivated, etc.) who isn't in Twenty: asked once, then queued for a
+      // teammate — never bound, never created. (vanityByMember has no entry for him, so the lookup comes back empty.)
+      const pavelUrn = `urn:li:fsd_profile:ACoAACPAVEL${tag}`;
+      await emit('conversations', [
+        {
+          urn: conv('PAVEL'),
+          threadId: `2-PAVEL${tag}`,
+          title: null,
+          isGroup: false,
+          unreadCount: 0,
+          lastActivityAt: Date.now(),
+          folder: 'focused',
+          participants: [
+            {
+              urn: pavelUrn,
+              name: 'Pavel E2E',
+              headline: '',
+              avatarUrl: null,
+              profileUrl: `https://www.linkedin.com/in/ACoAACPAVEL${tag}/`,
+            },
+          ],
+        },
+      ]);
+      await emit('messages', [msg('PAVEL', null, 'Hi Pavel', Date.now() - 60_000)]);
+      await emit('messages', [msg('PAVEL', { urn: pavelUrn, name: 'Pavel E2E' } as typeof jane, 'Who is this?', Date.now())]);
+      const [pavelConv] = await until(
+        () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv('PAVEL')}`,
+        (r) => r.length > 0,
+        'Pavel chat',
+      );
+      const pavel = await until(
+        () => afterTick(() => binding(pavelConv.id)),
+        (b) => b.crmBinding === 'needed',
+        'Pavel queued (not resolvable)',
+        60_000,
+      );
+      assert.ok(
+        commands.some((c) => c.type === 'resolve_profile' && c.memberUrn === pavelUrn),
+        'the bridge was asked to resolve him too',
+      );
+      assert.match(pavel.crmBindingReason, /Not in Twenty yet/);
+      assert.equal(twentyCreated, createdBefore, 'still no Person created');
     });
 
     await step('Twenty fields: listed first, added only with --apply; Persons of non-repliers marked for review', async () => {

@@ -13,7 +13,7 @@ import { IDLE_URL, jitter, sleep } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
 import { extract } from './extract.ts';
 import { conversationsFromPage, threadIdFromPath } from './inbox-dom.ts';
-import { encodeUrn, forgetTemplate, hasSessionCookie, inPageFetch, isFormatRejection, sendViaApi } from './linkedin.ts';
+import { encodeUrn, forgetTemplate, hasSessionCookie, inPageFetch, isFormatRejection, resolveVanity, sendViaApi } from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import type { Command } from './streams.ts';
 
@@ -51,6 +51,8 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   const sends = createExclusiveRunner('send');
   const background = createExclusiveRunner('background command');
   const downloads = createLimiter(2);
+  // Profile lookups (member URN → vanity) don't queue behind background syncs, but stay gentle: one at a time.
+  const lookups = createLimiter(1);
   const backToIdle = () => ctx.pageLock(() => page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' })).catch(() => {});
   // Between scrolls, a long background sync calls this so a waiting teammate send goes out now instead of
   // hanging "sending" until it times out. Returns true when a send ran (the page moved; the loader reopens).
@@ -104,6 +106,19 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
       });
     } catch (e) {
       await ctx.streams.reply(cmd.cmdId, { ok: false, error: (e as Error).message });
+    }
+  }
+
+  /** Looks up a prospect's vanity id from their obfuscated member URN (for CRM binding); replies to the caller. */
+  async function resolveProfile(cmd: Extract<Command, { type: 'resolve_profile' }>) {
+    try {
+      const { publicId } = await resolveVanity(ctx, cmd.memberUrn);
+      await ctx.streams.reply(
+        cmd.cmdId,
+        publicId ? { ok: true, memberUrn: cmd.memberUrn, publicId } : { ok: false, error: 'no vanity id for this member' },
+      );
+    } catch (e) {
+      await ctx.streams.reply(cmd.cmdId, { ok: false, error: (e as Error).message.split('\n')[0] });
     }
   }
 
@@ -459,6 +474,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     if (cmd.type === 'check_session') return checkSession();
     if (cmd.type === 'login') return login(cmd); // runs while signed out, so before the CONNECTED-only guard
     if (cmd.type === 'fetch_media') return downloads(() => fetchMedia(cmd));
+    if (cmd.type === 'resolve_profile') return lookups(() => resolveProfile(cmd));
     if (cmd.type === 'send_message' || cmd.type === 'start_chat') return sends(() => send(cmd));
     // Someone opened this conversation: its history goes before the rest of the background work.
     const priority = cmd.type === 'sync_thread' && cmd.priority ? 'high' : 'normal';
