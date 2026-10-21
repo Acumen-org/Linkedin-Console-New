@@ -6,6 +6,7 @@ import {
   commandStream,
   EVENTS_STREAM,
   type FetchMediaReply,
+  type ResolveProfileReply,
   RESULTS_STREAM,
   replyKey,
 } from '@linkedin-console/contracts';
@@ -21,7 +22,7 @@ const isSend = (cmd: Command) => cmd.type === 'send_message' || cmd.type === 'st
 export interface Streams {
   redis: Redis;
   emit: Emit;
-  reply: (cmdId: string, payload: FetchMediaReply) => Promise<void>;
+  reply: (cmdId: string, payload: FetchMediaReply | ResolveProfileReply) => Promise<void>;
   consume: (handler: (cmd: Command) => Promise<unknown>) => Promise<never>;
 }
 
@@ -38,7 +39,7 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
     await redis.xadd(target, 'MAXLEN', '~', '50000', '*', 'json', JSON.stringify({ accountId, type, data, at: Date.now() }));
   };
 
-  async function reply(cmdId: string, payload: FetchMediaReply) {
+  async function reply(cmdId: string, payload: FetchMediaReply | ResolveProfileReply) {
     const key = replyKey(cmdId);
     await redis.multi().lpush(key, JSON.stringify(payload)).expire(key, 120).exec();
   }

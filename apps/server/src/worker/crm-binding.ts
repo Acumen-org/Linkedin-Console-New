@@ -3,8 +3,9 @@
 // profile link (that can't create a duplicate); otherwise the conversation waits in "Needs CRM binding" for a
 // teammate to bind it to an existing Person or add a new one. Never by name, never by email. A binding belongs
 // to the prospect (LinkedIn member URN), so every conversation with them goes to the same Person.
-import { accountRoom } from '@linkedin-console/contracts';
+import { accountRoom, type ResolveProfileReply } from '@linkedin-console/contracts';
 import { audit } from '../core/audit.ts';
+import { requestCommand } from '../core/bridge.ts';
 import { RESPONSIBLE } from '../core/reminders-sql.ts';
 import { addBusinessDays } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
@@ -24,16 +25,54 @@ type Participant = { urn?: string; name?: string; headline?: string | null; prof
 /** The prospect of a 1:1 conversation, with the vanity profile link from the connections list when known. */
 export async function prospectOf(accountId: string, participants: Participant[]) {
   const p = participants[0] ?? {};
-  const [contact] = p.urn
-    ? await sql`SELECT profile_url, headline, is_connection FROM contacts WHERE account_id = ${accountId} AND member_urn = ${p.urn} LIMIT 1`
+  const urn = p.urn?.startsWith('urn:li:') ? p.urn : null;
+  // The prospect's connection row, found by their member URN directly, or — because the connections list carries
+  // only the vanity id — through the member↔vanity map, which also backfills contacts.member_urn once bridged.
+  const [contact] = urn
+    ? await sql`
+        SELECT c.profile_url, c.headline, c.is_connection FROM contacts c
+        WHERE c.account_id = ${accountId}
+          AND (c.member_urn = ${urn} OR c.public_id = (SELECT public_id FROM linkedin_members WHERE member_urn = ${urn}))
+        ORDER BY (c.member_urn = ${urn}) DESC NULLS LAST LIMIT 1`
     : [];
+  // Even with no connection row, the map may know the prospect's vanity profile (e.g. resolved on demand): that
+  // vanity link is what matches a Twenty Person, where the raw member-URN URL never would.
+  const [mapped] = urn && !contact?.profileUrl ? await sql`SELECT public_id FROM linkedin_members WHERE member_urn = ${urn}` : [];
+  const vanity = mapped ? `https://www.linkedin.com/in/${mapped.publicId}/` : null;
   return {
-    memberUrn: p.urn?.startsWith('urn:li:') ? p.urn : null,
+    memberUrn: urn,
     name: p.name?.trim() || 'LinkedIn Member',
-    profileUrl: (contact?.profileUrl as string | null) ?? p.profileUrl ?? null,
+    profileUrl: (contact?.profileUrl as string | null) ?? vanity ?? p.profileUrl ?? null,
     headline: (contact?.headline as string | null) ?? p.headline ?? null,
     connected: !!contact?.isConnection,
   };
+}
+
+/**
+ * Records member-URN ↔ vanity-public-id pairs (from a profile resolution or any payload that carries both). Also
+ * backfills contacts.member_urn for the matching connection rows, and wakes the prospects who were waiting only
+ * because their vanity link was unknown, so the next bindReplied tick looks at them again.
+ */
+export async function rememberMembers(pairs: { memberUrn: string; publicId: string }[], source: string) {
+  const rows = pairs.filter((m) => m.memberUrn?.startsWith('urn:li:') && m.publicId);
+  if (!rows.length) return;
+  await sql`
+    INSERT INTO linkedin_members ${sql(
+      rows.map((m) => ({ memberUrn: m.memberUrn, publicId: m.publicId, source })) as never,
+      'memberUrn',
+      'publicId',
+      'source',
+    )}
+    ON CONFLICT (member_urn) DO UPDATE SET public_id = excluded.public_id, source = excluded.source, updated_at = now()`;
+  // Fill in the member URN on the connection rows we only knew by vanity id (every account), so later lookups and
+  // other features (search, status) find them directly.
+  await sql`
+    UPDATE contacts c SET member_urn = lm.member_urn, updated_at = now()
+    FROM linkedin_members lm WHERE lm.public_id = c.public_id AND c.member_urn IS NULL AND lm.member_urn IN ${sql(rows.map((m) => m.memberUrn))}`;
+  // Replies queued only for a missing profile link are looked at again right away (as onContacts does for new links).
+  await sql`
+    UPDATE conversations SET crm_binding = NULL
+    WHERE crm_binding = 'needed' AND crm_binding_at <> 'infinity' AND participants->0->>'urn' IN ${sql(rows.map((m) => m.memberUrn))}`;
 }
 
 async function changed(conversations: { id: string; accountId: string }[]) {
@@ -85,6 +124,31 @@ async function needsBinding(c: { id: string; accountId: string }, reason: string
 /** A "needs binding" decision is looked at again after this long (or as soon as new profile data arrives). */
 const RECHECK_HOURS = 6;
 
+/** At most this many LinkedIn profile lookups per tick (member URN → vanity), to stay gentle on the account. */
+const RESOLVE_PER_TICK = 3;
+/** The obfuscated member-id form in a replier's profile URL (/in/ACoAA…), which no Twenty vanity link matches. */
+const OBFUSCATED_URL = /\/in\/ACoA[A-Za-z0-9_-]+\/?$/i;
+
+/**
+ * Asks the account's bridge for a replier's vanity id (obfuscated member URN → publicIdentifier) and caches the
+ * pair in linkedin_members, returning the vanity profile link a Twenty Person can match. Only for a connected
+ * account; a bridge that is busy or offline just means we try again on the next recheck (never aborts the tick).
+ */
+async function resolveVanityUrl(accountId: string, memberUrn: string): Promise<string | null> {
+  const [acct] = await sql`SELECT status FROM accounts WHERE id = ${accountId}`;
+  if (acct?.status !== 'CONNECTED') return null;
+  try {
+    const reply = await requestCommand<ResolveProfileReply>(accountId, { type: 'resolve_profile', memberUrn }, 30);
+    if (reply.ok && reply.publicId) {
+      await rememberMembers([{ memberUrn, publicId: reply.publicId }], 'resolved');
+      return `https://www.linkedin.com/in/${reply.publicId}/`;
+    }
+  } catch {
+    // Bridge busy or offline: leave the prospect queued; the next recheck resolves them.
+  }
+  return null;
+}
+
 /**
  * Prospects who replied and aren't decided yet: bound when exactly one Person has their profile link (or they
  * are already bound through another conversation), else queued for a teammate. A few per tick.
@@ -97,6 +161,8 @@ export async function bindReplied(limit = 10) {
       AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')
     ORDER BY c.last_message_at DESC NULLS LAST LIMIT ${limit}`;
   let bound = 0;
+  let resolved = 0;
+  const tried = new Set<string>();
   for (const c of candidates) {
     try {
       const prospect = await prospectOf(c.accountId, c.participants ?? []);
@@ -108,11 +174,20 @@ export async function bindReplied(limit = 10) {
         bound++;
         continue;
       }
-      if (!linkedinKey(prospect.profileUrl)) {
+      let profileUrl = prospect.profileUrl;
+      // Known only by their obfuscated member URN (no connection row, not resolved before): look up their vanity
+      // profile once, budgeted per tick, so a replier who IS in Twenty can actually be found. Members already in
+      // the map were turned into a vanity link by prospectOf, so they skip this.
+      if ((!profileUrl || OBFUSCATED_URL.test(profileUrl)) && resolved < RESOLVE_PER_TICK && !tried.has(memberUrn)) {
+        tried.add(memberUrn);
+        resolved++;
+        profileUrl = (await resolveVanityUrl(c.accountId, memberUrn)) ?? profileUrl;
+      }
+      if (!linkedinKey(profileUrl)) {
         await needsBinding(c, 'No LinkedIn profile link known yet');
         continue;
       }
-      const people = await peopleWithLinkedin(prospect.profileUrl as string);
+      const people = await peopleWithLinkedin(profileUrl as string);
       if (people.length === 1) {
         await bindProspect(memberUrn, people[0], 'auto_link', null);
         bound++;

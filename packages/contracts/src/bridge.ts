@@ -181,9 +181,13 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'backfill_conversations'; maxPages?: number }
   | { type: 'mark_read'; threadId: string }
   | { type: 'fetch_media'; url: string }
+  /** Resolve a prospect's obfuscated member URN (urn:li:fsd_profile:ACoAA…) to their vanity publicIdentifier. */
+  | { type: 'resolve_profile'; memberUrn: string }
   | { type: 'check_session' }
   /** Log back in with the stored LinkedIn password when the session dropped (2FA/CAPTCHA still needs a human). */
   | { type: 'login'; username: string; password: string }
 );
 
 export type FetchMediaReply = { ok: true; path: string; mime: string; size: number } | { ok: false; error: string };
+
+export type ResolveProfileReply = { ok: true; memberUrn: string; publicId: string } | { ok: false; error: string };
