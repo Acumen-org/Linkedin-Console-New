@@ -10,6 +10,7 @@ import { addBusinessDays } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
+import { logger } from '../lib/logger.ts';
 import { publish } from '../lib/redis.ts';
 import { createPerson, linkedinKey, peopleWithLinkedin, personById, updatePerson } from '../lib/twenty.ts';
 import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-fields.ts';
@@ -97,27 +98,34 @@ export async function bindReplied(limit = 10) {
     ORDER BY c.last_message_at DESC NULLS LAST LIMIT ${limit}`;
   let bound = 0;
   for (const c of candidates) {
-    const prospect = await prospectOf(c.accountId, c.participants ?? []);
-    const memberUrn = prospect.memberUrn as string;
-    // Already bound through another conversation (another account or teammate): the same Person.
-    const [known] = await sql`SELECT person_id FROM crm_bindings WHERE member_urn = ${memberUrn}`;
-    if (known) {
-      await applyBinding(memberUrn, known.personId);
-      bound++;
-      continue;
-    }
-    if (!linkedinKey(prospect.profileUrl)) {
-      await needsBinding(c, 'No LinkedIn profile link known yet');
-      continue;
-    }
-    const people = await peopleWithLinkedin(prospect.profileUrl as string);
-    if (people.length === 1) {
-      await bindProspect(memberUrn, people[0], 'auto_link', null);
-      bound++;
-    } else if (people.length === 0) {
-      await needsBinding(c, 'Not in Twenty yet (no Person has this LinkedIn profile)');
-    } else {
-      await needsBinding(c, `${people.length} Persons in Twenty have this LinkedIn profile`);
+    try {
+      const prospect = await prospectOf(c.accountId, c.participants ?? []);
+      const memberUrn = prospect.memberUrn as string;
+      // Already bound through another conversation (another account or teammate): the same Person.
+      const [known] = await sql`SELECT person_id FROM crm_bindings WHERE member_urn = ${memberUrn}`;
+      if (known) {
+        await applyBinding(memberUrn, known.personId);
+        bound++;
+        continue;
+      }
+      if (!linkedinKey(prospect.profileUrl)) {
+        await needsBinding(c, 'No LinkedIn profile link known yet');
+        continue;
+      }
+      const people = await peopleWithLinkedin(prospect.profileUrl as string);
+      if (people.length === 1) {
+        await bindProspect(memberUrn, people[0], 'auto_link', null);
+        bound++;
+      } else if (people.length === 0) {
+        await needsBinding(c, 'Not in Twenty yet (no Person has this LinkedIn profile)');
+      } else {
+        await needsBinding(c, `${people.length} Persons in Twenty have this LinkedIn profile`);
+      }
+    } catch (err) {
+      // Twenty busy or down (e.g. a 504 from one request): stop this tick and let the next one resume from here,
+      // instead of one transient error aborting the whole round. Any other error: leave this prospect for next tick.
+      if (/answered (429|5\d\d)|timeout|fetch failed/i.test((err as Error).message)) break;
+      logger.warn({ err, conversationId: c.id }, 'binding a replied prospect failed');
     }
   }
   return bound;
