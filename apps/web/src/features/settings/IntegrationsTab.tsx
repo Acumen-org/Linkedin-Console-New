@@ -8,6 +8,7 @@ import { toast } from '../../lib/toast';
 interface IntegrationView {
   credentialsEnabled: boolean;
   crmSync: boolean;
+  crmAutoCreate: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -194,6 +195,26 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
         <p className="mb-3 text-sm text-slate-600">
           Writes each bound prospect's LinkedIn status and activity to their Twenty Person. Needs the Person fields below.
         </p>
+        <label className="mb-3 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={s.crmAutoCreate}
+            disabled={!!busy || !s.twenty || !s.crmSync}
+            onChange={(e) =>
+              run('autocreate', async () => {
+                await put({ crmAutoCreate: e.target.checked });
+                toast(e.target.checked ? 'Auto-create on' : 'Auto-create off', 'success');
+                onChanged();
+              })
+            }
+          />
+          <span className="text-slate-600">
+            <b>Auto-create people in Twenty.</b> When a prospect replies and nobody in Twenty has their LinkedIn profile, create a new
+            Person for them and bind automatically. Only ever when no Person already matches their link, so it never makes a duplicate. Off:
+            those repliers wait under "Needs CRM binding" for someone to add them by hand.
+          </span>
+        </label>
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-ghost"

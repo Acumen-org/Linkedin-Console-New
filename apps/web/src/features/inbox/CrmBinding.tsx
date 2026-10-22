@@ -176,10 +176,6 @@ function BindModal({
       setBusy(false);
     }
   };
-  const missing = [s.owner.field && !s.owner.memberId ? 'your Twenty user' : null, s.pod.field && !s.pod.value ? 'your pod' : null].filter(
-    Boolean,
-  );
-
   return (
     <Modal title={`Bind ${s.prospect.name} to Twenty`} onClose={onClose} wide>
       <p className="mb-3 text-sm text-slate-600">
@@ -243,15 +239,17 @@ function BindModal({
       <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md bg-slate-50 p-3 text-sm">
         <div className="min-w-0 flex-1 text-slate-600">
           Not in Twenty? Add them as a new Person
-          {s.owner.field || s.pod.field ? ', owned by you' : ''}
+          {s.owner.field && s.owner.memberId ? ', owned by you' : ''}
           {s.pod.field && s.pod.value ? ` (pod ${s.pod.value})` : ''}.
-          {missing.length > 0 && (
-            <div className="text-xs text-amber-700">First an admin links {missing.join(' and ')} on the Team page.</div>
+          {s.owner.field && !s.owner.memberId && (
+            <div className="text-xs text-slate-500">
+              They'll have no owner in Twenty until an admin links your Twenty user on the Team page.
+            </div>
           )}
         </div>
         <button
           type="button"
-          disabled={busy || missing.length > 0}
+          disabled={busy}
           onClick={() => act(() => api.post(`/api/conversations/${conversationId}/crm/add`), `${s.prospect.name} added to Twenty`)}
           className="btn-primary"
         >

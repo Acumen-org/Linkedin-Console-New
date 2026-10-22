@@ -12,7 +12,7 @@ import { hashPassword } from '../core/auth.ts';
 import { advanceRamp } from '../core/send-limits.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
 import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
-import { config } from '../lib/config.ts';
+import { applyIntegrationOverrides, config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
@@ -2176,6 +2176,52 @@ try {
       assert.ok(log.length >= 1, 'crm.deleted_in_twenty audited');
       assert.equal(log[0].meta.personDeleted, true);
     });
+
+    await step('Twenty CRM auto-create (admin opt-in): a replier not in Twenty gets a Person + bind, still never a duplicate', async () => {
+      // Off by default (the manual-mode steps above proved "never created"); turn it on only for this process's ticks.
+      // The worker container keeps it off, so when it ticks the replier first it marks them "needed"; we reset and tick
+      // in-process (where it's on) until our tick creates + binds. The redis lock makes the two ticks mutually exclusive.
+      applyIntegrationOverrides({ crmAutoCreate: true });
+      try {
+        const bindUntilBound = (id: string, what: string) =>
+          until(
+            async () => {
+              await sql`UPDATE conversations SET crm_binding = NULL, crm_binding_at = now() WHERE id = ${id} AND crm_binding IS DISTINCT FROM 'bound'`;
+              await crmSyncTick();
+              return binding(id);
+            },
+            (b) => b.crmBinding === 'bound',
+            what,
+            60_000,
+          );
+
+        // Replied, nobody in Twenty has their link: a Person is created and bound (owner-less — no teammate chose it).
+        const autoUrl = `https://www.linkedin.com/in/auto-${tag}/`;
+        const autoId = await chatWith('AUTO', person(`urn:li:fsd_profile:AUTO${tag}`, 'Auto Created'), autoUrl, true);
+        const createdBefore = twentyCreated;
+        const bound = await bindUntilBound(autoId, 'Auto replier auto-created and bound');
+        assert.ok(twentyCreated > createdBefore, 'a Person was created');
+        const autoPerson = twentyPeople.find((x) => x.id === bound.twentyPersonId);
+        assert.ok(autoPerson, 'the bound Person is the created one');
+        assert.equal(autoPerson?.linkedin, autoUrl, 'with their LinkedIn link');
+        assert.equal(autoPerson?.fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE', 'marked as added by the console');
+        assert.equal(autoPerson?.fields?.assignedToId, undefined, 'owner-less (no teammate chose it)');
+        const log = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${bound.twentyPersonId}`;
+        assert.equal(log[0]?.meta.method, 'auto_new', 'recorded as auto · created new');
+
+        // Still deduplicates with auto-create on: a replier whose link matches an existing Person binds to it, no second Person.
+        const dupUrl = `https://www.linkedin.com/in/dup-${tag}/`;
+        const dupPersonId = crypto.randomUUID();
+        twentyPeople.push({ id: dupPersonId, firstName: 'Dup', lastName: 'Existing', linkedin: dupUrl });
+        const dupId = await chatWith('DUP', person(`urn:li:fsd_profile:DUP${tag}`, 'Dup Existing'), dupUrl, true);
+        const createdBeforeDup = twentyCreated;
+        const dupBound = await bindUntilBound(dupId, 'Dup replier bound to the existing Person');
+        assert.equal(dupBound.twentyPersonId, dupPersonId, 'bound to the existing Person, not a new one');
+        assert.equal(twentyCreated, createdBeforeDup, 'no Person created when one already matches');
+      } finally {
+        applyIntegrationOverrides({});
+      }
+    });
   } else {
     console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
   }
@@ -3120,6 +3166,15 @@ try {
     assert.equal((await owner('GET', '/api/integrations')).data.settings.crmSync, !before);
     await owner('PUT', '/api/integrations', { crmSync: before });
     assert.equal((await owner('GET', '/api/integrations')).data.settings.crmSync, before);
+
+    // The auto-create toggle round-trips the same way (off by default).
+    assert.equal(typeof got.data.settings.crmAutoCreate, 'boolean');
+    const ac = got.data.settings.crmAutoCreate as boolean;
+    const putAc = await owner('PUT', '/api/integrations', { crmAutoCreate: !ac });
+    assert.equal(putAc.data.crmAutoCreate, !ac);
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmAutoCreate, !ac);
+    await owner('PUT', '/api/integrations', { crmAutoCreate: ac });
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmAutoCreate, ac);
 
     // A malformed Twenty URL is rejected (nothing stored).
     assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);

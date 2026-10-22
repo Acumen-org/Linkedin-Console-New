@@ -135,6 +135,7 @@ export type StaffSyncConn = {
  * changes until an admin edits it. */
 export interface IntegrationOverrides {
   crmSync?: boolean;
+  crmAutoCreate?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -197,6 +198,12 @@ export const config = {
   },
   get crmSync(): boolean {
     return overrides.crmSync ?? envCrmSync;
+  },
+  // Auto-create a Twenty Person for a replier who isn't in Twenty yet (and bind to them). Off by default: it only
+  // ever creates when no Person already has their LinkedIn link, so it can't make a duplicate, but creating People
+  // in the CRM is a deliberate choice an admin turns on (Settings → Twenty CRM). Only consulted while crmSync is on.
+  get crmAutoCreate(): boolean {
+    return overrides.crmAutoCreate ?? false;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;

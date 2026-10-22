@@ -29,9 +29,15 @@ interface BindingsResp {
   summary: { bound: number; needsBinding: number; unbound: number };
 }
 
-const isAuto = (method: string) => method === 'auto_link';
+const isAuto = (method: string) => method === 'auto_link' || method === 'auto_new';
 const methodLabel = (method: string) =>
-  ({ auto_link: 'Auto · link match', existing: 'Manual · existing', new: 'Manual · added new', legacy: 'Legacy' })[method] ?? method;
+  ({
+    auto_link: 'Auto · link match',
+    auto_new: 'Auto · created new',
+    existing: 'Manual · existing',
+    new: 'Manual · added new',
+    legacy: 'Legacy',
+  })[method] ?? method;
 
 /** Formula-safe CSV cell (same guard as the server and Activity exports). */
 const csvCell = (v: unknown) => {

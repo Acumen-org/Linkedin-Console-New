@@ -26,7 +26,7 @@ import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-f
 import { loadConversation } from '../modules/conversations/queries.ts';
 import { pushToUsers } from './push.ts';
 
-export type BindMethod = 'auto_link' | 'existing' | 'new';
+export type BindMethod = 'auto_link' | 'auto_new' | 'existing' | 'new';
 
 type Participant = { urn?: string; name?: string; headline?: string | null; profileUrl?: string | null };
 
@@ -200,7 +200,15 @@ export async function bindReplied(limit = 10) {
         await bindProspect(memberUrn, people[0], 'auto_link', null);
         bound++;
       } else if (people.length === 0) {
-        await needsBinding(c, 'Not in Twenty yet (no Person has this LinkedIn profile)');
+        // Nobody in Twenty has their link. With auto-create on, make a Person for them and bind (owner-less, since no
+        // teammate chose it); this is the only branch where that's safe — we just confirmed zero match, so no duplicate.
+        if (config.crmAutoCreate) {
+          const personId = await createProspectPerson(prospect, memberUrn, { memberId: null, pod: null });
+          await bindProspect(memberUrn, personId, 'auto_new', null);
+          bound++;
+        } else {
+          await needsBinding(c, 'Not in Twenty yet (no Person has this LinkedIn profile)');
+        }
       } else {
         await needsBinding(c, `${people.length} Persons in Twenty have this LinkedIn profile`);
       }
@@ -292,29 +300,43 @@ export async function bindToExisting(conversationId: string, personId: string, b
 }
 
 /**
- * Adds the prospect as a new Person, owned by the teammate and in their pod. Refused when any Person already has
- * their LinkedIn link (bind to that one instead), so even this can't create a duplicate.
+ * Creates a new Twenty Person for a prospect and returns its id. Owner and pod are set only when known (a teammate
+ * linked to a Twenty member); an auto-created Person, or one added by someone not linked to Twenty, simply has no
+ * owner until a teammate takes it — the Person is created either way, never blocked. Writes the LinkedIn link, member
+ * id and the "LinkedIn Console" source where those fields exist. The caller must have already checked that no Person
+ * has this LinkedIn link, so this never makes a duplicate.
+ */
+async function createProspectPerson(
+  prospect: { name: string; profileUrl: string | null; headline: string | null },
+  memberUrn: string,
+  owner: { memberId: string | null; pod: string | null },
+): Promise<string> {
+  const fields = await crmFields();
+  return createPerson({
+    name: prospect.name,
+    profileUrl: prospect.profileUrl,
+    headline: prospect.headline,
+    extra: {
+      ...(fields.owner && owner.memberId ? { [`${fields.owner}Id`]: owner.memberId } : {}),
+      ...(fields.pod && owner.pod ? { [fields.pod]: owner.pod } : {}),
+      ...(fields.source ? { linkedinConsoleSource: CONSOLE_SOURCE.ADDED } : {}),
+      ...(fields.memberId ? { linkedinMemberId: memberIdOf(memberUrn) } : {}),
+    },
+  });
+}
+
+/**
+ * Adds the prospect as a new Person, owned by the teammate and in their pod when they are linked to a Twenty member
+ * (otherwise owner-less — never blocked). Refused when any Person already has their LinkedIn link (bind to that one
+ * instead), so even this can't create a duplicate.
  */
 export async function addAsNew(conversationId: string, by: { id: string }, ip?: string) {
   const { prospect, memberUrn } = await decidable(conversationId);
   if (prospect.profileUrl && (await peopleWithLinkedin(prospect.profileUrl)).length) {
     throw new HttpError(409, 'A Person in Twenty already has this LinkedIn profile: bind to that one instead');
   }
-  const fields = await crmFields();
   const me = await teammate(by.id);
-  if (fields.owner && !me.memberId) throw new HttpError(409, 'Link your user to your Twenty account on the Team page first (an admin can)');
-  if (fields.pod && !me.pod) throw new HttpError(409, 'Set your pod on the Team page first (an admin can)');
-  const personId = await createPerson({
-    name: prospect.name,
-    profileUrl: prospect.profileUrl,
-    headline: prospect.headline,
-    extra: {
-      ...(fields.owner ? { [`${fields.owner}Id`]: me.memberId } : {}),
-      ...(fields.pod ? { [fields.pod]: me.pod } : {}),
-      ...(fields.source ? { linkedinConsoleSource: CONSOLE_SOURCE.ADDED } : {}),
-      ...(fields.memberId ? { linkedinMemberId: memberIdOf(memberUrn) } : {}),
-    },
-  });
+  const personId = await createProspectPerson(prospect, memberUrn, me);
   await bindProspect(memberUrn, personId, 'new', by, ip);
   return { personId };
 }

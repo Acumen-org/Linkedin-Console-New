@@ -14,6 +14,7 @@ import { crmSyncStatus, crmSyncTick } from '../../worker/crm-sync.ts';
 
 const Update = z.object({
   crmSync: z.boolean().optional(),
+  crmAutoCreate: z.boolean().optional(),
   twenty: z
     .object({
       url: z.string().optional(),
@@ -61,6 +62,7 @@ export default async function integrationRoutes(app: FastifyInstance) {
           // Never log secret values: only which parts of the config were touched.
           changed: Object.keys(update),
           crmSync: settings.crmSync,
+          crmAutoCreate: settings.crmAutoCreate,
           twenty: !!settings.twenty,
           staffMode: settings.staffSync.mode,
         },
