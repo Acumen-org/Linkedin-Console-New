@@ -153,21 +153,42 @@ export interface ObjectInfo {
   fields: Map<string, string>;
 }
 
-/** Every object (by singular name) with its id and its fields' names and types. */
+/** Every object (by singular name) with its id and its fields' names and types.
+ *
+ * Fields come from the top-level `fields` query, NOT the nested `objects { fields }` subquery: on some Twenty
+ * versions that subquery silently drops the most recently added fields (observed: it returned 110 of Person's
+ * fields but omitted linkedinStatus / linkedinMemberId / linkedinConversation), which made personHasField report
+ * them missing and the sync skip them. The top-level query returns them reliably. */
 export async function objectsSchema(): Promise<Map<string, ObjectInfo>> {
-  const data = await metadata<{
-    objects: { edges: { node: { id: string; nameSingular: string; fields: { edges: { node: { name: string; type: string } }[] } } }[] };
-  }>(`query LinkedInConsolePersonFields {
-    objects(paging: { first: 200 }) {
-      edges { node { id nameSingular fields(paging: { first: 1000 }) { edges { node { name type } } } } }
-    }
-  }`);
-  return new Map(
-    data.objects.edges.map(({ node }) => [
-      node.nameSingular,
-      { id: node.id, fields: new Map(node.fields.edges.map((e) => [e.node.name, e.node.type])) },
-    ]),
+  const objs = await metadata<{ objects: { edges: { node: { id: string; nameSingular: string } }[] } }>(
+    `query LinkedInConsoleObjects { objects(paging: { first: 300 }) { edges { node { id nameSingular } } } }`,
   );
+  const byId = new Map<string, { id: string; nameSingular: string; fields: Map<string, string> }>();
+  for (const { node } of objs.objects.edges) byId.set(node.id, { id: node.id, nameSingular: node.nameSingular, fields: new Map() });
+
+  let after: string | null = null;
+  for (let page = 0; page < 60; page++) {
+    const data: {
+      fields: {
+        edges: { node: { name: string; type: string; isActive: boolean; object: { id: string } | null } }[];
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    } = await metadata(
+      `query LinkedInConsoleFields($a: ConnectionCursor) {
+        fields(paging: { first: 200, after: $a }) {
+          edges { node { name type isActive object { id } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`,
+      { a: after },
+    );
+    for (const { node } of data.fields.edges) {
+      if (node.isActive !== false && node.object) byId.get(node.object.id)?.fields.set(node.name, node.type);
+    }
+    if (!data.fields.pageInfo.hasNextPage) break;
+    after = data.fields.pageInfo.endCursor;
+  }
+  return new Map([...byId.values()].map((o) => [o.nameSingular, { id: o.id, fields: o.fields }]));
 }
 
 /** The Person object's id and the names of the fields it has. */
