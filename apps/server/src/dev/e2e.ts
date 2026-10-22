@@ -246,6 +246,11 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
         data: { people: { edges: hits.map((x) => ({ node: { id: x.id, name: { firstName: x.firstName, lastName: x.lastName } } })) } },
       });
     }
+    if (q.includes('LinkedInConsolePersonByMemberId')) {
+      const mid = variables.filter?.linkedinMemberId?.eq;
+      const x = twentyPeople.find((y) => y.fields?.linkedinMemberId === mid);
+      return json({ data: { people: { edges: x ? [{ node: { id: x.id } }] : [] } } });
+    }
     if (q.includes('LinkedInConsolePerson(')) {
       const x = twentyPeople.find((y) => y.id === variables.filter.id.eq);
       const node = x
