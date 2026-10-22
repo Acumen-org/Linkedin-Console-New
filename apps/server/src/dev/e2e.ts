@@ -100,6 +100,28 @@ function fakeTwentyMetadata(req: http.IncomingMessage, res: http.ServerResponse)
         },
       });
     }
+    if (String(query).includes('LinkedInConsoleObjects')) {
+      return json({
+        data: {
+          objects: {
+            edges: [
+              { node: { id: 'obj-company', nameSingular: 'company' } },
+              { node: { id: 'obj-person', nameSingular: 'person' } },
+              ...[...twentyObjects].map(([nameSingular, o]) => ({ node: { id: o.id, nameSingular } })),
+            ],
+          },
+        },
+      });
+    }
+    if (String(query).includes('LinkedInConsoleFields')) {
+      const edges = [
+        ...[...twentyFieldNames].map(([name, type]) => ({ node: { name, type, isActive: true, object: { id: 'obj-person' } } })),
+        ...[...twentyObjects].flatMap(([, o]) =>
+          [...o.fields].map(([name, type]) => ({ node: { name, type, isActive: true, object: { id: o.id } } })),
+        ),
+      ];
+      return json({ data: { fields: { edges, pageInfo: { hasNextPage: false, endCursor: null } } } });
+    }
     if (String(query).includes('LinkedInConsoleCreateField')) {
       const f = variables.input.field;
       const custom = [...twentyObjects.values()].find((o) => o.id === f.objectMetadataId);
