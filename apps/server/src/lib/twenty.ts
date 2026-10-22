@@ -1,6 +1,7 @@
 // Twenty CRM over GraphQL (TWENTY_API_URL = https://…/graphql, TWENTY_API_KEY = an API key from Twenty).
 // The same values the Twilio console uses.
 import { config } from './config.ts';
+import { linkedinKey } from './linkedin-url.ts';
 import { CONVERSATION_OBJECT } from './twenty-fields.ts';
 
 export class TwentyError extends Error {}
@@ -71,16 +72,9 @@ const FIND_PEOPLE = `
     people(filter: $filter, first: 10) { edges { node { id linkedinLink { primaryLinkUrl } } } }
   }`;
 
-/** The profile's stable part ("linkedin.com/in/jane-doe"), for matching however the link was typed in Twenty. */
-export function linkedinKey(url: string | null | undefined) {
-  const m = String(url ?? '').match(/linkedin\.com\/in\/([^/?#\s]+)/i);
-  if (!m) return null;
-  let slug = m[1];
-  try {
-    slug = decodeURIComponent(slug);
-  } catch {} // a malformed %-sequence: compare it as typed
-  return `linkedin.com/in/${slug.toLowerCase()}`;
-}
+// The profile's stable key ("linkedin.com/in/jane-doe") lives in its own pure module (imported above) so the match
+// scorer can reuse it without importing the Twenty client; re-exported so existing imports from './twenty.ts' keep working.
+export { linkedinKey };
 
 /**
  * Every Twenty Person whose LinkedIn link is this profile (however it was typed: with or without https, www,

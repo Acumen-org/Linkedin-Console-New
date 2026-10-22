@@ -9,6 +9,7 @@ interface IntegrationView {
   credentialsEnabled: boolean;
   crmSync: boolean;
   crmAutoCreate: boolean;
+  crmMatchDryRun: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -213,6 +214,26 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             <b>Auto-create people in Twenty.</b> When a prospect replies and nobody in Twenty has their LinkedIn profile, create a new
             Person for them and bind automatically. Only ever when no Person already matches their link, so it never makes a duplicate. Off:
             those repliers wait under "Needs CRM binding" for someone to add them by hand.
+          </span>
+        </label>
+        <label className="mb-3 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={s.crmMatchDryRun}
+            disabled={!!busy || !s.twenty || !s.crmSync}
+            onChange={(e) =>
+              run('matchdryrun', async () => {
+                await put({ crmMatchDryRun: e.target.checked });
+                toast(e.target.checked ? 'Match dry-run on' : 'Match dry-run off', 'success');
+                onChanged();
+              })
+            }
+          />
+          <span className="text-slate-600">
+            <b>Confidence-match dry run.</b> Logs what confidence-scored binding <i>would</i> decide for each replier (exact link, a strong
+            fuzzy match, or "show options") <b>without changing any binding</b>. Use it to review the scoring in the server logs before
+            fuzzy auto-bind is ever turned on. No effect on what actually binds.
           </span>
         </label>
         <div className="flex flex-wrap items-center gap-2">

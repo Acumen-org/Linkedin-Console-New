@@ -13,6 +13,7 @@ import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
 import { disableAutoCreate } from '../lib/integrations.ts';
 import { logger } from '../lib/logger.ts';
+import { decide, rankCandidates } from '../lib/match-score.ts';
 import { publish } from '../lib/redis.ts';
 import {
   createPerson,
@@ -22,6 +23,7 @@ import {
   peopleWithLinkedin,
   personById,
   personByLinkedinMemberId,
+  searchPeople,
   updatePerson,
 } from '../lib/twenty.ts';
 import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-fields.ts';
@@ -170,6 +172,11 @@ async function resolveVanityUrl(accountId: string, memberUrn: string): Promise<s
  */
 const CREATE_CAP_PER_HOUR = 100;
 
+/** Scored-binding (dry-run for now): a candidate auto-binds only at/above this score AND beating the runner-up by the
+ * margin. Starts at 90 per the plan (lower to 80 after the dry-run looks clean). Only used to LOG the decision today. */
+const MATCH_THRESHOLD = 90;
+const MATCH_MARGIN = 15;
+
 /** Auto-create just hit the hourly cap: turn it off (persisted) so it can't continue, record it, and alert admins. */
 async function tripCreateBreaker(lastHour: number) {
   await disableAutoCreate().catch((err) => logger.error({ err }, 'failed to pause auto-create at the cap'));
@@ -231,6 +238,34 @@ export async function bindReplied(limit = 10) {
         continue;
       }
       const people = await peopleWithLinkedin(profileUrl as string);
+      // Scored-binding DRY RUN (phase 1): when enabled, compute and LOG what confidence-scored binding would decide for
+      // this prospect, without changing any binding. Wrapped so it can never affect the real path below.
+      if (config.crmMatchDryRun) {
+        try {
+          const candidates = (await searchPeople(prospect.name, profileUrl, null)).map((p) => ({
+            id: p.id,
+            name: p.name,
+            linkedin: p.linkedin,
+            jobTitle: p.jobTitle,
+            company: p.company,
+          }));
+          const ranked = rankCandidates({ name: prospect.name, profileUrl, headline: prospect.headline }, candidates);
+          const d = decide(ranked, { threshold: MATCH_THRESHOLD, margin: MATCH_MARGIN });
+          logger.info(
+            {
+              conversationId: c.id,
+              exactLinkMatches: people.length,
+              decision: d.action,
+              wouldAutoBind: d.action === 'auto',
+              top: d.top ? { score: d.top.score, reason: d.top.reason } : null,
+              candidates: d.options.slice(0, 5).map((r) => ({ name: r.name, score: r.score, reason: r.reason })),
+            },
+            'crm scored-binding dry-run',
+          );
+        } catch (err) {
+          logger.warn({ err, conversationId: c.id }, 'crm scored-binding dry-run failed (ignored)');
+        }
+      }
       if (people.length === 1) {
         await bindProspect(memberUrn, people[0], 'auto_link', null);
         bound++;
