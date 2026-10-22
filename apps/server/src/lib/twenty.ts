@@ -1,6 +1,7 @@
 // Twenty CRM over GraphQL (TWENTY_API_URL = https://…/graphql, TWENTY_API_KEY = an API key from Twenty).
 // The same values the Twilio console uses.
 import { config } from './config.ts';
+import { CONVERSATION_OBJECT } from './twenty-fields.ts';
 
 export class TwentyError extends Error {}
 
@@ -135,6 +136,60 @@ export async function updatePerson(personId: string, data: Record<string, unknow
     if (/not found|does not exist|no record/i.test((err as Error).message)) return false;
     throw err;
   }
+}
+
+/**
+ * Deletes a Person in Twenty. True when it deleted, false when the Person is already gone (deleted or merged there);
+ * any other error throws. Only ever reached by the deliberate admin "unbind and delete", never by the sync.
+ */
+export async function deletePersonInTwenty(personId: string): Promise<boolean> {
+  try {
+    await twentyQuery(`mutation LinkedInConsoleDeletePerson($id: UUID!) { deletePerson(id: $id) { id } }`, { id: personId });
+    return true;
+  } catch (err) {
+    if (/not found|does not exist|no record/i.test((err as Error).message)) return false;
+    throw err;
+  }
+}
+
+/**
+ * Deletes every LinkedIn-conversation record linked to a Person (found by the relation's personId, deleted one by
+ * one, paging through them). Tolerant: a workspace without the custom object, or a record already gone, is not an
+ * error — it just deletes what it finds. Returns how many it deleted. Paired with deletePersonInTwenty on the
+ * admin "unbind and delete" so a prospect's records don't linger after their Person is removed.
+ */
+export async function deleteConversationRecordsForPerson(personId: string): Promise<number> {
+  const plural = CONVERSATION_OBJECT.namePlural;
+  const P = pascal(CONVERSATION_OBJECT.nameSingular);
+  let deleted = 0;
+  for (let round = 0; round < 50; round++) {
+    let ids: string[];
+    try {
+      const data = await twentyQuery<Record<string, { edges: { node: { id: string } }[] }>>(
+        `query LinkedInConsoleConvRecords($filter: ${P}FilterInput) {
+          ${plural}(first: 50, filter: $filter) { edges { node { id } } }
+        }`,
+        { filter: { personId: { eq: personId } } },
+      );
+      ids = (data[plural]?.edges ?? []).map((e) => e.node.id);
+    } catch (err) {
+      // The custom object (or its person relation) isn't in this workspace: nothing to delete.
+      if (/cannot query field|unknown (type|argument|object)|does not exist|not found/i.test((err as Error).message)) return deleted;
+      throw err;
+    }
+    if (!ids.length) break;
+    for (const id of ids) {
+      try {
+        await twentyQuery(`mutation LinkedInConsoleDeleteConvRecord($id: UUID!) { delete${P}(id: $id) { id } }`, { id });
+        deleted++;
+      } catch (err) {
+        if (/not found|does not exist|no record/i.test((err as Error).message)) continue;
+        throw err;
+      }
+    }
+    if (ids.length < 50) break;
+  }
+  return deleted;
 }
 
 /** Note and task bodies: one paragraph per blank-line-separated block (Twenty's rich text). */

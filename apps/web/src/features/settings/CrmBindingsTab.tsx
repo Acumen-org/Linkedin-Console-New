@@ -2,7 +2,7 @@
 // see (admins all accounts, everyone else only the accounts they are granted). Search by prospect, filter auto vs
 // manual, a scoped summary, CSV export, and an admin Unbind (reuses the per-conversation unbind).
 import { useQuery } from '@tanstack/react-query';
-import { Check, Download, ExternalLink, Search } from 'lucide-react';
+import { Check, Download, ExternalLink, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { isAdmin, useMe } from '../../App';
 import { Empty } from '../../components/ui';
@@ -104,6 +104,29 @@ export function CrmBindingsTab() {
     try {
       await api.post(`/api/conversations/${b.conversationId}/crm/unbind`);
       toast('Unbound from Twenty', 'success');
+      q.refetch();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+
+  // Destructive, admin-only: deletes the Person AND its LinkedIn conversations from Twenty, then unbinds here.
+  const unbindDelete = async (b: Binding) => {
+    const who = b.personName ?? 'their Twenty Person';
+    if (
+      !confirm(
+        `Permanently DELETE ${who} from Twenty?\n\n` +
+          `This removes the Person and all of their LinkedIn conversation records from Twenty — this cannot be undone — then unbinds ${b.prospect} here.\n\n` +
+          `To only unbind and keep them in Twenty, use Unbind instead.`,
+      )
+    )
+      return;
+    try {
+      const r = await api.post<{ personDeleted: boolean; recordsDeleted: number; twentyError: string | null }>(
+        `/api/conversations/${b.conversationId}/crm/unbind-delete`,
+      );
+      if (r.twentyError) toast(`Unbound here, but Twenty delete failed: ${r.twentyError}`, 'error');
+      else toast(r.personDeleted ? 'Deleted from Twenty and unbound' : 'Already gone from Twenty; unbound here', 'success');
       q.refetch();
     } catch (e) {
       toast((e as Error).message, 'error');
@@ -212,9 +235,19 @@ export function CrmBindingsTab() {
                 <td className="px-4 py-2 text-xs text-slate-500">{fullTime(b.boundAt)}</td>
                 {isAdmin(me) && (
                   <td className="px-4 py-2 text-right">
-                    <button type="button" onClick={() => unbind(b)} className="text-xs text-slate-500 hover:text-red-600 hover:underline">
-                      Unbind
-                    </button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button type="button" onClick={() => unbind(b)} className="text-xs text-slate-500 hover:text-brand hover:underline">
+                        Unbind
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => unbindDelete(b)}
+                        title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 hover:underline"
+                      >
+                        <Trash2 size={12} /> Unbind &amp; delete
+                      </button>
+                    </div>
                   </td>
                 )}
               </tr>

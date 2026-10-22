@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ExternalLink, Link2, Search, UserPlus } from 'lucide-react';
+import { Check, ExternalLink, Link2, Search, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { isAdmin, useMe } from '../../App';
 import { Modal } from '../../components/ui';
@@ -62,6 +62,29 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
     }
   };
 
+  // Destructive, admin-only: deletes the Person AND its LinkedIn conversations from Twenty, then unbinds here.
+  const unbindDelete = async () => {
+    const who = state.data?.personName ?? 'this prospect’s Twenty Person';
+    if (
+      !confirm(
+        `Permanently DELETE ${who} from Twenty?\n\n` +
+          `This removes the Person and all of their LinkedIn conversation records from Twenty — this cannot be undone — then unbinds them here.\n\n` +
+          `To only unbind and keep them in Twenty, use "Unbind (wrong Person)" instead.`,
+      )
+    )
+      return;
+    try {
+      const r = await api.post<{ personDeleted: boolean; recordsDeleted: number; twentyError: string | null }>(
+        `/api/conversations/${conversation.id}/crm/unbind-delete`,
+      );
+      if (r.twentyError) toast(`Unbound here, but Twenty delete failed: ${r.twentyError}`, 'error');
+      else toast(r.personDeleted ? 'Deleted from Twenty and unbound' : 'Already gone from Twenty; unbound here', 'success');
+      refresh();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+
   if (s.binding === 'bound') {
     const label = s.personName ? `Twenty: ${s.personName}` : 'In Twenty CRM';
     return (
@@ -76,9 +99,19 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
           </span>
         )}
         {isAdmin(me) && (
-          <button type="button" onClick={unbind} className="ml-auto text-slate-500 hover:text-red-600 hover:underline">
-            Unbind (wrong Person)
-          </button>
+          <span className="ml-auto flex items-center gap-3">
+            <button type="button" onClick={unbind} className="text-slate-500 hover:text-brand hover:underline">
+              Unbind (wrong Person)
+            </button>
+            <button
+              type="button"
+              onClick={unbindDelete}
+              title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
+              className="inline-flex items-center gap-1 text-slate-400 hover:text-red-600 hover:underline"
+            >
+              <Trash2 size={12} /> Delete from Twenty
+            </button>
+          </span>
         )}
       </div>
     );

@@ -9,7 +9,7 @@ import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { peopleByIds, searchPeople, twentyWebUrl, workspaceMembers } from '../../lib/twenty.ts';
-import { addAsNew, bindToExisting, crmFields, prospectOf, unbindByAdmin } from '../../worker/crm-binding.ts';
+import { addAsNew, bindToExisting, crmFields, prospectOf, unbindAndDeleteByAdmin, unbindByAdmin } from '../../worker/crm-binding.ts';
 
 const personUrl = (personId: string | null) => (personId && twentyWebUrl() ? `${twentyWebUrl()}/object/person/${personId}` : null);
 
@@ -74,6 +74,16 @@ export default async function crmRoutes(app: FastifyInstance) {
     await conversationForUser(admin, req.params.id, 'READ');
     await unbindByAdmin(req.params.id, admin, req.ip);
     return { ok: true };
+  });
+
+  // Deliberate, admin-only "unbind AND delete from Twenty": removes the bound Person and its LinkedIn-conversation
+  // records from Twenty, then unbinds locally. Destructive and irreversible — never automatic, always confirm-first
+  // in the UI. If the Twenty delete fails (already gone / busy), the prospect is still unbound and the body says so.
+  app.post<{ Params: Params }>('/api/conversations/:id/crm/unbind-delete', async (req) => {
+    requireCrm();
+    const admin = requireAdmin(req);
+    await conversationForUser(admin, req.params.id, 'READ');
+    return unbindAndDeleteByAdmin(req.params.id, admin, req.ip);
   });
 
   // Every bound prospect and the Twenty Person they map to, plus a scoped summary (bound / needs binding / unbound):
