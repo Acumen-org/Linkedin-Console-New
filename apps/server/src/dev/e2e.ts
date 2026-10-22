@@ -17,7 +17,7 @@ import { sql } from '../lib/db.ts';
 import { newAccountId, newId } from '../lib/ids.ts';
 import { resetPersonFieldsCache } from '../lib/twenty-fields.ts';
 import { autoFollowups } from '../worker/auto-followups.ts';
-import { markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
+import { BIND_METHODS, markForReview, nudgeUnbound } from '../worker/crm-binding.ts';
 import { syncConversationRecords } from '../worker/crm-fields.ts';
 import { crmSyncTick } from '../worker/crm-sync.ts';
 import { retryStuckConnections } from '../worker/first-sync.ts';
@@ -1558,6 +1558,25 @@ try {
     assert.ok(Array.isArray(seen) && seen.some((v: any) => v.userId === memberId && v.views >= 1), 'seen-by lists the viewer');
   });
 
+  await step(
+    'crm_bindings.method CHECK accepts every BindMethod (drift guard: would catch a missing migration like auto_new)',
+    async () => {
+      for (const m of BIND_METHODS) {
+        const urn = `urn:li:fsd_profile:METHCHK-${m}-${tag}`;
+        let ok = true;
+        let msg = '';
+        try {
+          await sql`INSERT INTO crm_bindings (member_urn, person_id, method) VALUES (${urn}, ${crypto.randomUUID()}, ${m})`;
+        } catch (e) {
+          ok = false;
+          msg = (e as Error).message;
+        }
+        await sql`DELETE FROM crm_bindings WHERE member_urn = ${urn}`;
+        assert.ok(ok, `the crm_bindings.method CHECK rejected BindMethod '${m}' — add it in a migration: ${msg}`);
+      }
+    },
+  );
+
   if (config.crmSync && config.twenty?.url === 'http://api:4100/graphql') {
     const binding = async (id: string) =>
       (await sql`SELECT crm_binding, crm_binding_reason, twenty_person_id FROM conversations WHERE id = ${id}`)[0];
@@ -2226,6 +2245,35 @@ try {
         const dupBound = await bindUntilBound(dupId, 'Dup replier bound to the existing Person');
         assert.equal(dupBound.twentyPersonId, dupPersonId, 'bound to the existing Person, not a new one');
         assert.equal(twentyCreated, createdBeforeDup, 'no Person created when one already matches');
+
+        // Circuit breaker: with the hourly cap already reached, a fresh replier must NOT be created — auto-create pauses
+        // itself and alerts instead. Simulate the cap with fake recent auto_new bindings. (Runs last: it turns auto off.)
+        await sql`INSERT INTO crm_bindings (member_urn, person_id, method, bound_at)
+          SELECT ${`urn:li:fsd_profile:CAPSEED-${tag}-`} || g, md5(random()::text || g), 'auto_new', now()
+          FROM generate_series(1, 100) g`;
+        const capUrl = `https://www.linkedin.com/in/cap-${tag}/`;
+        const capId = await chatWith('CAP', person(`urn:li:fsd_profile:CAP${tag}`, 'Cap Prospect'), capUrl, true);
+        const createdBeforeCap = twentyCreated;
+        // Reset-and-tick until the pause is recorded (defeats the worker re-marking the prospect before our tick).
+        const paused = await until(
+          async () => {
+            await sql`UPDATE conversations SET crm_binding = NULL, crm_binding_at = now() WHERE id = ${capId} AND crm_binding IS DISTINCT FROM 'bound'`;
+            await crmSyncTick();
+            return (
+              await sql`SELECT 1 FROM audit_log WHERE action = 'crm.autocreate_paused' AND created_at > now() - interval '2 minutes'`
+            )[0];
+          },
+          Boolean,
+          'auto-create breaker tripped',
+          60_000,
+        );
+        assert.ok(paused, 'breaker: the auto-create pause was recorded');
+        assert.equal(twentyCreated, createdBeforeCap, 'breaker: no Person created past the hourly cap');
+        const [{ autocreate }] = await sql<
+          { autocreate: string | null }[]
+        >`SELECT value->>'crmAutoCreate' AS autocreate FROM settings WHERE key = 'integrations'`;
+        assert.equal(autocreate, 'false', 'breaker: auto-create was turned off in the settings');
+        await sql`DELETE FROM crm_bindings WHERE member_urn LIKE ${`urn:li:fsd_profile:CAPSEED-${tag}-%`}`;
       } finally {
         applyIntegrationOverrides({});
       }

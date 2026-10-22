@@ -11,6 +11,7 @@ import { addBusinessDays } from '../lib/business-days.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
+import { disableAutoCreate } from '../lib/integrations.ts';
 import { logger } from '../lib/logger.ts';
 import { publish } from '../lib/redis.ts';
 import {
@@ -20,13 +21,18 @@ import {
   linkedinKey,
   peopleWithLinkedin,
   personById,
+  personByLinkedinMemberId,
   updatePerson,
 } from '../lib/twenty.ts';
 import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-fields.ts';
 import { loadConversation } from '../modules/conversations/queries.ts';
 import { pushToUsers } from './push.ts';
 
-export type BindMethod = 'auto_link' | 'auto_new' | 'existing' | 'new';
+/** Every binding method, as the DB's crm_bindings.method CHECK must also allow (migration 029). This is the single
+ * source: BindMethod derives from it, and an e2e test inserts each one so a value added here without a matching
+ * migration fails CI — the drift that caused the auto-create orphan storm (auto_new in code, not in the CHECK). */
+export const BIND_METHODS = ['auto_link', 'auto_new', 'existing', 'new', 'legacy'] as const;
+export type BindMethod = (typeof BIND_METHODS)[number];
 
 type Participant = { urn?: string; name?: string; headline?: string | null; profileUrl?: string | null };
 
@@ -158,6 +164,30 @@ async function resolveVanityUrl(accountId: string, memberUrn: string): Promise<s
 }
 
 /**
+ * Circuit breaker: the most Persons auto-create may make in a rolling hour. Legitimate backfill is well under this;
+ * anything above it is a runaway (a bug, a dedup miss), so auto-create pauses itself and alerts instead of continuing.
+ * The 2026-10-22 incident made ~5,000 before anyone noticed — this caps a future one at ~this many.
+ */
+const CREATE_CAP_PER_HOUR = 100;
+
+/** Auto-create just hit the hourly cap: turn it off (persisted) so it can't continue, record it, and alert admins. */
+async function tripCreateBreaker(lastHour: number) {
+  await disableAutoCreate().catch((err) => logger.error({ err }, 'failed to pause auto-create at the cap'));
+  await audit({ action: 'crm.autocreate_paused', meta: { createdLastHour: lastHour, cap: CREATE_CAP_PER_HOUR } });
+  const admins = await sql<{ id: string }[]>`SELECT id FROM users WHERE role IN ('OWNER', 'ADMIN') AND disabled_at IS NULL`;
+  await pushToUsers(
+    admins.map((a) => a.id),
+    {
+      title: 'Auto-create paused (safety limit)',
+      body: `${lastHour} people were created in Twenty in the last hour, hitting the ${CREATE_CAP_PER_HOUR} cap. Auto-create was turned off — check for a problem before re-enabling.`,
+      url: '/settings',
+      tag: 'crm-breaker',
+    },
+  ).catch(() => {});
+  logger.error({ lastHour, cap: CREATE_CAP_PER_HOUR }, 'auto-create hit the hourly cap and was paused');
+}
+
+/**
  * Prospects who replied and aren't decided yet: bound when exactly one Person has their profile link (or they
  * are already bound through another conversation), else queued for a teammate. A few per tick.
  */
@@ -171,6 +201,11 @@ export async function bindReplied(limit = 10) {
   let bound = 0;
   let resolved = 0;
   const tried = new Set<string>();
+  // Circuit breaker: how many Persons auto-create has already made this hour. Once the cap is reached we stop creating
+  // (and pause the feature), so a runaway can't exceed it no matter the cause.
+  const [{ recentCreates }] = await sql<{ recentCreates: number }[]>`
+    SELECT count(*)::int AS recent_creates FROM crm_bindings WHERE method = 'auto_new' AND bound_at > now() - interval '1 hour'`;
+  let createsThisRun = 0;
   for (const c of candidates) {
     try {
       const prospect = await prospectOf(c.accountId, c.participants ?? []);
@@ -201,25 +236,41 @@ export async function bindReplied(limit = 10) {
         bound++;
       } else if (people.length === 0) {
         // Nobody in Twenty has their link. With auto-create on, make a Person for them and bind (owner-less, since no
-        // teammate chose it); we just confirmed zero match, so this can't duplicate an existing Person. BUT only from a
-        // real resolved vanity link — never an obfuscated member-URN URL (/in/ACoA…): its mixed case defeats the Person
-        // lookup, so the Person we just created wouldn't be found next time and we'd create a fresh duplicate every tick.
-        // Those wait for a teammate instead.
-        if (config.crmAutoCreate && !OBFUSCATED_URL.test(profileUrl as string)) {
-          const personId = await createProspectPerson(prospect, memberUrn, { memberId: null, pod: null });
-          await bindProspect(memberUrn, personId, 'auto_new', null);
-          bound++;
-        } else {
+        // teammate chose it); we just confirmed zero match, so this can't duplicate an existing Person. Only from a real
+        // resolved vanity link — never an obfuscated member-URN URL (/in/ACoA…), whose mixed case defeats the link lookup.
+        const canCreate = config.crmAutoCreate && !OBFUSCATED_URL.test(profileUrl as string);
+        if (!canCreate) {
           await needsBinding(c, 'Not in Twenty yet (no Person has this LinkedIn profile)');
+        } else if (recentCreates + createsThisRun >= CREATE_CAP_PER_HOUR) {
+          // Hourly cap reached: pause auto-create and alert instead of creating more (runaway guard).
+          await tripCreateBreaker(recentCreates + createsThisRun);
+          await needsBinding(c, 'Auto-create paused: hourly safety limit reached');
+        } else {
+          // Idempotency guard: a Person we created earlier (same LinkedIn member id) may exist even though the link
+          // lookup missed it — bind to that one instead of making a duplicate. This is what stops a create→retry loop.
+          // Only when the workspace has the member-id field (that's where the id is stored); otherwise skip the lookup.
+          const prior = (await personHasField('linkedinMemberId')) ? await personByLinkedinMemberId(memberIdOf(memberUrn)) : null;
+          if (prior) {
+            await bindProspect(memberUrn, prior, 'auto_link', null);
+          } else {
+            const personId = await createProspectPerson(prospect, memberUrn, { memberId: null, pod: null });
+            await bindProspect(memberUrn, personId, 'auto_new', null);
+            createsThisRun++;
+          }
+          bound++;
         }
       } else {
         await needsBinding(c, `${people.length} Persons in Twenty have this LinkedIn profile`);
       }
     } catch (err) {
       // Twenty busy or down (e.g. a 504 from one request): stop this tick and let the next one resume from here,
-      // instead of one transient error aborting the whole round. Any other error: leave this prospect for next tick.
+      // instead of one transient error aborting the whole round.
       if (/answered (429|5\d\d)|timeout|fetch failed/i.test((err as Error).message)) break;
+      // Any other error binding this prospect: log it AND put it on the "needed" cooldown rather than leaving it to be
+      // retried (and possibly re-created) on every tick — a repeatedly failing bind must not loop, which is what turned
+      // the auto_new constraint failure into thousands of duplicates.
       logger.warn({ err, conversationId: c.id }, 'binding a replied prospect failed');
+      await needsBinding(c, 'Binding failed; will retry later').catch(() => {});
     }
   }
   return bound;

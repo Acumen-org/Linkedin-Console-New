@@ -99,6 +99,20 @@ export async function peopleWithLinkedin(profileUrl: string): Promise<string[]> 
   return found.people.edges.filter((e) => linkedinKey(e.node.linkedinLink?.primaryLinkUrl) === key).map((e) => e.node.id);
 }
 
+/**
+ * The id of a Person carrying this LinkedIn member id (the stable id the console writes on People it creates), or null.
+ * An exact match on a TEXT field — case-proof, unlike the link `like` — so before auto-creating we can reliably find a
+ * Person we made earlier even if its link wouldn't match, which stops a create→retry loop from making duplicates.
+ */
+export async function personByLinkedinMemberId(memberId: string): Promise<string | null> {
+  if (!memberId) return null;
+  const data = await twentyQuery<{ people: { edges: { node: { id: string } }[] } }>(
+    `query LinkedInConsolePersonByMemberId($filter: PersonFilterInput) { people(filter: $filter, first: 1) { edges { node { id } } } }`,
+    { filter: { linkedinMemberId: { eq: memberId } } },
+  );
+  return data.people.edges[0]?.node.id ?? null;
+}
+
 /** A new Person for a prospect (only on a teammate's "Add as new"). */
 export async function createPerson(p: {
   name: string;

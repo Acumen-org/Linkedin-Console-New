@@ -98,6 +98,14 @@ export async function startIntegrations(): Promise<void> {
   if (!timer) timer = setInterval(() => loadIntegrations().catch(() => {}), REFRESH_MS).unref();
 }
 
+/** Turn auto-create off and persist it (the CRM circuit breaker calls this, so a runaway can't continue past the cap).
+ * Merges into the stored settings so the Twenty connection and everything else is untouched. */
+export async function disableAutoCreate(): Promise<void> {
+  const s = (await getSetting<Stored>(KEY)) ?? {};
+  await setSetting(KEY, { ...s, crmAutoCreate: false });
+  await loadIntegrations();
+}
+
 // ---------- admin API helpers ----------
 
 export interface IntegrationView {
