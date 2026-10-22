@@ -136,7 +136,7 @@ export type StaffSyncConn = {
 export interface IntegrationOverrides {
   crmSync?: boolean;
   crmAutoCreate?: boolean;
-  crmMatchDryRun?: boolean;
+  crmFuzzyBind?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -206,10 +206,11 @@ export const config = {
   get crmAutoCreate(): boolean {
     return overrides.crmAutoCreate ?? false;
   },
-  // Scored-binding dry run: compute and log what confidence-scored binding WOULD do, without changing any binding.
-  // Off by default; an admin turns it on to review the scoring on real data before fuzzy auto-bind is ever enabled.
-  get crmMatchDryRun(): boolean {
-    return overrides.crmMatchDryRun ?? false;
+  // Confidence-scored fuzzy auto-bind: when a replier has no single exact-link match, auto-bind to a strong fuzzy
+  // match (score >= threshold with a clear margin). Off by default; an admin turns it on. Exact-link auto-bind is
+  // always on regardless. A wrong fuzzy bind is reversible (admin unbind) and audited with its score.
+  get crmFuzzyBind(): boolean {
+    return overrides.crmFuzzyBind ?? false;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;

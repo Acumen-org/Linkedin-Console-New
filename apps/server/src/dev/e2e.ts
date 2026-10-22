@@ -62,6 +62,7 @@ const twentyPeople: {
   lastName: string;
   linkedin: string | null;
   jobTitle?: string | null;
+  company?: string | null;
   fields?: Record<string, unknown>;
 }[] = [];
 /** Persons the console created (Phase 1: must stay 0). */
@@ -229,7 +230,7 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
                 city: null,
                 emails: { primaryEmail: null },
                 linkedinLink: { primaryLinkUrl: x.linkedin },
-                company: null,
+                company: x.company ? { name: x.company } : null,
                 ...(q.includes('assignedTo {')
                   ? { assignedTo: x.fields?.assignedToId ? { name: { firstName: 'Owner', lastName: 'Set' } } : null }
                   : {}),
@@ -1590,7 +1591,7 @@ try {
       return fn();
     };
     // A prospect we know from the connections list (profile link), in a 1:1 chat; they reply or not.
-    const chatWith = async (who: string, prospect: typeof jane, profileUrl: string, reply: boolean) => {
+    const chatWith = async (who: string, prospect: typeof jane, profileUrl: string, reply: boolean, headline = 'Buyer') => {
       await emit('contacts', {
         connections: true,
         items: [
@@ -1598,7 +1599,7 @@ try {
             urn: prospect.urn,
             publicId: `${who.toLowerCase()}-${tag}`,
             name: prospect.name,
-            headline: 'Buyer',
+            headline,
             avatarUrl: null,
             profileUrl,
           },
@@ -2279,6 +2280,50 @@ try {
         >`SELECT value->>'crmAutoCreate' AS autocreate FROM settings WHERE key = 'integrations'`;
         assert.equal(autocreate, 'false', 'breaker: auto-create was turned off in the settings');
         await sql`DELETE FROM crm_bindings WHERE member_urn LIKE ${`urn:li:fsd_profile:CAPSEED-${tag}-%`}`;
+      } finally {
+        applyIntegrationOverrides({});
+      }
+    });
+
+    await step('Twenty CRM fuzzy auto-bind (admin opt-in): strong name+company match binds (auto_score), weak does not', async () => {
+      applyIntegrationOverrides({ crmFuzzyBind: true });
+      try {
+        // A Twenty Person with a name + company but NO LinkedIn link: the exact-link lookup can't find them.
+        const priyaId = crypto.randomUUID();
+        twentyPeople.push({ id: priyaId, firstName: 'Priya', lastName: 'Sharma', linkedin: null, company: 'Acme Corp' });
+        // A replier with that exact name, a headline naming the same company, and a vanity link that is NOT in Twenty.
+        const priyaUrl = `https://www.linkedin.com/in/priya-sharma-${tag}/`;
+        const priyaUrn = `urn:li:fsd_profile:PRIYA${tag}`;
+        const priyaId2 = await chatWith('PRIYA', person(priyaUrn, 'Priya Sharma'), priyaUrl, true, 'VP Marketing at Acme Corp');
+        const createdBefore = twentyCreated;
+        const bound = await until(
+          async () => {
+            await sql`UPDATE conversations SET crm_binding = NULL, crm_binding_at = now() WHERE id = ${priyaId2} AND crm_binding IS DISTINCT FROM 'bound'`;
+            await crmSyncTick();
+            return binding(priyaId2);
+          },
+          (b) => b.crmBinding === 'bound',
+          'Priya fuzzy-bound by name + company',
+          60_000,
+        );
+        assert.equal(bound.twentyPersonId, priyaId, 'bound to the name+company match');
+        assert.equal(twentyCreated, createdBefore, 'fuzzy bind never creates a Person');
+        const [log] =
+          await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'memberUrn' = ${priyaUrn} AND meta->>'method' = 'auto_score'`;
+        assert.ok(log, 'recorded as auto_score');
+        assert.ok(Number(log.meta.score) >= 90, `score recorded (${log?.meta?.score})`);
+
+        // A weak match (shared first name only, different surname, no company) must NOT auto-bind — it waits.
+        twentyPeople.push({ id: crypto.randomUUID(), firstName: 'Weakly', lastName: 'Different', linkedin: null });
+        const weakUrl = `https://www.linkedin.com/in/weakly-matched-${tag}/`;
+        const weakId = await chatWith('WEAK', person(`urn:li:fsd_profile:WEAK${tag}`, 'Weakly Unrelated'), weakUrl, true);
+        const weak = await until(
+          () => afterTick(() => binding(weakId)),
+          (b) => b.crmBinding === 'needed',
+          'weak match waits for a teammate',
+          60_000,
+        );
+        assert.equal(weak.twentyPersonId, null, 'a weak match is never auto-bound');
       } finally {
         applyIntegrationOverrides({});
       }

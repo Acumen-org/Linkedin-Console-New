@@ -24,16 +24,25 @@ interface Binding {
   boundByName: string | null;
   boundAt: string;
 }
+interface Unbound {
+  memberUrn: string;
+  prospect: string;
+  accountLabels: string[];
+  conversationId: string;
+  reason: string | null;
+}
 interface BindingsResp {
   bindings: Binding[];
+  unbound: Unbound[];
   summary: { bound: number; needsBinding: number; unbound: number };
 }
 
-const isAuto = (method: string) => method === 'auto_link' || method === 'auto_new';
+const isAuto = (method: string) => method === 'auto_link' || method === 'auto_new' || method === 'auto_score';
 const methodLabel = (method: string) =>
   ({
     auto_link: 'Auto · link match',
     auto_new: 'Auto · created new',
+    auto_score: 'Auto · match score',
     existing: 'Manual · existing',
     new: 'Manual · added new',
     legacy: 'Legacy',
@@ -88,17 +97,22 @@ export function CrmBindingsTab() {
   const me = useMe();
   const appConfig = useAppConfig();
   const [search, setSearch] = useState('');
-  const [method, setMethod] = useState<'all' | 'auto' | 'manual'>('all');
+  const [method, setMethod] = useState<'all' | 'auto' | 'manual' | 'unbound'>('all');
   const q = useQuery({ queryKey: ['crm-bindings'], queryFn: () => api.get<BindingsResp>('/api/crm/bindings') });
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
     return (q.data?.bindings ?? []).filter(
       (b) =>
-        (method === 'all' || (method === 'auto' ? isAuto(b.method) : !isAuto(b.method))) &&
+        (method === 'all' || (method === 'auto' ? isAuto(b.method) : method === 'manual' ? !isAuto(b.method) : false)) &&
         (!term || b.prospect.toLowerCase().includes(term) || (b.personName ?? '').toLowerCase().includes(term)),
     );
   }, [q.data, search, method]);
+
+  const unboundRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return (q.data?.unbound ?? []).filter((u) => !term || u.prospect.toLowerCase().includes(term));
+  }, [q.data, search]);
 
   const unbind = async (b: Binding) => {
     if (
@@ -179,6 +193,7 @@ export function CrmBindingsTab() {
               ['all', 'All'],
               ['auto', 'Auto'],
               ['manual', 'Manual'],
+              ['unbound', 'Unbound'],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -196,72 +211,104 @@ export function CrmBindingsTab() {
         </button>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-2">Prospect</th>
-              <th className="px-4 py-2">Twenty Person</th>
-              <th className="px-4 py-2">Account(s)</th>
-              <th className="px-4 py-2">Replied</th>
-              <th className="px-4 py-2">How</th>
-              <th className="px-4 py-2">Bound by</th>
-              <th className="px-4 py-2">When</th>
-              {isAdmin(me) && <th className="px-4 py-2" />}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((b) => (
-              <tr key={b.memberUrn} className="hover:bg-slate-50">
-                <td className="px-4 py-2">
-                  <a href={`/inbox/${b.conversationId}`} className="font-medium text-brand hover:underline">
-                    {b.prospect}
-                  </a>
-                </td>
-                <td className="px-4 py-2">
-                  {b.personUrl ? (
-                    <a
-                      href={b.personUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-brand hover:underline"
-                    >
-                      <Check size={13} /> {b.personName ?? 'Open in Twenty'} <ExternalLink size={12} />
-                    </a>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-slate-600">
-                      <Check size={13} /> {b.personName ?? b.personId}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-slate-600">{b.accountLabels.join(', ')}</td>
-                <td className="px-4 py-2">{b.replied ? 'Yes' : <span className="text-slate-400">No</span>}</td>
-                <td className="px-4 py-2 text-xs text-slate-500">{methodLabel(b.method)}</td>
-                <td className="px-4 py-2 text-slate-600">{b.boundByName ?? (isAuto(b.method) ? 'Automatic' : '—')}</td>
-                <td className="px-4 py-2 text-xs text-slate-500">{fullTime(b.boundAt)}</td>
-                {isAdmin(me) && (
-                  <td className="px-4 py-2 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button type="button" onClick={() => unbind(b)} className="text-xs text-slate-500 hover:text-brand hover:underline">
-                        Unbind
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => unbindDelete(b)}
-                        title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
-                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 hover:underline"
-                      >
-                        <Trash2 size={12} /> Unbind &amp; delete
-                      </button>
-                    </div>
-                  </td>
-                )}
+      {method === 'unbound' ? (
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Prospect</th>
+                <th className="px-4 py-2">Account(s)</th>
+                <th className="px-4 py-2">Why unbound</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {!rows.length && <Empty title="No bindings yet">Prospects appear here once they reply and are bound to a Twenty Person.</Empty>}
-      </div>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {unboundRows.map((u) => (
+                <tr key={u.memberUrn} className="hover:bg-slate-50">
+                  <td className="px-4 py-2">
+                    <a href={`/inbox/${u.conversationId}`} className="font-medium text-brand hover:underline">
+                      {u.prospect}
+                    </a>
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">{u.accountLabels.join(', ')}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500">{u.reason ?? 'Unbound'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!unboundRows.length && (
+            <Empty title="Nothing unbound">
+              Prospects an admin unbinds (they won’t auto-rebind) show here, so you can review them and bind again by hand.
+            </Empty>
+          )}
+        </div>
+      ) : (
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Prospect</th>
+                <th className="px-4 py-2">Twenty Person</th>
+                <th className="px-4 py-2">Account(s)</th>
+                <th className="px-4 py-2">Replied</th>
+                <th className="px-4 py-2">How</th>
+                <th className="px-4 py-2">Bound by</th>
+                <th className="px-4 py-2">When</th>
+                {isAdmin(me) && <th className="px-4 py-2" />}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((b) => (
+                <tr key={b.memberUrn} className="hover:bg-slate-50">
+                  <td className="px-4 py-2">
+                    <a href={`/inbox/${b.conversationId}`} className="font-medium text-brand hover:underline">
+                      {b.prospect}
+                    </a>
+                  </td>
+                  <td className="px-4 py-2">
+                    {b.personUrl ? (
+                      <a
+                        href={b.personUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-brand hover:underline"
+                      >
+                        <Check size={13} /> {b.personName ?? 'Open in Twenty'} <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        <Check size={13} /> {b.personName ?? b.personId}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">{b.accountLabels.join(', ')}</td>
+                  <td className="px-4 py-2">{b.replied ? 'Yes' : <span className="text-slate-400">No</span>}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500">{methodLabel(b.method)}</td>
+                  <td className="px-4 py-2 text-slate-600">{b.boundByName ?? (isAuto(b.method) ? 'Automatic' : '—')}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500">{fullTime(b.boundAt)}</td>
+                  {isAdmin(me) && (
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button type="button" onClick={() => unbind(b)} className="text-xs text-slate-500 hover:text-brand hover:underline">
+                          Unbind
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => unbindDelete(b)}
+                          title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
+                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 hover:underline"
+                        >
+                          <Trash2 size={12} /> Unbind &amp; delete
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!rows.length && <Empty title="No bindings yet">Prospects appear here once they reply and are bound to a Twenty Person.</Empty>}
+        </div>
+      )}
     </div>
   );
 }

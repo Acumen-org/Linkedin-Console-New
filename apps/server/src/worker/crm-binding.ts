@@ -30,10 +30,10 @@ import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-f
 import { loadConversation } from '../modules/conversations/queries.ts';
 import { pushToUsers } from './push.ts';
 
-/** Every binding method, as the DB's crm_bindings.method CHECK must also allow (migration 029). This is the single
- * source: BindMethod derives from it, and an e2e test inserts each one so a value added here without a matching
+/** Every binding method, as the DB's crm_bindings.method CHECK must also allow (migrations 029, 030). This is the
+ * single source: BindMethod derives from it, and an e2e test inserts each one so a value added here without a matching
  * migration fails CI — the drift that caused the auto-create orphan storm (auto_new in code, not in the CHECK). */
-export const BIND_METHODS = ['auto_link', 'auto_new', 'existing', 'new', 'legacy'] as const;
+export const BIND_METHODS = ['auto_link', 'auto_new', 'auto_score', 'existing', 'new', 'legacy'] as const;
 export type BindMethod = (typeof BIND_METHODS)[number];
 
 type Participant = { urn?: string; name?: string; headline?: string | null; profileUrl?: string | null };
@@ -95,15 +95,29 @@ async function changed(conversations: { id: string; accountId: string }[]) {
   for (const c of conversations) await publish(accountRoom(c.accountId), 'conversation.updated', await loadConversation(c.id));
 }
 
-/** Binds the prospect to a Person: every 1:1 conversation with them, in every account. */
-export async function bindProspect(memberUrn: string, personId: string, method: BindMethod, by: { id: string } | null, ip?: string) {
+/** Binds the prospect to a Person: every 1:1 conversation with them, in every account. `extra` adds to the audit meta
+ * (e.g. the match score + reason for a fuzzy auto_score bind, so it can be reviewed and undone if wrong). */
+export async function bindProspect(
+  memberUrn: string,
+  personId: string,
+  method: BindMethod,
+  by: { id: string } | null,
+  ip?: string,
+  extra?: Record<string, unknown>,
+) {
   await sql`
     INSERT INTO crm_bindings (member_urn, person_id, method, bound_by)
     VALUES (${memberUrn}, ${personId}, ${method}, ${by?.id ?? null})
     ON CONFLICT (member_urn) DO UPDATE SET person_id = excluded.person_id, method = excluded.method,
       bound_by = excluded.bound_by, bound_at = now()`;
   const convs = await applyBinding(memberUrn, personId, true);
-  await audit({ userId: by?.id ?? null, accountId: convs[0]?.accountId, action: 'crm.bound', meta: { memberUrn, personId, method }, ip });
+  await audit({
+    userId: by?.id ?? null,
+    accountId: convs[0]?.accountId,
+    action: 'crm.bound',
+    meta: { memberUrn, personId, method, ...extra },
+    ip,
+  });
 }
 
 /**
@@ -238,38 +252,42 @@ export async function bindReplied(limit = 10) {
         continue;
       }
       const people = await peopleWithLinkedin(profileUrl as string);
-      // Scored-binding DRY RUN (phase 1): when enabled, compute and LOG what confidence-scored binding would decide for
-      // this prospect, without changing any binding. Wrapped so it can never affect the real path below.
-      if (config.crmMatchDryRun) {
-        try {
-          const candidates = (await searchPeople(prospect.name, profileUrl, null)).map((p) => ({
-            id: p.id,
-            name: p.name,
-            linkedin: p.linkedin,
-            jobTitle: p.jobTitle,
-            company: p.company,
-          }));
-          const ranked = rankCandidates({ name: prospect.name, profileUrl, headline: prospect.headline }, candidates);
-          const d = decide(ranked, { threshold: MATCH_THRESHOLD, margin: MATCH_MARGIN });
-          logger.info(
-            {
-              conversationId: c.id,
-              exactLinkMatches: people.length,
-              decision: d.action,
-              wouldAutoBind: d.action === 'auto',
-              top: d.top ? { score: d.top.score, reason: d.top.reason } : null,
-              candidates: d.options.slice(0, 5).map((r) => ({ name: r.name, score: r.score, reason: r.reason })),
-            },
-            'crm scored-binding dry-run',
-          );
-        } catch (err) {
-          logger.warn({ err, conversationId: c.id }, 'crm scored-binding dry-run failed (ignored)');
-        }
-      }
       if (people.length === 1) {
         await bindProspect(memberUrn, people[0], 'auto_link', null);
         bound++;
-      } else if (people.length === 0) {
+        continue;
+      }
+      // Exact link didn't give exactly one match. With fuzzy matching on, score candidates (by link + name) and auto-bind
+      // a clear winner (score ≥ threshold, beating the runner-up by the margin); below that, show the ranked options. A
+      // weak signal (shared name prefix) scores far under the threshold so it can only be an option, never auto-bound. A
+      // wrong fuzzy bind is reversible (admin unbind) and audited with its score. Also catches a case-mismatched exact
+      // link the strict lookup missed (searchPeople is case-insensitive).
+      if (config.crmFuzzyBind) {
+        const cands = (await searchPeople(prospect.name, profileUrl, null)).map((p) => ({
+          id: p.id,
+          name: p.name,
+          linkedin: p.linkedin,
+          jobTitle: p.jobTitle,
+          company: p.company,
+        }));
+        const d = decide(rankCandidates({ name: prospect.name, profileUrl, headline: prospect.headline }, cands), {
+          threshold: MATCH_THRESHOLD,
+          margin: MATCH_MARGIN,
+        });
+        if (d.action === 'auto' && d.top) {
+          await bindProspect(memberUrn, d.top.id, d.top.score >= 100 ? 'auto_link' : 'auto_score', null, undefined, {
+            score: d.top.score,
+            reason: d.top.reason,
+          });
+          bound++;
+          continue;
+        }
+        if (d.action === 'options') {
+          await needsBinding(c, `${d.options.length} possible match${d.options.length === 1 ? '' : 'es'} in Twenty — choose one`);
+          continue;
+        }
+      }
+      if (people.length === 0) {
         // Nobody in Twenty has their link. With auto-create on, make a Person for them and bind (owner-less, since no
         // teammate chose it); we just confirmed zero match, so this can't duplicate an existing Person. Only from a real
         // resolved vanity link — never an obfuscated member-URN URL (/in/ACoA…), whose mixed case defeats the link lookup.

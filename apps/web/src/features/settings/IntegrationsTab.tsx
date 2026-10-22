@@ -9,7 +9,7 @@ interface IntegrationView {
   credentialsEnabled: boolean;
   crmSync: boolean;
   crmAutoCreate: boolean;
-  crmMatchDryRun: boolean;
+  crmFuzzyBind: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -220,20 +220,20 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           <input
             type="checkbox"
             className="mt-0.5"
-            checked={s.crmMatchDryRun}
+            checked={s.crmFuzzyBind}
             disabled={!!busy || !s.twenty || !s.crmSync}
             onChange={(e) =>
-              run('matchdryrun', async () => {
-                await put({ crmMatchDryRun: e.target.checked });
-                toast(e.target.checked ? 'Match dry-run on' : 'Match dry-run off', 'success');
+              run('fuzzybind', async () => {
+                await put({ crmFuzzyBind: e.target.checked });
+                toast(e.target.checked ? 'Fuzzy auto-bind on' : 'Fuzzy auto-bind off', 'success');
                 onChanged();
               })
             }
           />
           <span className="text-slate-600">
-            <b>Confidence-match dry run.</b> Logs what confidence-scored binding <i>would</i> decide for each replier (exact link, a strong
-            fuzzy match, or "show options") <b>without changing any binding</b>. Use it to review the scoring in the server logs before
-            fuzzy auto-bind is ever turned on. No effect on what actually binds.
+            <b>Confidence auto-bind.</b> When a replier has no single exact-link match, auto-bind them to a <i>strong</i> fuzzy match (exact
+            name + same company/role) when there's one clear winner; weaker or tied matches wait under "Needs CRM binding". Exact-link
+            binding always happens regardless. A wrong fuzzy bind is reversible — review them under "CRM bindings".
           </span>
         </label>
         <div className="flex flex-wrap items-center gap-2">

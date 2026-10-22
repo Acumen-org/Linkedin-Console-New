@@ -152,7 +152,31 @@ export default async function crmRoutes(app: FastifyInstance) {
                WHERE crm_binding IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.direction = 'INBOUND')
              )::int AS unbound
       FROM conversations c WHERE NOT is_group AND account_id IN ${sql(ids)}`;
-    return { bindings, summary };
+
+    // Prospects an admin explicitly unbound (crm_binding_at = 'infinity' marks "never auto-rebind"): shown so they can
+    // be reviewed and bound again by hand. One row per prospect; the reason records who unbound them and why.
+    const unboundRows = await sql<
+      { memberUrn: string; prospect: string; accountLabel: string; conversationId: string; reason: string | null }[]
+    >`
+      SELECT DISTINCT ON (c.participants->0->>'urn')
+             c.participants->0->>'urn' AS member_urn,
+             coalesce(c.title, c.participants->0->>'name', 'LinkedIn Member') AS prospect,
+             a.label AS account_label,
+             c.id AS conversation_id,
+             c.crm_binding_reason AS reason
+      FROM conversations c JOIN accounts a ON a.id = c.account_id
+      WHERE NOT c.is_group AND c.account_id IN ${sql(ids)}
+        AND c.crm_binding = 'needed' AND c.crm_binding_at = 'infinity'
+      ORDER BY c.participants->0->>'urn', c.last_message_at DESC NULLS LAST
+      LIMIT 500`;
+    const unbound = unboundRows.map((r) => ({
+      memberUrn: r.memberUrn,
+      prospect: r.prospect,
+      accountLabels: [r.accountLabel],
+      conversationId: r.conversationId,
+      reason: r.reason,
+    }));
+    return { bindings, summary, unbound };
   });
 
   // Twenty users, to link teammates to (owner of the Persons they add).
