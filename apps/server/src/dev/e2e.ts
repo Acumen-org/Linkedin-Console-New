@@ -2197,17 +2197,23 @@ try {
 
         // Replied, nobody in Twenty has their link: a Person is created and bound (owner-less — no teammate chose it).
         const autoUrl = `https://www.linkedin.com/in/auto-${tag}/`;
-        const autoId = await chatWith('AUTO', person(`urn:li:fsd_profile:AUTO${tag}`, 'Auto Created'), autoUrl, true);
+        const autoUrn = `urn:li:fsd_profile:AUTO${tag}`;
+        const autoId = await chatWith('AUTO', person(autoUrn, 'Auto Created'), autoUrl, true);
         const createdBefore = twentyCreated;
         const bound = await bindUntilBound(autoId, 'Auto replier auto-created and bound');
+        // Exactly one Person has their link: auto-create made one and never a duplicate, and the binding points at it.
+        const withLink = twentyPeople.filter((x) => x.linkedin === autoUrl);
+        assert.equal(withLink.length, 1, `exactly one Person for the auto link (got ${withLink.length})`);
         assert.ok(twentyCreated > createdBefore, 'a Person was created');
-        const autoPerson = twentyPeople.find((x) => x.id === bound.twentyPersonId);
-        assert.ok(autoPerson, 'the bound Person is the created one');
-        assert.equal(autoPerson?.linkedin, autoUrl, 'with their LinkedIn link');
-        assert.equal(autoPerson?.fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE', 'marked as added by the console');
-        assert.equal(autoPerson?.fields?.assignedToId, undefined, 'owner-less (no teammate chose it)');
-        const log = await sql`SELECT meta FROM audit_log WHERE action = 'crm.bound' AND meta->>'personId' = ${bound.twentyPersonId}`;
-        assert.equal(log[0]?.meta.method, 'auto_new', 'recorded as auto · created new');
+        assert.equal(bound.twentyPersonId, withLink[0].id, 'bound to the created Person');
+        assert.equal(withLink[0].fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE', 'marked as added by the console');
+        assert.equal(withLink[0].fields?.assignedToId, undefined, 'owner-less (no teammate chose it)');
+        // Auto-create fired for this prospect (recorded as auto · created new). The reset-and-tick loop above races the
+        // worker container (which ticks with auto-create off), so a later harmless re-bind by link may also be logged;
+        // what matters is that the create happened, so we assert the auto_new entry exists rather than the latest method.
+        const [createdLog] =
+          await sql`SELECT 1 FROM audit_log WHERE action = 'crm.bound' AND meta->>'memberUrn' = ${autoUrn} AND meta->>'method' = 'auto_new'`;
+        assert.ok(createdLog, 'recorded an auto · created new binding');
 
         // Still deduplicates with auto-create on: a replier whose link matches an existing Person binds to it, no second Person.
         const dupUrl = `https://www.linkedin.com/in/dup-${tag}/`;
