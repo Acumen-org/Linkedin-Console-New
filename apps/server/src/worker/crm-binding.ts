@@ -201,8 +201,11 @@ export async function bindReplied(limit = 10) {
         bound++;
       } else if (people.length === 0) {
         // Nobody in Twenty has their link. With auto-create on, make a Person for them and bind (owner-less, since no
-        // teammate chose it); this is the only branch where that's safe — we just confirmed zero match, so no duplicate.
-        if (config.crmAutoCreate) {
+        // teammate chose it); we just confirmed zero match, so this can't duplicate an existing Person. BUT only from a
+        // real resolved vanity link — never an obfuscated member-URN URL (/in/ACoA…): its mixed case defeats the Person
+        // lookup, so the Person we just created wouldn't be found next time and we'd create a fresh duplicate every tick.
+        // Those wait for a teammate instead.
+        if (config.crmAutoCreate && !OBFUSCATED_URL.test(profileUrl as string)) {
           const personId = await createProspectPerson(prospect, memberUrn, { memberId: null, pod: null });
           await bindProspect(memberUrn, personId, 'auto_new', null);
           bound++;

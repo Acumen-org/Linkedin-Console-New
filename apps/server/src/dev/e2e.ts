@@ -2203,15 +2203,19 @@ try {
         const bound = await bindUntilBound(autoId, 'Auto replier auto-created and bound');
         // The console CREATED a Person for them (only auto-create does that for a replier with no match — a link match
         // would bind to an existing one, never create), and exactly one, so it's still impossible to make a duplicate.
-        // That single created Person, with their link, is the one the conversation is bound to. (We assert the create +
-        // outcome, not the recorded method: the reset-and-tick loop races the worker container, which ticks with
-        // auto-create off, so the latest binding method is sometimes a harmless re-bind by link to the same Person.)
+        // That single created Person, with their link, is the one the conversation is bound to.
         const withLink = twentyPeople.filter((x) => x.linkedin === autoUrl);
         assert.equal(withLink.length, 1, `exactly one Person for the auto link (got ${withLink.length})`);
         assert.ok(twentyCreated > createdBefore, 'a Person was created');
         assert.equal(bound.twentyPersonId, withLink[0].id, 'bound to the created Person');
         assert.equal(withLink[0].fields?.linkedinConsoleSource, 'LINKEDIN_CONSOLE', 'marked as added by the console');
         assert.equal(withLink[0].fields?.assignedToId, undefined, 'owner-less (no teammate chose it)');
+        // Regression guard for the orphan-storm bug: the auto_new bind must actually be RECORDED. It only is if the
+        // crm_bindings.method CHECK allows 'auto_new' (migration 029); without it the insert throws, the Person is
+        // created but never bound, and the prospect is reprocessed into an endless stream of duplicates.
+        const [createdLog] =
+          await sql`SELECT 1 FROM audit_log WHERE action = 'crm.bound' AND meta->>'memberUrn' = ${autoUrn} AND meta->>'method' = 'auto_new'`;
+        assert.ok(createdLog, 'auto_new binding was recorded (method CHECK allows it)');
 
         // Still deduplicates with auto-create on: a replier whose link matches an existing Person binds to it, no second Person.
         const dupUrl = `https://www.linkedin.com/in/dup-${tag}/`;
