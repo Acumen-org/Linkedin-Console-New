@@ -168,6 +168,22 @@ function fakeTwenty(req: http.IncomingMessage, res: http.ServerResponse) {
       Object.assign(record, variables.input);
       return json({ data: { updateLinkedinConversation: { id: record.id } } });
     }
+    // The LinkedIn-conversation records of a Person (filter by the relation's personId), for the admin "unbind + delete".
+    if (q.includes('LinkedInConsoleConvRecords')) {
+      const pid = variables.filter?.personId?.eq;
+      const hits = twentyConvRecords.filter((r) => r.personId === pid);
+      return json({ data: { linkedinConversations: { edges: hits.map((r) => ({ node: { id: r.id } })) } } });
+    }
+    if (q.includes('LinkedInConsoleDeleteConvRecord')) {
+      twentyConvRecords = twentyConvRecords.filter((r) => r.id !== variables.id);
+      return json({ data: { deleteLinkedinConversation: { id: variables.id } } });
+    }
+    if (q.includes('LinkedInConsoleDeletePerson')) {
+      const idx = twentyPeople.findIndex((x) => x.id === variables.id);
+      if (idx < 0) return json({ errors: [{ message: 'Record not found' }] });
+      twentyPeople.splice(idx, 1);
+      return json({ data: { deletePerson: { id: variables.id } } });
+    }
     if (q.includes('LinkedInConsoleSearchPeople')) {
       const words: string[] = [];
       let link: string | null = null;
@@ -2090,6 +2106,54 @@ try {
         await member('POST', `/api/conversations/${janeId}/reminder/close`, { status: 'DONE' });
       },
     );
+    await step('Twenty CRM admin unbind + delete: removes the Person and its conversation records, admin-only', async () => {
+      const [lina] = await sql`SELECT id, twenty_person_id FROM conversations WHERE thread_urn = ${conv('LINA')}`;
+      const personId = lina.twentyPersonId as string;
+      assert.ok(personId, 'Lina is bound to a Person');
+      const linaUrn = `urn:li:fsd_profile:LINA${tag}`;
+      // She has a Person and at least one LinkedIn conversation record in Twenty (the sync made them when bound).
+      assert.ok(
+        twentyPeople.some((x) => x.id === personId),
+        'Person exists before delete',
+      );
+      await until(
+        async () => {
+          await crmSyncTick();
+          return twentyConvRecords.some((r) => r.personId === personId);
+        },
+        (v) => v,
+        'Lina has a conversation record in Twenty',
+        30_000,
+      );
+
+      // A non-admin can't (gated before anything touches Twenty): the Person, its records and the binding all stay.
+      assert.equal((await member('POST', `/api/conversations/${lina.id}/crm/unbind-delete`)).status, 403);
+      assert.ok(
+        twentyPeople.some((x) => x.id === personId) && twentyConvRecords.some((r) => r.personId === personId),
+        'non-admin changed nothing in Twenty',
+      );
+      assert.equal((await sql`SELECT crm_binding FROM conversations WHERE id = ${lina.id}`)[0].crmBinding, 'bound', 'still bound');
+
+      // An admin unbinds AND deletes: the Person and every one of its conversation records are gone from Twenty.
+      const del = await owner('POST', `/api/conversations/${lina.id}/crm/unbind-delete`);
+      assert.equal(del.status, 200, JSON.stringify(del.data));
+      assert.equal(del.data.personDeleted, true);
+      assert.ok(del.data.recordsDeleted >= 1, JSON.stringify(del.data));
+      assert.ok(!twentyPeople.some((x) => x.id === personId), 'Person deleted from Twenty');
+      assert.ok(!twentyConvRecords.some((r) => r.personId === personId), 'conversation records deleted from Twenty');
+
+      // The local unbind still happened: binding gone, the chat waits for a hand binding, never bound again by itself.
+      assert.equal((await sql`SELECT count(*)::int AS n FROM crm_bindings WHERE member_urn = ${linaUrn}`)[0].n, 0);
+      const row = (await sql`SELECT crm_binding, twenty_person_id, crm_binding_reason FROM conversations WHERE id = ${lina.id}`)[0];
+      assert.equal(row.crmBinding, 'needed');
+      assert.equal(row.twentyPersonId, null);
+      assert.match(row.crmBindingReason, /deleted from Twenty/i);
+
+      // Audited as its own action, with what reached Twenty.
+      const log = await sql`SELECT meta FROM audit_log WHERE action = 'crm.deleted_in_twenty' AND meta->>'personId' = ${personId}`;
+      assert.ok(log.length >= 1, 'crm.deleted_in_twenty audited');
+      assert.equal(log[0].meta.personDeleted, true);
+    });
   } else {
     console.log('  (Twenty CRM sync tests skipped: they need CRM_SYNC=on and TWENTY_API_URL=http://api:4100/graphql)');
   }

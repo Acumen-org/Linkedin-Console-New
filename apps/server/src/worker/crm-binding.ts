@@ -13,7 +13,15 @@ import { sql } from '../lib/db.ts';
 import { HttpError } from '../lib/errors.ts';
 import { logger } from '../lib/logger.ts';
 import { publish } from '../lib/redis.ts';
-import { createPerson, linkedinKey, peopleWithLinkedin, personById, updatePerson } from '../lib/twenty.ts';
+import {
+  createPerson,
+  deleteConversationRecordsForPerson,
+  deletePersonInTwenty,
+  linkedinKey,
+  peopleWithLinkedin,
+  personById,
+  updatePerson,
+} from '../lib/twenty.ts';
 import { CONSOLE_SOURCE, personFieldType, personHasField } from '../lib/twenty-fields.ts';
 import { loadConversation } from '../modules/conversations/queries.ts';
 import { pushToUsers } from './push.ts';
@@ -332,6 +340,54 @@ export async function unbindByAdmin(conversationId: string, by: { id: string; na
     ip,
   });
   await changed(convs);
+}
+
+/**
+ * An admin undoes a binding AND deletes the prospect from Twenty: removes their Person and every LinkedIn-conversation
+ * record linked to it from Twenty, then does the local unbind. Deliberate, confirm-first, audited — NEVER automatic
+ * (the normal unbind stays local-only). If Twenty refuses or the Person is already gone, the local unbind still
+ * happens and the result says what reached Twenty, so a stuck CRM can never block cleaning up the console.
+ */
+export async function unbindAndDeleteByAdmin(conversationId: string, by: { id: string; name: string }, ip?: string) {
+  const [c] = await sql`SELECT participants, crm_binding, twenty_person_id FROM conversations WHERE id = ${conversationId}`;
+  if (!c || c.crmBinding !== 'bound') throw new HttpError(409, 'This prospect is not bound');
+  const memberUrn = c.participants?.[0]?.urn as string;
+  const personId = c.twentyPersonId as string | null;
+
+  let recordsDeleted = 0;
+  let personDeleted = false;
+  let twentyError: string | null = null;
+  if (personId) {
+    try {
+      // Records first, then the Person: a prospect's conversation records don't linger after their Person is gone.
+      recordsDeleted = await deleteConversationRecordsForPerson(personId);
+      personDeleted = await deletePersonInTwenty(personId);
+    } catch (err) {
+      // Twenty busy, offline or refusing: unbind locally anyway and report what happened (never leave it half-done).
+      twentyError = (err as Error).message;
+      logger.warn({ err, personId, conversationId }, 'deleting the prospect from Twenty failed; unbinding locally anyway');
+    }
+  }
+
+  await sql`DELETE FROM crm_bindings WHERE member_urn = ${memberUrn}`;
+  const convs = await sql<{ id: string; accountId: string }[]>`
+    UPDATE conversations SET twenty_person_id = NULL, crm_binding = 'needed', crm_nudged_at = NULL,
+      -- The Twenty records are gone: forget them so a later rebind creates fresh ones instead of updating dead ids.
+      twenty_record_id = NULL, twenty_record_hash = NULL, twenty_record_checked_at = NULL,
+      crm_binding_reason = ${`Unbound and deleted from Twenty by ${by.name}: bind it again by hand`},
+      -- Never looked at again automatically (the Person was deleted on purpose).
+      crm_binding_at = 'infinity'
+    WHERE participants->0->>'urn' = ${memberUrn} AND NOT is_group
+    RETURNING id, account_id`;
+  await audit({
+    userId: by.id,
+    accountId: convs[0]?.accountId,
+    action: 'crm.deleted_in_twenty',
+    meta: { memberUrn, personId, personDeleted, recordsDeleted, twentyError },
+    ip,
+  });
+  await changed(convs);
+  return { personId, personDeleted, recordsDeleted, twentyError };
 }
 
 /** Replies waiting more than a business day for a binding: the teammate responsible is reminded, once. */
