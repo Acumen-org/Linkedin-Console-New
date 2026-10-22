@@ -72,12 +72,14 @@ job "linkedin-console-backup" {
         image        = "postgres:17" # same server version as the postgres task: pg_dump must be >= the server
         network_mode = "linkedin-console"
         command      = "sh"
+        # NOTE: use brace-free shell vars ($KEEP, $stamp) only. Nomad runs a second interpolation pass over the
+        # task config at runtime and treats any ${...} as a Nomad variable (so "${KEEP:-14}" fails to parse).
+        # $(...) / $((...)) are fine — only ${ triggers interpolation.
         args = ["-c", <<-EOS
           set -eu
-          KEEP="$${KEEP:-14}"
           stamp="$(date -u +%Y%m%d-%H%M%S)"
-          tmp="/backups/.auto-$${stamp}.dump.tmp"
-          dest="/backups/auto-$${stamp}.dump"
+          tmp="/backups/.auto-$stamp.dump.tmp"
+          dest="/backups/auto-$stamp.dump"
           # Clean up a partial dump if pg_dump fails midway, so a broken file is never left as a "backup".
           trap 'rm -f "$tmp"' EXIT
           echo "$(date -Is) backup: pg_dump linkedin_console -> $dest"
@@ -86,8 +88,8 @@ job "linkedin-console-backup" {
           mv "$tmp" "$dest"
           echo "$(date -Is) backup: wrote $dest ($(du -h "$dest" | cut -f1))"
           # Prune only our own auto-*.dump files by count, so manual dumps (e.g. db-postreset.dump) are untouched.
-          echo "$(date -Is) backup: keeping newest $${KEEP} auto-*.dump, pruning the rest"
-          ls -1t /backups/auto-*.dump 2>/dev/null | tail -n +"$(($${KEEP} + 1))" | while IFS= read -r f; do
+          echo "$(date -Is) backup: keeping newest $KEEP auto-*.dump, pruning the rest"
+          ls -1t /backups/auto-*.dump 2>/dev/null | tail -n +"$((KEEP + 1))" | while IFS= read -r f; do
             echo "$(date -Is) backup: prune $f"
             rm -f "$f"
           done
