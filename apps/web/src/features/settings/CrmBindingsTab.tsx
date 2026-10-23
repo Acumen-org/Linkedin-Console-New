@@ -24,16 +24,17 @@ interface Binding {
   boundByName: string | null;
   boundAt: string;
 }
-interface Unbound {
+interface NeedBinding {
   memberUrn: string;
   prospect: string;
   accountLabels: string[];
   conversationId: string;
   reason: string | null;
+  unboundByAdmin: boolean;
 }
 interface BindingsResp {
   bindings: Binding[];
-  unbound: Unbound[];
+  needsBinding: NeedBinding[];
   summary: { bound: number; needsBinding: number; unbound: number };
 }
 
@@ -97,7 +98,7 @@ export function CrmBindingsTab() {
   const me = useMe();
   const appConfig = useAppConfig();
   const [search, setSearch] = useState('');
-  const [method, setMethod] = useState<'all' | 'auto' | 'manual' | 'unbound'>('all');
+  const [method, setMethod] = useState<'all' | 'auto' | 'manual' | 'needsbinding' | 'unbound'>('all');
   const q = useQuery({ queryKey: ['crm-bindings'], queryFn: () => api.get<BindingsResp>('/api/crm/bindings') });
 
   const rows = useMemo(() => {
@@ -109,10 +110,12 @@ export function CrmBindingsTab() {
     );
   }, [q.data, search, method]);
 
-  const unboundRows = useMemo(() => {
+  const needRows = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return (q.data?.unbound ?? []).filter((u) => !term || u.prospect.toLowerCase().includes(term));
-  }, [q.data, search]);
+    return (q.data?.needsBinding ?? []).filter(
+      (u) => (method === 'unbound' ? u.unboundByAdmin : true) && (!term || u.prospect.toLowerCase().includes(term)),
+    );
+  }, [q.data, search, method]);
 
   const unbind = async (b: Binding) => {
     if (
@@ -164,15 +167,21 @@ export function CrmBindingsTab() {
         <div className="grid grid-cols-3 gap-3">
           {(
             [
-              ['Bound', summary.bound, 'text-emerald-700'],
-              ['Need binding', summary.needsBinding, 'text-amber-700'],
-              ['Replied, not bound', summary.unbound, 'text-slate-700'],
+              ['Bound', summary.bound, 'text-emerald-700', 'all'],
+              ['Need binding', summary.needsBinding, 'text-amber-700', 'needsbinding'],
+              ['Replied, not bound', summary.unbound, 'text-slate-700', null],
             ] as const
-          ).map(([label, n, color]) => (
-            <div key={label} className="card p-3">
+          ).map(([label, n, color, target]) => (
+            <button
+              key={label}
+              type="button"
+              disabled={!target}
+              onClick={() => target && setMethod(target)}
+              className="card p-3 text-left enabled:hover:border-brand disabled:cursor-default"
+            >
               <div className={`text-2xl font-semibold ${color}`}>{n}</div>
               <div className="text-xs text-slate-500">{label}</div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -193,6 +202,7 @@ export function CrmBindingsTab() {
               ['all', 'All'],
               ['auto', 'Auto'],
               ['manual', 'Manual'],
+              ['needsbinding', 'Needs binding'],
               ['unbound', 'Unbound'],
             ] as const
           ).map(([id, label]) => (
@@ -211,18 +221,18 @@ export function CrmBindingsTab() {
         </button>
       </div>
 
-      {method === 'unbound' ? (
+      {method === 'unbound' || method === 'needsbinding' ? (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-2">Prospect</th>
                 <th className="px-4 py-2">Account(s)</th>
-                <th className="px-4 py-2">Why unbound</th>
+                <th className="px-4 py-2">Why it needs binding</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {unboundRows.map((u) => (
+              {needRows.map((u) => (
                 <tr key={u.memberUrn} className="hover:bg-slate-50">
                   <td className="px-4 py-2">
                     <a href={`/inbox/${u.conversationId}`} className="font-medium text-brand hover:underline">
@@ -230,14 +240,16 @@ export function CrmBindingsTab() {
                     </a>
                   </td>
                   <td className="px-4 py-2 text-slate-600">{u.accountLabels.join(', ')}</td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{u.reason ?? 'Unbound'}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500">{u.reason ?? 'Waiting to be bound'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {!unboundRows.length && (
-            <Empty title="Nothing unbound">
-              Prospects an admin unbinds (they won’t auto-rebind) show here, so you can review them and bind again by hand.
+          {!needRows.length && (
+            <Empty title={method === 'unbound' ? 'Nothing unbound' : 'Nothing waiting'}>
+              {method === 'unbound'
+                ? 'Prospects an admin unbinds (they won’t auto-rebind) show here, so you can review them and bind again by hand.'
+                : 'Repliers waiting to be bound to a Twenty Person show here, with why — open one to bind it.'}
             </Empty>
           )}
         </div>

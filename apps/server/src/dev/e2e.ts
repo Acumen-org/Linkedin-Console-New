@@ -2047,6 +2047,12 @@ try {
     await step('CRM bindings view: who is bound to which Twenty Person, the crm_bound filter, scoped by account', async () => {
       const res = await owner('GET', '/api/crm/bindings');
       assert.equal(res.status, 200);
+      // The "Needs binding" / "Unbound" filters read this list: waiting prospects with a reason, unbound ones flagged.
+      assert.ok(Array.isArray(res.data.needsBinding), 'needsBinding list present');
+      assert.ok(
+        res.data.needsBinding.every((n: any) => typeof n.prospect === 'string' && typeof n.unboundByAdmin === 'boolean'),
+        'needsBinding entries have a prospect + unboundByAdmin flag',
+      );
       const list = res.data.bindings as any[];
       const janeRow = list.find((b: any) => b.personId === janeInTwenty);
       assert.ok(janeRow, `Jane in the bindings list: ${JSON.stringify(list)}`);
