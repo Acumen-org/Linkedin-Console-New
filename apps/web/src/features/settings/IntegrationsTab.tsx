@@ -8,6 +8,7 @@ import { toast } from '../../lib/toast';
 interface IntegrationView {
   credentialsEnabled: boolean;
   crmSync: boolean;
+  crmAutoBind: boolean;
   crmAutoCreate: boolean;
   crmFuzzyBind: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
@@ -196,6 +197,25 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
         <p className="mb-3 text-sm text-slate-600">
           Writes each bound prospect's LinkedIn status and activity to their Twenty Person. Needs the Person fields below.
         </p>
+        <label className="mb-3 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={s.crmAutoBind}
+            disabled={!!busy || !s.twenty || !s.crmSync}
+            onChange={(e) =>
+              run('autobind', async () => {
+                await put({ crmAutoBind: e.target.checked });
+                toast(e.target.checked ? 'Auto-bind on' : 'Auto-bind off (manual binding)', 'success');
+                onChanged();
+              })
+            }
+          />
+          <span className="text-slate-600">
+            <b>Auto-bind matches.</b> When a replier clearly matches one Twenty Person (same LinkedIn link), bind them automatically. Off:
+            binding to existing People is <b>manual</b> — a matching replier waits under "Needs CRM binding" for a teammate to bind them.
+          </span>
+        </label>
         <label className="mb-3 flex items-start gap-2 text-sm">
           <input
             type="checkbox"

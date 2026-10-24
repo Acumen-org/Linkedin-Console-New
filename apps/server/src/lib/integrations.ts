@@ -26,6 +26,7 @@ interface StoredMicrosoft {
 interface Stored {
   crmSync?: boolean;
   crmAutoCreate?: boolean;
+  crmAutoBind?: boolean;
   crmFuzzyBind?: boolean;
   twenty?: StoredTwenty | null;
   microsoft?: StoredMicrosoft | null;
@@ -38,6 +39,7 @@ function toOverrides(s: Stored): IntegrationOverrides {
   const o: IntegrationOverrides = {};
   if (typeof s.crmSync === 'boolean') o.crmSync = s.crmSync;
   if (typeof s.crmAutoCreate === 'boolean') o.crmAutoCreate = s.crmAutoCreate;
+  if (typeof s.crmAutoBind === 'boolean') o.crmAutoBind = s.crmAutoBind;
   if (typeof s.crmFuzzyBind === 'boolean') o.crmFuzzyBind = s.crmFuzzyBind;
   if (s.twenty !== undefined) {
     // A stored connection whose key can't be decrypted (CREDENTIALS_KEY gone) falls back to env instead of breaking.
@@ -114,6 +116,7 @@ export interface IntegrationView {
   credentialsEnabled: boolean;
   crmSync: boolean;
   crmAutoCreate: boolean;
+  crmAutoBind: boolean;
   crmFuzzyBind: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
@@ -128,6 +131,7 @@ export function currentIntegrations(): IntegrationView {
     credentialsEnabled: credentialsEnabled(),
     crmSync: config.crmSync,
     crmAutoCreate: config.crmAutoCreate,
+    crmAutoBind: config.crmAutoBind,
     crmFuzzyBind: config.crmFuzzyBind,
     twenty: t ? { url: t.url, webUrl: t.webUrl, ownerField: t.ownerField, podField: t.podField, apiKeySet: !!t.apiKey } : null,
     microsoft: m ? { tenantId: m.tenantId, clientId: m.clientId, clientSecretSet: !!m.clientSecret } : null,
@@ -138,6 +142,7 @@ export function currentIntegrations(): IntegrationView {
 export interface IntegrationUpdate {
   crmSync?: boolean;
   crmAutoCreate?: boolean;
+  crmAutoBind?: boolean;
   crmFuzzyBind?: boolean;
   twenty?: { url?: string; apiKey?: string; webUrl?: string; ownerField?: string; podField?: string; disable?: boolean };
   microsoft?: { tenantId?: string; clientId?: string; clientSecret?: string; disable?: boolean };
@@ -153,6 +158,7 @@ export async function saveIntegrations(update: IntegrationUpdate): Promise<Integ
 
   if (typeof update.crmSync === 'boolean') next.crmSync = update.crmSync;
   if (typeof update.crmAutoCreate === 'boolean') next.crmAutoCreate = update.crmAutoCreate;
+  if (typeof update.crmAutoBind === 'boolean') next.crmAutoBind = update.crmAutoBind;
   if (typeof update.crmFuzzyBind === 'boolean') next.crmFuzzyBind = update.crmFuzzyBind;
 
   if (update.twenty) {

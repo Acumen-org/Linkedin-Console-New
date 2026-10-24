@@ -14,6 +14,7 @@ import { crmSyncStatus, crmSyncTick } from '../../worker/crm-sync.ts';
 
 const Update = z.object({
   crmSync: z.boolean().optional(),
+  crmAutoBind: z.boolean().optional(),
   crmAutoCreate: z.boolean().optional(),
   crmFuzzyBind: z.boolean().optional(),
   twenty: z

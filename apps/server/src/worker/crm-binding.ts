@@ -253,16 +253,22 @@ export async function bindReplied(limit = 10) {
       }
       const people = await peopleWithLinkedin(profileUrl as string);
       if (people.length === 1) {
-        await bindProspect(memberUrn, people[0], 'auto_link', null);
-        bound++;
+        // Auto-bind to the one matching Person — unless auto-bind is off, in which case a matching replier waits for a
+        // teammate to bind them by hand (binding to existing People is then fully manual).
+        if (config.crmAutoBind) {
+          await bindProspect(memberUrn, people[0], 'auto_link', null);
+          bound++;
+        } else {
+          await needsBinding(c, 'In Twenty — bind them by hand');
+        }
         continue;
       }
-      // Exact link didn't give exactly one match. With fuzzy matching on, score candidates (by link + name) and auto-bind
-      // a clear winner (score ≥ threshold, beating the runner-up by the margin); below that, show the ranked options. A
-      // weak signal (shared name prefix) scores far under the threshold so it can only be an option, never auto-bound. A
-      // wrong fuzzy bind is reversible (admin unbind) and audited with its score. Also catches a case-mismatched exact
-      // link the strict lookup missed (searchPeople is case-insensitive).
-      if (config.crmFuzzyBind) {
+      // Exact link didn't give exactly one match. Auto-bind to a fuzzy match only when auto-bind AND fuzzy are both on:
+      // score candidates (by link + name) and auto-bind a clear winner (score ≥ threshold, beating the runner-up by the
+      // margin); below that, show the ranked options. A weak signal (shared name prefix) scores far under the threshold so
+      // it can only be an option, never auto-bound. A wrong fuzzy bind is reversible (admin unbind) and audited with its
+      // score. Also catches a case-mismatched exact link the strict lookup missed (searchPeople is case-insensitive).
+      if (config.crmAutoBind && config.crmFuzzyBind) {
         const cands = (await searchPeople(prospect.name, profileUrl, null)).map((p) => ({
           id: p.id,
           name: p.name,

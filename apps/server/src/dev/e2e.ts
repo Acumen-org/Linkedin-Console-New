@@ -3288,6 +3288,13 @@ try {
     await owner('PUT', '/api/integrations', { crmAutoCreate: ac });
     assert.equal((await owner('GET', '/api/integrations')).data.settings.crmAutoCreate, ac);
 
+    // The auto-bind toggle (on by default) round-trips too.
+    assert.equal(got.data.settings.crmAutoBind, true, 'auto-bind defaults on');
+    assert.equal((await owner('PUT', '/api/integrations', { crmAutoBind: false })).data.crmAutoBind, false);
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmAutoBind, false);
+    await owner('PUT', '/api/integrations', { crmAutoBind: true });
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.crmAutoBind, true);
+
     // A malformed Twenty URL is rejected (nothing stored).
     assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);
   });

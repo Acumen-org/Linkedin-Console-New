@@ -135,6 +135,7 @@ export type StaffSyncConn = {
  * changes until an admin edits it. */
 export interface IntegrationOverrides {
   crmSync?: boolean;
+  crmAutoBind?: boolean;
   crmAutoCreate?: boolean;
   crmFuzzyBind?: boolean;
   twenty?: TwentyConn | null;
@@ -199,6 +200,12 @@ export const config = {
   },
   get crmSync(): boolean {
     return overrides.crmSync ?? envCrmSync;
+  },
+  // Auto-bind a replier to an EXISTING Twenty Person when there's a confident match (exact link, or a fuzzy match when
+  // crmFuzzyBind is also on). Default on (today's behavior). Turn off to make all binding to existing People manual —
+  // a replier who matches then waits under "Needs CRM binding" for a teammate to bind them by hand.
+  get crmAutoBind(): boolean {
+    return overrides.crmAutoBind ?? true;
   },
   // Auto-create a Twenty Person for a replier who isn't in Twenty yet (and bind to them). Off by default: it only
   // ever creates when no Person already has their LinkedIn link, so it can't make a duplicate, but creating People
