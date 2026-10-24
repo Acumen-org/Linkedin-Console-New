@@ -6,7 +6,10 @@
 #   web        Caddy + the built React app
 # The Chrome image lives in apps/chrome (no Node).
 
-ARG NODE_IMAGE=node:24-alpine
+# Pinned to a specific patch (not the floating node:24-alpine) so the Node version is reproducible and known-good.
+# 24.22.1 is the fix for the 2026-10-21 security release incl. CVE-2026-111497 (Brotli decoder OOB write → RCE);
+# bump this when a newer 24.x security release lands.
+ARG NODE_IMAGE=node:24.22.1-alpine
 
 # ---------- workspace install (cached on lockfile + manifests) ----------
 FROM ${NODE_IMAGE} AS base
