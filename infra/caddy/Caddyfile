@@ -10,6 +10,31 @@
 {$SITE_ADDRESS} {
 	encode zstd gzip
 
+	# Edge allow-list (hard block). When CONSOLE_ALLOW_CIDRS is set in the environment, only those client IPs
+	# reach the app and everyone else — crawlers, scanners, Netcraft — gets a bare 403. Unset (the default) is
+	# "0.0.0.0/0 ::/0", i.e. allow everyone, so this stays dormant until an admin provides the team/VPN ranges.
+	# client_ip uses the real client (trusted_proxies above strips the APISIX hop); X-Forwarded-For can't spoof it.
+	@notallowed not client_ip {$CONSOLE_ALLOW_CIDRS:0.0.0.0/0 ::/0}
+	handle @notallowed {
+		respond 403
+	}
+
+	# Tell well-behaved crawlers to stay out entirely. Served before the bot block so a polite crawler still
+	# reads the disallow even though its page requests below are refused.
+	handle /robots.txt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond `User-agent: *
+Disallow: /` 200
+	}
+
+	# Refuse known crawlers / security scanners by User-Agent (Netcraft included). Spoofable, so this is defence
+	# in depth on top of the allow-list above — not the primary control. Named agents only, so normal browsers,
+	# the api, APISIX health checks and the Live View browser (all real UAs) are never matched.
+	@badbots header_regexp User-Agent (?i)(netcraft|censys|shodan|zgrab|zmap|masscan|nuclei|nmap|sqlmap|nikto|wpscan|dirbuster|gobuster|semrushbot|ahrefsbot|mj12bot|dotbot|petalbot|bytespider|gptbot|ccbot|claudebot|googlebot|bingbot|yandexbot|baiduspider|duckduckbot|slurp|facebookexternalhit|crawler|spider|scrapy)
+	handle @badbots {
+		respond 403
+	}
+
 	# The api sees exactly one address: the client as Caddy determined it (spoofed X-Forwarded-For is ignored).
 	handle /api/* {
 		reverse_proxy api:4000 {
@@ -48,6 +73,8 @@
 
 	header {
 		X-Content-Type-Options nosniff
+		# Keep this host out of search indexes / archives even if a page does get fetched.
+		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
 		Referrer-Policy same-origin
 		# Only this app may show its pages in a frame (Live View is an iframe of our own origin): no clickjacking.
 		Content-Security-Policy "frame-ancestors 'self'"
