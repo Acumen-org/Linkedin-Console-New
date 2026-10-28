@@ -65,7 +65,14 @@ Disallow: /` 200
 		}
 	}
 
+	# Gate the app's HTML/login surface behind a shared password so crawlers and scanners (Netcraft included)
+	# can't see — or classify — the login page even with a browser User-Agent. This covers only the SPA and its
+	# assets; /api keeps its own session auth and /api/health stays open so the Consul health check (every 15s)
+	# never sees a 401 and the job can't flap. Rotate by replacing the bcrypt hash and redeploying.
 	handle {
+		basic_auth {
+			team $2a$14$YJVLVp4MGoUS8klbn53pA.4AcR4aQvTCkZbmH/G.Vu8H64Qa6rQYq
+		}
 		root * /srv
 		try_files {path} /index.html
 		file_server
