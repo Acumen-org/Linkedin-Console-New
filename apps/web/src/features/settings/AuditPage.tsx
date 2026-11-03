@@ -37,7 +37,7 @@ function Details({ meta }: { meta: Record<string, unknown> }) {
   const entries = Object.entries(meta ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== '');
   if (!entries.length) return null;
   return (
-    <span className="text-xs text-slate-500">
+    <span className="text-xs text-subtle">
       {entries.map(([k, v], i) => (
         <span key={k}>
           {i > 0 && ' · '}
@@ -103,7 +103,7 @@ export function AuditPage() {
         >
           {(close) => (
             <div className="text-sm">
-              <p className="px-3 py-2 text-xs text-slate-500">
+              <p className="px-3 py-2 text-xs text-subtle">
                 {filtered ? 'All entries matching the filters' : 'The whole log'}, newest first. Exports are recorded in the log.
               </p>
               {(
@@ -115,7 +115,7 @@ export function AuditPage() {
                 <button
                   key={format}
                   type="button"
-                  className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+                  className="block w-full rounded px-3 py-2 text-left hover:bg-surface-muted"
                   onClick={() => {
                     exportAs(format);
                     close();
@@ -187,7 +187,7 @@ export function AuditPage() {
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <thead className="bg-surface-muted text-left text-xs uppercase text-subtle">
             <tr>
               <th className="px-4 py-2">When</th>
               <th className="px-4 py-2">Person</th>
@@ -197,19 +197,19 @@ export function AuditPage() {
               <th className="px-4 py-2">Details</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-border">
             {rows.map((e) => (
               <tr key={e.id} className="align-top">
-                <td className="whitespace-nowrap px-4 py-2 text-slate-500">{fullTime(e.createdAt)}</td>
+                <td className="whitespace-nowrap px-4 py-2 text-subtle">{fullTime(e.createdAt)}</td>
                 <td className="px-4 py-2">
                   <div>{e.actorName ?? (e.userId ? 'Removed teammate' : 'System')}</div>
-                  {e.actorEmail && <div className="text-xs text-slate-500">{e.actorEmail}</div>}
+                  {e.actorEmail && <div className="text-xs text-subtle">{e.actorEmail}</div>}
                 </td>
-                <td className={`px-4 py-2 ${e.action === 'auth.login_failed' ? 'font-medium text-red-600' : ''}`}>
+                <td className={`px-4 py-2 ${e.action === 'auth.login_failed' ? 'font-medium text-red-600 dark:text-red-400' : ''}`}>
                   {auditLabel(e.action)}
                 </td>
                 <td className="px-4 py-2">{e.accountLabel ?? ''}</td>
-                <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-slate-500" title={e.userAgent ?? undefined}>
+                <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-subtle" title={e.userAgent ?? undefined}>
                   {e.ip ?? ''}
                 </td>
                 <td className="max-w-sm px-4 py-2">
@@ -225,7 +225,7 @@ export function AuditPage() {
             type="button"
             onClick={() => log.fetchNextPage()}
             disabled={log.isFetchingNextPage}
-            className="w-full py-3 text-sm font-semibold text-brand hover:bg-slate-50"
+            className="w-full py-3 text-sm font-semibold text-brand dark:text-blue-400 hover:bg-surface-muted"
           >
             {log.isFetchingNextPage ? 'Loading…' : 'Load more'}
           </button>

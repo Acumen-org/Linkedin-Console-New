@@ -61,24 +61,24 @@ export function LabelPicker({
     >
       {() => (
         <div className="space-y-1">
-          <div className="px-2 pt-1 text-xs font-semibold text-slate-500">Labels</div>
+          <div className="px-2 pt-1 text-xs font-semibold text-subtle">Labels</div>
           <div className="max-h-60 overflow-y-auto">
             {labels.data?.map((l) => (
               <button
                 key={l.id}
                 onClick={() => toggle(l.id)}
                 disabled={saving}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100 disabled:opacity-60"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-surface-muted disabled:opacity-60"
               >
-                <span className="flex h-4 w-4 items-center justify-center rounded border border-slate-300">
+                <span className="flex h-4 w-4 items-center justify-center rounded border border-border-strong">
                   {selected.has(l.id) && <Check size={12} />}
                 </span>
                 <LabelChip name={l.name} color={l.color} />
               </button>
             ))}
-            {labels.data?.length === 0 && <div className="px-2 py-1 text-xs text-slate-500">No labels yet.</div>}
+            {labels.data?.length === 0 && <div className="px-2 py-1 text-xs text-subtle">No labels yet.</div>}
           </div>
-          <div className="flex gap-1 border-t border-slate-100 p-1">
+          <div className="flex gap-1 border-t border-border p-1">
             <input
               className="input py-1 text-xs"
               placeholder="New label"
@@ -158,7 +158,12 @@ export function SnoozeMenu({
   return (
     <Popover
       trigger={({ toggle }) => (
-        <button onClick={toggle} disabled={disabled} className={`btn-ghost px-2 ${snoozed ? 'text-amber-600' : ''}`} title="Snooze">
+        <button
+          onClick={toggle}
+          disabled={disabled}
+          className={`btn-ghost px-2 ${snoozed ? 'text-amber-600 dark:text-amber-400' : ''}`}
+          title="Snooze"
+        >
           <AlarmClock size={18} />
         </button>
       )}
@@ -166,7 +171,7 @@ export function SnoozeMenu({
     >
       {(close) => (
         <div>
-          <div className="px-2 pt-1 pb-1 text-xs font-semibold text-slate-500">
+          <div className="px-2 pt-1 pb-1 text-xs font-semibold text-subtle">
             {snoozed ? `Snoozed until ${new Date(conversation.snoozedUntil!).toLocaleString()}` : 'Snooze until…'}
           </div>
           {options.map(([label, fn]) => (
@@ -176,12 +181,12 @@ export function SnoozeMenu({
                 snooze(fn());
                 close();
               }}
-              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-surface-muted"
             >
               {label}
             </button>
           ))}
-          <div className="flex gap-1 border-t border-slate-100 p-1">
+          <div className="flex gap-1 border-t border-border p-1">
             <input type="datetime-local" className="input py-1 text-xs" value={custom} onChange={(e) => setCustom(e.target.value)} />
             <button
               disabled={!custom}
@@ -200,12 +205,12 @@ export function SnoozeMenu({
                 snooze(null);
                 close();
               }}
-              className="block w-full rounded px-2 py-1.5 text-left text-sm text-brand hover:bg-slate-100"
+              className="block w-full rounded px-2 py-1.5 text-left text-sm text-brand dark:text-blue-400 hover:bg-surface-muted"
             >
               Unsnooze now
             </button>
           )}
-          <div className="px-2 pb-1 text-[11px] text-slate-500">It comes back earlier if they reply.</div>
+          <div className="px-2 pb-1 text-[11px] text-subtle">It comes back earlier if they reply.</div>
         </div>
       )}
     </Popover>
@@ -257,7 +262,7 @@ export function ReminderMenu({
     ['Next Monday 9:00', nextMonday],
     ['In 2 weeks (10 business days)', () => businessMorning(10)],
   ];
-  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600' : 'text-brand') : '';
+  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600 dark:text-red-400' : 'text-brand dark:text-blue-400') : '';
 
   return (
     <Popover
@@ -278,7 +283,7 @@ export function ReminderMenu({
     >
       {(closeMenu) => (
         <div>
-          <div className="px-2 pt-1 pb-1 text-xs font-semibold text-slate-500">
+          <div className="px-2 pt-1 pb-1 text-xs font-semibold text-subtle">
             {r ? (
               <span className={tone}>
                 Follow up {dueLabel(r.dueAt)}
@@ -304,12 +309,12 @@ export function ReminderMenu({
                 set(fn());
                 closeMenu();
               }}
-              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-surface-muted"
             >
               {label}
             </button>
           ))}
-          <div className="flex gap-1 border-t border-slate-100 p-1">
+          <div className="flex gap-1 border-t border-border p-1">
             <input type="datetime-local" className="input py-1 text-xs" value={custom} onChange={(e) => setCustom(e.target.value)} />
             <button
               disabled={!custom}
@@ -323,7 +328,7 @@ export function ReminderMenu({
             </button>
           </div>
           {r && (
-            <div className="flex gap-1 border-t border-slate-100 p-1">
+            <div className="flex gap-1 border-t border-border p-1">
               <button
                 onClick={() => {
                   close('DONE');

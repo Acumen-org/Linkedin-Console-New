@@ -17,18 +17,18 @@ export function LivePage() {
   });
   const [unlocked, setUnlocked] = useState(false);
   const a = account.data;
-  if (account.isError) return <div className="p-6 text-sm text-red-600">Account not found or no access.</div>;
-  if (!a || gate.isLoading) return <div className="p-6 text-sm text-slate-500">Loading…</div>;
+  if (account.isError) return <div className="p-6 text-sm text-red-600 dark:text-red-400">Account not found or no access.</div>;
+  if (!a || gate.isLoading) return <div className="p-6 text-sm text-subtle">Loading…</div>;
   const locked = !!gate.data?.hasCredentials && !gate.data.unlocked && !unlocked;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2">
+      <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2">
         <Link to="/accounts" className="btn-ghost px-2">
           <ArrowLeft size={18} />
         </Link>
         <span className="font-semibold">Live LinkedIn · {a.label}</span>
         <StatusBadge status={a.status} />
-        <span className="ml-auto text-xs text-slate-500">
+        <span className="ml-auto text-xs text-subtle">
           {a.level === 'FULL' ? 'Everyone with access sees the same screen; one person controls at a time.' : 'View only'}
         </span>
       </div>
@@ -38,7 +38,7 @@ export function LivePage() {
         <iframe
           title="Live LinkedIn"
           src={`/live/${a.id}/`}
-          className="min-h-0 w-full flex-1 border-0 bg-slate-200"
+          className="min-h-0 w-full flex-1 border-0 bg-border"
           allow="clipboard-read; clipboard-write"
         />
       )}
@@ -62,12 +62,12 @@ function UnlockForm({ accountId, onUnlocked }: { accountId: string; onUnlocked: 
     }
   };
   return (
-    <div className="flex flex-1 items-center justify-center bg-slate-50 p-6">
+    <div className="flex flex-1 items-center justify-center bg-surface-muted p-6">
       <form onSubmit={submit} className="card w-full max-w-sm space-y-4 p-6">
         <div className="flex items-center gap-2 font-semibold">
           <Lock size={18} /> Enter the LinkedIn password
         </div>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted">
           Opening the real LinkedIn session needs this account's LinkedIn password. You won't be asked again for a while.
         </p>
         <input

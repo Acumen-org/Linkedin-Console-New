@@ -88,9 +88,14 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
   if (s.binding === 'bound') {
     const label = s.personName ? `Twenty: ${s.personName}` : 'In Twenty CRM';
     return (
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs text-slate-600">
+      <div className="flex items-center gap-2 border-b border-border bg-surface-muted px-4 py-1.5 text-xs text-muted">
         {s.personUrl ? (
-          <a href={s.personUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 font-medium text-brand hover:underline">
+          <a
+            href={s.personUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 font-medium text-brand dark:text-blue-400 hover:underline"
+          >
             <Check size={13} /> {label}
           </a>
         ) : (
@@ -100,14 +105,14 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
         )}
         {isAdmin(me) && (
           <span className="ml-auto flex items-center gap-3">
-            <button type="button" onClick={unbind} className="text-slate-500 hover:text-brand hover:underline">
+            <button type="button" onClick={unbind} className="text-subtle hover:text-brand dark:hover:text-blue-400 hover:underline">
               Unbind (wrong Person)
             </button>
             <button
               type="button"
               onClick={unbindDelete}
               title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
-              className="inline-flex items-center gap-1 text-slate-400 hover:text-red-600 hover:underline"
+              className="inline-flex items-center gap-1 text-subtle hover:text-red-600 dark:hover:text-red-400 hover:underline"
             >
               <Trash2 size={12} /> Delete from Twenty
             </button>
@@ -117,7 +122,7 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+    <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
       <Link2 size={15} />
       <span className="flex-1">
         <b>Needs CRM binding.</b> They replied, so they belong in Twenty: {s.reason ?? 'not bound yet'}.
@@ -178,20 +183,20 @@ function BindModal({
   };
   return (
     <Modal title={`Bind ${s.prospect.name} to Twenty`} onClose={onClose} wide>
-      <p className="mb-3 text-sm text-slate-600">
+      <p className="mb-3 text-sm text-muted">
         Choose the Person they are in Twenty, or add them as new. Only one Person per prospect: every conversation with them (any account,
         any teammate) then goes to it.
         {s.prospect.profileUrl && (
           <>
             {' '}
-            <a href={s.prospect.profileUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+            <a href={s.prospect.profileUrl} target="_blank" rel="noreferrer" className="text-brand dark:text-blue-400 hover:underline">
               Their LinkedIn profile
             </a>
           </>
         )}
       </p>
       <div className="relative mb-2">
-        <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+        <Search size={15} className="absolute left-3 top-2.5 text-subtle" />
         <input
           className="input pl-9"
           value={search}
@@ -199,20 +204,22 @@ function BindModal({
           placeholder="Search Twenty by name or email"
         />
       </div>
-      <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
-        {candidates.isLoading && <div className="p-4 text-center text-sm text-slate-500">Searching Twenty…</div>}
-        {candidates.isError && <div className="p-4 text-center text-sm text-red-600">{(candidates.error as Error).message}</div>}
+      <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">
+        {candidates.isLoading && <div className="p-4 text-center text-sm text-subtle">Searching Twenty…</div>}
+        {candidates.isError && (
+          <div className="p-4 text-center text-sm text-red-600 dark:text-red-400">{(candidates.error as Error).message}</div>
+        )}
         {candidates.data?.length === 0 && (
-          <div className="p-4 text-center text-sm text-slate-500">Nobody found: try another spelling, or add them as new.</div>
+          <div className="p-4 text-center text-sm text-subtle">Nobody found: try another spelling, or add them as new.</div>
         )}
         {candidates.data?.map((p) => (
           <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <div className="min-w-0 flex-1">
               <div className="font-medium">{p.name}</div>
-              <div className="truncate text-xs text-slate-500">
+              <div className="truncate text-xs text-subtle">
                 {[p.jobTitle, p.company, p.city, p.email].filter(Boolean).join(' · ') || 'No details'}
               </div>
-              <div className="truncate text-xs text-slate-500">
+              <div className="truncate text-xs text-subtle">
                 {p.linkedin ? (
                   <a href={p.linkedin} target="_blank" rel="noreferrer" className="hover:underline">
                     {p.linkedin}
@@ -236,13 +243,13 @@ function BindModal({
           </div>
         ))}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md bg-slate-50 p-3 text-sm">
-        <div className="min-w-0 flex-1 text-slate-600">
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md bg-surface-muted p-3 text-sm">
+        <div className="min-w-0 flex-1 text-muted">
           Not in Twenty? Add them as a new Person
           {s.owner.field && s.owner.memberId ? ', owned by you' : ''}
           {s.pod.field && s.pod.value ? ` (pod ${s.pod.value})` : ''}.
           {s.owner.field && !s.owner.memberId && (
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-subtle">
               They'll have no owner in Twenty until an admin links your Twenty user on the Team page.
             </div>
           )}

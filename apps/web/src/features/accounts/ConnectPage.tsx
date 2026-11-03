@@ -27,13 +27,13 @@ export function ConnectPage() {
     }
   }, [a?.status]);
 
-  if (account.isError) return <div className="p-6 text-sm text-red-600">Account not found.</div>;
-  if (!a) return <div className="p-6 text-sm text-slate-500">Loading…</div>;
+  if (account.isError) return <div className="p-6 text-sm text-red-600 dark:text-red-400">Account not found.</div>;
+  if (!a) return <div className="p-6 text-sm text-subtle">Loading…</div>;
   const ready = a.status !== 'PROVISIONING' && a.status !== 'ERROR' && a.status !== 'OFFLINE';
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border bg-surface px-4 py-3">
         <Link to="/accounts" className="btn-ghost px-2">
           <ArrowLeft size={18} />
         </Link>
@@ -41,24 +41,24 @@ export function ConnectPage() {
           <div className="flex items-center gap-2 font-semibold">
             Log in to LinkedIn · {a.label} <StatusBadge status={a.status} />
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-subtle">
             Click into the window below, sign in with email + password and finish 2FA. This window is the account's own browser on your
             server.
           </div>
         </div>
         {a.status === 'CONNECTED' && (
-          <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700">
+          <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
             <CheckCircle2 size={18} /> Connected as {a.displayName}
           </span>
         )}
       </div>
       {a.status === 'NEEDS_ATTENTION' && (
-        <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:text-amber-200">
           <ShieldAlert size={16} /> LinkedIn logged this account out or asked for a security check. Sending is paused until you finish it
           here.
         </div>
       )}
-      <div className="min-h-0 flex-1 bg-slate-200">
+      <div className="min-h-0 flex-1 bg-border">
         {ready ? (
           <iframe
             title="LinkedIn login"
@@ -67,7 +67,7 @@ export function ConnectPage() {
             allow="clipboard-read; clipboard-write"
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-600">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
             {a.status === 'ERROR' || a.status === 'OFFLINE' ? (
               <>
                 <ShieldAlert size={32} className="text-red-500" />

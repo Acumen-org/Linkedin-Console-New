@@ -156,9 +156,9 @@ export function CrmBindingsTab() {
     }
   };
 
-  if (!appConfig.data?.twentyUrl) return <p className="text-sm text-slate-500">Twenty CRM is not configured.</p>;
-  if (q.isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (q.isError) return <p className="text-sm text-red-600">{(q.error as Error).message}</p>;
+  if (!appConfig.data?.twentyUrl) return <p className="text-sm text-subtle">Twenty CRM is not configured.</p>;
+  if (q.isLoading) return <p className="text-sm text-subtle">Loading…</p>;
+  if (q.isError) return <p className="text-sm text-red-600 dark:text-red-400">{(q.error as Error).message}</p>;
   const summary = q.data?.summary;
 
   return (
@@ -167,9 +167,9 @@ export function CrmBindingsTab() {
         <div className="grid grid-cols-3 gap-3">
           {(
             [
-              ['Bound', summary.bound, 'text-emerald-700', 'all'],
-              ['Need binding', summary.needsBinding, 'text-amber-700', 'needsbinding'],
-              ['Replied, not bound', summary.unbound, 'text-slate-700', null],
+              ['Bound', summary.bound, 'text-emerald-700 dark:text-emerald-400', 'all'],
+              ['Need binding', summary.needsBinding, 'text-amber-700 dark:text-amber-300', 'needsbinding'],
+              ['Replied, not bound', summary.unbound, 'text-foreground', null],
             ] as const
           ).map(([label, n, color, target]) => (
             <button
@@ -180,7 +180,7 @@ export function CrmBindingsTab() {
               className="card p-3 text-left enabled:hover:border-brand disabled:cursor-default"
             >
               <div className={`text-2xl font-semibold ${color}`}>{n}</div>
-              <div className="text-xs text-slate-500">{label}</div>
+              <div className="text-xs text-subtle">{label}</div>
             </button>
           ))}
         </div>
@@ -188,7 +188,7 @@ export function CrmBindingsTab() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1">
-          <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+          <Search size={15} className="absolute left-3 top-2.5 text-subtle" />
           <input
             className="input pl-9"
             value={search}
@@ -224,23 +224,23 @@ export function CrmBindingsTab() {
       {method === 'unbound' || method === 'needsbinding' ? (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+            <thead className="bg-surface-muted text-left text-xs uppercase text-subtle">
               <tr>
                 <th className="px-4 py-2">Prospect</th>
                 <th className="px-4 py-2">Account(s)</th>
                 <th className="px-4 py-2">Why it needs binding</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-border">
               {needRows.map((u) => (
-                <tr key={u.memberUrn} className="hover:bg-slate-50">
+                <tr key={u.memberUrn} className="hover:bg-surface-muted">
                   <td className="px-4 py-2">
-                    <a href={`/inbox/${u.conversationId}`} className="font-medium text-brand hover:underline">
+                    <a href={`/inbox/${u.conversationId}`} className="font-medium text-brand dark:text-blue-400 hover:underline">
                       {u.prospect}
                     </a>
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{u.accountLabels.join(', ')}</td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{u.reason ?? 'Waiting to be bound'}</td>
+                  <td className="px-4 py-2 text-muted">{u.accountLabels.join(', ')}</td>
+                  <td className="px-4 py-2 text-xs text-subtle">{u.reason ?? 'Waiting to be bound'}</td>
                 </tr>
               ))}
             </tbody>
@@ -256,7 +256,7 @@ export function CrmBindingsTab() {
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+            <thead className="bg-surface-muted text-left text-xs uppercase text-subtle">
               <tr>
                 <th className="px-4 py-2">Prospect</th>
                 <th className="px-4 py-2">Twenty Person</th>
@@ -268,11 +268,11 @@ export function CrmBindingsTab() {
                 {isAdmin(me) && <th className="px-4 py-2" />}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-border">
               {rows.map((b) => (
-                <tr key={b.memberUrn} className="hover:bg-slate-50">
+                <tr key={b.memberUrn} className="hover:bg-surface-muted">
                   <td className="px-4 py-2">
-                    <a href={`/inbox/${b.conversationId}`} className="font-medium text-brand hover:underline">
+                    <a href={`/inbox/${b.conversationId}`} className="font-medium text-brand dark:text-blue-400 hover:underline">
                       {b.prospect}
                     </a>
                   </td>
@@ -282,32 +282,36 @@ export function CrmBindingsTab() {
                         href={b.personUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-brand hover:underline"
+                        className="inline-flex items-center gap-1 text-brand dark:text-blue-400 hover:underline"
                       >
                         <Check size={13} /> {b.personName ?? 'Open in Twenty'} <ExternalLink size={12} />
                       </a>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
+                      <span className="inline-flex items-center gap-1 text-muted">
                         <Check size={13} /> {b.personName ?? b.personId}
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">{b.accountLabels.join(', ')}</td>
-                  <td className="px-4 py-2">{b.replied ? 'Yes' : <span className="text-slate-400">No</span>}</td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{methodLabel(b.method)}</td>
-                  <td className="px-4 py-2 text-slate-600">{b.boundByName ?? (isAuto(b.method) ? 'Automatic' : '—')}</td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{fullTime(b.boundAt)}</td>
+                  <td className="px-4 py-2 text-muted">{b.accountLabels.join(', ')}</td>
+                  <td className="px-4 py-2">{b.replied ? 'Yes' : <span className="text-subtle">No</span>}</td>
+                  <td className="px-4 py-2 text-xs text-subtle">{methodLabel(b.method)}</td>
+                  <td className="px-4 py-2 text-muted">{b.boundByName ?? (isAuto(b.method) ? 'Automatic' : '—')}</td>
+                  <td className="px-4 py-2 text-xs text-subtle">{fullTime(b.boundAt)}</td>
                   {isAdmin(me) && (
                     <td className="px-4 py-2 text-right">
                       <div className="flex items-center justify-end gap-3">
-                        <button type="button" onClick={() => unbind(b)} className="text-xs text-slate-500 hover:text-brand hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => unbind(b)}
+                          className="text-xs text-subtle hover:text-brand dark:hover:text-blue-400 hover:underline"
+                        >
                           Unbind
                         </button>
                         <button
                           type="button"
                           onClick={() => unbindDelete(b)}
                           title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
-                          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 hover:underline"
+                          className="inline-flex items-center gap-1 text-xs text-subtle hover:text-red-600 dark:hover:text-red-400 hover:underline"
                         >
                           <Trash2 size={12} /> Unbind &amp; delete
                         </button>

@@ -9,11 +9,11 @@ function Shell({ title, subtitle, children }: { title: string; subtitle: string;
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand font-bold text-white">LC</div>
-          <span className="text-2xl font-semibold text-brand">LinkedIn Console</span>
+          <span className="text-2xl font-semibold text-brand dark:text-blue-400">LinkedIn Console</span>
         </div>
         <div className="card p-6 shadow-sm">
           <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="mb-5 mt-1 text-sm text-slate-500">{subtitle}</p>
+          <p className="mb-5 mt-1 text-sm text-subtle">{subtitle}</p>
           {children}
         </div>
       </div>
@@ -68,18 +68,20 @@ export function LoginPage() {
   const passwordForm = !microsoft || methods.data?.password === 'on' || showPassword;
   return (
     <Shell title="Sign in" subtitle="Your team's unified LinkedIn inbox">
-      {redirectError && <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{redirectError}</div>}
+      {redirectError && (
+        <div className="mb-3 rounded-md bg-red-50 dark:bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{redirectError}</div>
+      )}
       {microsoft && (
         <a href="/api/auth/microsoft" className="btn-outline mb-3 w-full justify-center py-2">
           <MicrosoftLogo /> Sign in with Microsoft
         </a>
       )}
       {microsoft && !passwordForm && (
-        <button type="button" onClick={() => setShowPassword(true)} className="w-full text-center text-xs text-slate-500 hover:underline">
+        <button type="button" onClick={() => setShowPassword(true)} className="w-full text-center text-xs text-subtle hover:underline">
           Owner emergency sign-in
         </button>
       )}
-      {microsoft && passwordForm && <div className="mb-3 text-center text-xs text-slate-400">or with a password</div>}
+      {microsoft && passwordForm && <div className="mb-3 text-center text-xs text-subtle">or with a password</div>}
       {passwordForm && (
         <form onSubmit={submit} className="space-y-3">
           <div>
@@ -97,7 +99,7 @@ export function LoginPage() {
               required
             />
           </div>
-          {error && <div className="text-sm text-red-600">{error}</div>}
+          {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
           <button className="btn-primary w-full py-2" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
@@ -135,7 +137,7 @@ export function SetupPage() {
             required
           />
         </div>
-        {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
         <button className="btn-primary w-full py-2" disabled={busy}>
           {busy ? 'Creating…' : 'Create owner account'}
         </button>

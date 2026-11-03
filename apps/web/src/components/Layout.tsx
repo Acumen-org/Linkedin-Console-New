@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Contact, Inbox, Link2, LogOut, Settings, ShieldCheck, Users } from 'lucide-react';
+import { BarChart3, Contact, Inbox, Link2, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { isAdmin, isAuditor, useMe } from '../App';
 import { api } from '../lib/api';
 import { disablePush } from '../lib/push';
 import { disconnectRealtime } from '../lib/realtime';
+import { useTheme } from '../lib/theme';
 import type { Account } from '../types';
 import { Avatar } from './ui';
 
@@ -13,6 +14,7 @@ export function Layout() {
   const me = useMe();
   const qc = useQueryClient();
   const nav = useNavigate();
+  const [theme, toggleTheme] = useTheme();
   const accounts = useQuery({ queryKey: ['accounts'], queryFn: () => api.get<Account[]>('/api/accounts') });
   const unread = accounts.data?.reduce((n, a) => n + (a.unread ?? 0), 0) ?? 0;
   const attention = accounts.data?.filter((a) => a.status === 'NEEDS_ATTENTION' && a.level === 'FULL').length ?? 0;
@@ -28,11 +30,11 @@ export function Layout() {
   };
 
   const link = ({ isActive }: { isActive: boolean }) =>
-    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? 'text-brand bg-blue-50' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`;
+    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? 'text-brand dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10' : 'text-subtle hover:text-foreground hover:bg-surface-muted'}`;
 
   return (
     <div className="flex h-full">
-      <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-slate-200 bg-white py-3">
+      <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-3">
         <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">LC</div>
         {!isAuditor(me) && (
           <>
@@ -72,12 +74,19 @@ export function Layout() {
           </>
         )}
         <div className="flex-1" />
+        <button
+          onClick={toggleTheme}
+          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-subtle hover:text-foreground hover:bg-surface-muted"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />} Theme
+        </button>
         <NavLink to="/profile" className={link} title={me.name}>
           <Avatar name={me.name} size={28} />
         </NavLink>
         <button
           onClick={logout}
-          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-slate-500 hover:bg-slate-100"
+          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-subtle hover:bg-surface-muted"
           title="Log out"
         >
           <LogOut size={20} /> Log out
@@ -101,7 +110,7 @@ function AccountAlerts({ accounts }: { accounts: Account[] }) {
   );
   if (!broken.length) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-2 text-sm text-red-800 dark:text-red-300">
       {broken.map((a) => (
         <span key={a.id} className="flex items-center gap-2">
           <b>{a.label}</b>{' '}

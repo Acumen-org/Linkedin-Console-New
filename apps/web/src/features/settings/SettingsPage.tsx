@@ -30,13 +30,13 @@ export function SettingsPage() {
   return (
     <PageScroll>
       <PageHeader title="Settings" />
-      <div className="mb-5 flex gap-1 border-b border-slate-200">
+      <div className="mb-5 flex gap-1 border-b border-border">
         {TABS.filter((t) => (!t.admin || isAdmin(me)) && (!t.crm || !!config.data?.twentyUrl)).map((t) => (
           <NavLink
             key={t.id}
             to={`/settings/${t.id}`}
             className={({ isActive }) =>
-              `-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${isActive || (tab === t.id) ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-800'}`
+              `-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${isActive || (tab === t.id) ? 'border-brand text-brand dark:text-blue-400' : 'border-transparent text-subtle hover:text-foreground'}`
             }
           >
             {t.label}
@@ -66,7 +66,7 @@ function TemplatesTab() {
   return (
     <>
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted">
           Use in the composer with the <b>💬</b> button. Variables: <code>{'{firstName}'}</code> <code>{'{name}'}</code>{' '}
           <code>{'{myFirstName}'}</code> <code>{'{myName}'}</code> <code>{'{account}'}</code>
         </p>
@@ -74,23 +74,23 @@ function TemplatesTab() {
           <Plus size={16} /> New
         </button>
       </div>
-      <div className="card divide-y divide-slate-100">
+      <div className="card divide-y divide-border">
         {templates.data?.length === 0 && <Empty title="No saved replies yet" />}
         {templates.data?.map((t) => (
           <div key={t.id} className="flex items-start gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="font-semibold">
-                {t.title} {!t.shared && <span className="text-xs font-normal text-slate-500">(private)</span>}
+                {t.title} {!t.shared && <span className="text-xs font-normal text-subtle">(private)</span>}
               </div>
-              <div className="line-clamp-2 whitespace-pre-wrap text-sm text-slate-600">{t.body}</div>
-              <div className="text-xs text-slate-400">by {t.userName}</div>
+              <div className="line-clamp-2 whitespace-pre-wrap text-sm text-muted">{t.body}</div>
+              <div className="text-xs text-subtle">by {t.userName}</div>
             </div>
             {(t.userId === me.id || isAdmin(me)) && (
               <>
                 <button onClick={() => setEditing(t)} className="btn-ghost px-2" title="Edit">
                   <Pencil size={16} />
                 </button>
-                <button onClick={() => remove(t)} className="btn-ghost px-2 text-red-600" title="Delete">
+                <button onClick={() => remove(t)} className="btn-ghost px-2 text-red-600 dark:text-red-400" title="Delete">
                   <Trash2 size={16} />
                 </button>
               </>
@@ -188,7 +188,7 @@ function LabelsTab() {
           <label className="label">Color</label>
           <input
             type="color"
-            className="h-9 w-14 rounded border border-slate-300"
+            className="h-9 w-14 rounded border border-border-strong"
             value={color}
             onChange={(e) => setColor(e.target.value)}
           />
@@ -197,16 +197,16 @@ function LabelsTab() {
           <Plus size={16} /> Add
         </button>
       </div>
-      <div className="card divide-y divide-slate-100">
+      <div className="card divide-y divide-border">
         {labels.data?.length === 0 && <Empty title="No labels yet" />}
         {labels.data?.map((l) => (
           <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
             <LabelChip name={l.name} color={l.color} />
-            <span className="flex-1 text-xs text-slate-500">
+            <span className="flex-1 text-xs text-subtle">
               {l.usage} conversation{l.usage === 1 ? '' : 's'}
             </span>
             {isAdmin(me) && (
-              <button onClick={() => remove(l.id, l.name)} className="btn-ghost px-2 text-red-600">
+              <button onClick={() => remove(l.id, l.name)} className="btn-ghost px-2 text-red-600 dark:text-red-400">
                 <Trash2 size={16} />
               </button>
             )}
@@ -230,7 +230,7 @@ function NotificationsTab() {
 
   if (!pushSupported()) {
     return (
-      <div className="card p-5 text-sm text-slate-600">
+      <div className="card p-5 text-sm text-muted">
         This browser can't receive push notifications here. They need HTTPS (your real domain) and a modern browser.
       </div>
     );
@@ -251,10 +251,10 @@ function NotificationsTab() {
   return (
     <div className="card max-w-xl space-y-3 p-5">
       <div className="flex items-center gap-3">
-        {enabled ? <Bell className="text-brand" /> : <BellOff className="text-slate-400" />}
+        {enabled ? <Bell className="text-brand dark:text-blue-400" /> : <BellOff className="text-subtle" />}
         <div className="flex-1">
           <div className="font-semibold">Push notifications on this device</div>
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-muted">
             Get a notification for every new LinkedIn message in accounts you can access, even when the app is closed.
           </div>
         </div>
@@ -266,7 +266,7 @@ function NotificationsTab() {
           {enabled ? 'Turn off' : 'Turn on'}
         </button>
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-subtle">
         Tip: install the app (browser menu → "Install app" / "Add to Home Screen") for a phone-app experience.
       </p>
     </div>
@@ -300,7 +300,7 @@ function WebhooksTab() {
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-4">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted">
           Send events to your CRM, Slack, Zapier or n8n. Each request is a JSON POST signed with{' '}
           <code>X-LinkedIn-Console-Signature: sha256=…</code> (HMAC of the body with the webhook secret).
         </p>
@@ -308,17 +308,17 @@ function WebhooksTab() {
           <Plus size={16} /> Add
         </button>
       </div>
-      <div className="card divide-y divide-slate-100">
+      <div className="card divide-y divide-border">
         {hooks.data?.length === 0 && <Empty icon={<WebhookIcon size={28} />} title="No webhooks yet" />}
         {hooks.data?.map((h) => (
           <div key={h.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <div className="truncate font-mono text-sm">{h.url}</div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-subtle">
                 {h.events.map((e) => EVENT_LABELS[e]).join(' · ')} {!h.active && '· paused'}
               </div>
               {h.lastDeliveryAt && (
-                <div className={`text-xs ${h.lastError ? 'text-red-600' : 'text-emerald-700'}`}>
+                <div className={`text-xs ${h.lastError ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                   Last delivery {timeAgo(h.lastDeliveryAt)}: {h.lastError ?? `HTTP ${h.lastStatus}`}
                 </div>
               )}
@@ -329,7 +329,7 @@ function WebhooksTab() {
             <button onClick={() => setEditing(h)} className="btn-ghost px-2">
               <Pencil size={16} />
             </button>
-            <button onClick={() => remove(h)} className="btn-ghost px-2 text-red-600">
+            <button onClick={() => remove(h)} className="btn-ghost px-2 text-red-600 dark:text-red-400">
               <Trash2 size={16} />
             </button>
           </div>
@@ -349,7 +349,7 @@ function WebhooksTab() {
         <Modal title="Webhook secret" onClose={() => setSecret(null)}>
           <p className="text-sm">Use this secret to verify signatures. It is shown only once.</p>
           <div className="mt-3 flex gap-2">
-            <code className="flex-1 break-all rounded bg-slate-100 p-2 text-xs">{secret}</code>
+            <code className="flex-1 break-all rounded bg-surface-muted p-2 text-xs">{secret}</code>
             <button onClick={() => navigator.clipboard.writeText(secret).then(() => toast('Copied', 'success'))} className="btn-ghost px-2">
               <Copy size={16} />
             </button>
@@ -398,7 +398,7 @@ function WebhookModal({ hook, onClose }: { hook: Partial<Webhook>; onClose: (sec
                 checked={events.includes(ev)}
                 onChange={(e) => setEvents(e.target.checked ? [...events, ev] : events.filter((x) => x !== ev))}
               />
-              {EVENT_LABELS[ev]} <code className="text-xs text-slate-400">{ev}</code>
+              {EVENT_LABELS[ev]} <code className="text-xs text-subtle">{ev}</code>
             </label>
           ))}
         </div>

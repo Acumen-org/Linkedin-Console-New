@@ -94,28 +94,28 @@ export function InboxPage() {
   return (
     <div className="flex h-full">
       {/* Accounts + views */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
-        <div className="border-b border-slate-200 px-4 py-3 text-sm font-semibold">Inbox</div>
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface lg:flex">
+        <div className="border-b border-border px-4 py-3 text-sm font-semibold">Inbox</div>
         <div className="flex-1 overflow-y-auto p-2">
           {VIEWS.filter((v) => !(v.id === 'crm_needed' || v.id === 'crm_bound') || !!appConfig.data?.twentyUrl).map((v) => (
             <button
               key={v.id}
               onClick={() => setParam('view', v.id === 'all' ? '' : v.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${view === v.id ? 'bg-blue-50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'}`}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${view === v.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
             >
               <v.icon size={16} /> {v.label}
-              {v.id === 'unread' && totalUnread > 0 && <span className="ml-auto text-xs text-slate-500">{totalUnread}</span>}
+              {v.id === 'unread' && totalUnread > 0 && <span className="ml-auto text-xs text-subtle">{totalUnread}</span>}
             </button>
           ))}
-          <div className="mb-1 mt-4 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="mb-1 mt-4 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wide text-subtle">
             LinkedIn accounts
-            <Link to="/accounts" title="Connect an account" className="text-brand">
+            <Link to="/accounts" title="Connect an account" className="text-brand dark:text-blue-400">
               <Plus size={16} />
             </Link>
           </div>
           <button
             onClick={() => setParam('account', '')}
-            className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${!accountId ? 'bg-blue-50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'}`}
+            className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${!accountId ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
           >
             <Users size={16} /> All accounts
           </button>
@@ -123,7 +123,7 @@ export function InboxPage() {
             <button
               key={a.id}
               onClick={() => setParam('account', a.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${accountId === a.id ? 'bg-blue-50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'}`}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${accountId === a.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
             >
               <Avatar name={a.displayName ?? a.label} src={a.avatarUrl} size={22} />
               <span className="min-w-0 flex-1 truncate">
@@ -131,21 +131,21 @@ export function InboxPage() {
                 {isSyncing(a.sync) && <SyncProgress sync={a.sync} compact />}
               </span>
               <StatusDot status={a.status} />
-              {!!a.unread && <span className="text-xs text-slate-500">{a.unread}</span>}
+              {!!a.unread && <span className="text-xs text-subtle">{a.unread}</span>}
             </button>
           ))}
           {!!labels.data?.length && (
             <>
-              <div className="mb-1 mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Labels</div>
+              <div className="mb-1 mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-subtle">Labels</div>
               {labels.data.map((l) => (
                 <button
                   key={l.id}
                   onClick={() => setParam('label', labelId === l.id ? '' : l.id)}
-                  className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${labelId === l.id ? 'bg-blue-50 font-semibold text-brand' : 'text-slate-700 hover:bg-slate-100'}`}
+                  className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${labelId === l.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
                 >
                   <Tag size={14} style={{ color: l.color }} />
                   <span className="min-w-0 flex-1 truncate">{l.name}</span>
-                  <span className="text-xs text-slate-400">{l.usage}</span>
+                  <span className="text-xs text-subtle">{l.usage}</span>
                 </button>
               ))}
             </>
@@ -153,7 +153,7 @@ export function InboxPage() {
           {accounts.data?.length === 0 && (
             <Link
               to="/accounts"
-              className="mx-3 mt-2 block rounded-md border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500 hover:border-brand hover:text-brand"
+              className="mx-3 mt-2 block rounded-md border border-dashed border-border-strong p-3 text-center text-xs text-subtle hover:border-brand hover:text-brand dark:hover:text-blue-400"
             >
               Connect your first LinkedIn account
             </Link>
@@ -163,11 +163,11 @@ export function InboxPage() {
 
       {/* Conversation list */}
       <section
-        className={`w-full shrink-0 flex-col border-r border-slate-200 bg-white md:flex md:w-[360px] ${threadOpen ? 'hidden' : 'flex'}`}
+        className={`w-full shrink-0 flex-col border-r border-border bg-surface md:flex md:w-[360px] ${threadOpen ? 'hidden' : 'flex'}`}
       >
-        <div className="border-b border-slate-200 p-3">
+        <div className="border-b border-border p-3">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+            <Search size={16} className="absolute left-3 top-2.5 text-subtle" />
             <input
               className="input pl-9"
               placeholder="Search messages and people"
@@ -185,7 +185,7 @@ export function InboxPage() {
           </select>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {list.isLoading && <div className="p-4 text-sm text-slate-500">Loading…</div>}
+          {list.isLoading && <div className="p-4 text-sm text-subtle">Loading…</div>}
           {!list.isLoading && conversations.length === 0 && (
             <Empty icon={<MessagesSquare size={36} />} title="No conversations">
               {accounts.data?.length
@@ -200,7 +200,7 @@ export function InboxPage() {
             <button
               onClick={() => list.fetchNextPage()}
               disabled={list.isFetchingNextPage}
-              className="w-full py-3 text-sm font-semibold text-brand hover:bg-slate-50"
+              className="w-full py-3 text-sm font-semibold text-brand dark:text-blue-400 hover:bg-surface-muted"
             >
               {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
             </button>
@@ -209,7 +209,7 @@ export function InboxPage() {
       </section>
 
       {/* Thread */}
-      <section className={`min-w-0 flex-1 bg-white ${threadOpen ? 'flex' : 'hidden md:flex'}`}>
+      <section className={`min-w-0 flex-1 bg-surface ${threadOpen ? 'flex' : 'hidden md:flex'}`}>
         {conversationId ? (
           <Thread key={conversationId} conversationId={conversationId} />
         ) : newChat ? (
@@ -231,27 +231,27 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
   return (
     <button
       onClick={() => nav(`/inbox/${c.id}${search ? `?${search}` : ''}`)}
-      className={`flex w-full gap-3 border-b border-slate-100 px-3 py-3 text-left ${active ? 'border-l-4 border-l-brand bg-blue-50/60' : 'hover:bg-slate-50'}`}
+      className={`flex w-full gap-3 border-b border-border px-3 py-3 text-left ${active ? 'border-l-4 border-l-brand bg-blue-50/60 dark:bg-blue-500/10' : 'hover:bg-surface-muted'}`}
     >
       <div className="relative">
         {c.isGroup && !p?.avatarUrl ? (
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-border text-muted">
             <Users size={20} />
           </div>
         ) : (
           <Avatar name={p?.name ?? conversationTitle(c)} src={p?.avatarUrl} size={48} />
         )}
-        <span className="absolute -bottom-1 -right-1 rounded-full bg-white p-0.5" title={`via ${c.accountLabel}`}>
+        <span className="absolute -bottom-1 -right-1 rounded-full bg-surface p-0.5" title={`via ${c.accountLabel}`}>
           <Avatar name={c.accountName ?? c.accountLabel} src={c.accountAvatar} size={18} />
         </span>
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className={`truncate text-sm ${c.unreadCount ? 'font-bold' : 'font-semibold'}`}>{conversationTitle(c)}</span>
-          <span className="ml-auto shrink-0 text-xs text-slate-500">{timeAgo(c.lastMessageAt)}</span>
+          <span className="ml-auto shrink-0 text-xs text-subtle">{timeAgo(c.lastMessageAt)}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`truncate text-sm ${c.unreadCount ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>
+          <span className={`truncate text-sm ${c.unreadCount ? 'font-semibold text-foreground' : 'text-subtle'}`}>
             {c.lastMessageFromSelf ? 'You: ' : ''}
             {c.lastMessagePreview ?? ''}
           </span>
@@ -261,14 +261,14 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
             </span>
           )}
         </div>
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-          <span className="truncate rounded bg-slate-100 px-1.5 py-0.5">{c.accountLabel}</span>
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-subtle">
+          <span className="truncate rounded bg-surface-muted px-1.5 py-0.5">{c.accountLabel}</span>
           {c.labels.slice(0, 2).map((l) => (
             <LabelChip key={l.id} name={l.name} color={l.color} small />
           ))}
           {c.reminder && (
             <span
-              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600' : 'text-brand'}`}
+              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600 dark:text-red-400' : 'text-brand dark:text-blue-400'}`}
               title={c.reminder.note ?? 'Follow-up reminder'}
             >
               <BellRing size={11} />
@@ -279,7 +279,7 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
           {c.isStarred && <Star size={12} className="fill-amber-400 text-amber-400" />}
           {c.assignedToName && <span className="truncate">→ {c.assignedToName}</span>}
           {locked && (
-            <span className="flex items-center gap-1 text-amber-700">
+            <span className="flex items-center gap-1 text-amber-700 dark:text-amber-300">
               <Lock size={11} /> {c.lockedByName} replying
             </span>
           )}

@@ -46,7 +46,7 @@ export function AccountsPage() {
           </button>
         )}
       </PageHeader>
-      <p className="mb-5 text-sm text-slate-600">
+      <p className="mb-5 text-sm text-muted">
         Each account runs in its own secure browser on your server. You log in once through a live window (including 2FA). After that your
         team works from the unified inbox.
       </p>
@@ -138,15 +138,18 @@ function AccountCard({
           <span className="font-semibold">{a.label}</span>
           <StatusBadge status={a.status} />
           {a.sendPaused && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800" title={a.pausedReason ?? undefined}>
+            <span
+              className="rounded-full bg-amber-100 dark:bg-amber-500/15 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
+              title={a.pausedReason ?? undefined}
+            >
               {a.pausedReason ? 'Sending paused automatically' : 'Sending paused'}
             </span>
           )}
         </div>
-        <div className="truncate text-sm text-slate-600">
+        <div className="truncate text-sm text-muted">
           {a.displayName ? `${a.displayName}${a.headline ? ` · ${a.headline}` : ''}` : 'Not logged in yet'}
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-subtle">
           Connected by {a.ownerName} · {a.timezone}
           {a.hasProxy ? ' · via proxy' : ''} · limit {a.effectiveSendCap ?? a.dailySendCap}/day
           {a.rampDaysLeft
@@ -155,7 +158,7 @@ function AccountCard({
           {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
         </div>
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-subtle">
           {a.onlineSince ? `Browser up for ${durationSince(a.onlineSince)}` : 'Browser not reporting'}
           {a.lastRestartAt &&
             ` · restarted automatically ${timeAgo(a.lastRestartAt)}${a.lastRestartReason ? ` (${a.lastRestartReason.toLowerCase()})` : ''}`}
@@ -163,15 +166,15 @@ function AccountCard({
             !a.onlineSince &&
             ` · ${a.recoverAttempts} automatic restart${a.recoverAttempts === 1 ? '' : 's'} so far, still trying`}
         </div>
-        {a.lastError && <div className="mt-1 text-xs text-red-600">{a.lastError}</div>}
+        {a.lastError && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{a.lastError}</div>}
         {a.pausedReason && (
-          <div className="mt-1 text-xs text-amber-700">
+          <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {a.pausedReason}. Check the account in Live View, then resume sending (⏵) when it looks normal.
           </div>
         )}
         {isSyncing(a.sync) && <SyncProgress sync={a.sync} />}
         {a.level !== 'READ' && a.status === 'CONNECTED' && (
-          <button onClick={onReport} className="mt-1 text-xs text-brand hover:underline">
+          <button onClick={onReport} className="mt-1 text-xs text-brand dark:text-blue-400 hover:underline">
             Sync report: recent chats and their history
           </button>
         )}
@@ -237,7 +240,7 @@ function AccountCard({
             {ownerOrAdmin && (
               <button
                 onClick={() => setShowCreds(true)}
-                className={`btn-ghost ${a.hasCredentials ? 'text-emerald-600' : ''}`}
+                className={`btn-ghost ${a.hasCredentials ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
                 title={
                   a.hasCredentials
                     ? 'LinkedIn login saved — update it'
@@ -248,7 +251,7 @@ function AccountCard({
               </button>
             )}
             {ownerOrAdmin && (
-              <button onClick={remove} className="btn-ghost text-red-600" title="Disconnect">
+              <button onClick={remove} className="btn-ghost text-red-600 dark:text-red-400" title="Disconnect">
                 <Trash2 size={16} />
               </button>
             )}
@@ -296,9 +299,9 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
               <option key={z}>{z}</option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-slate-500">The browser uses this so LinkedIn sees the owner's usual time.</p>
+          <p className="mt-1 text-xs text-subtle">The browser uses this so LinkedIn sees the owner's usual time.</p>
         </div>
-        <button onClick={() => setAdvanced((s) => !s)} className="text-xs font-semibold text-brand">
+        <button onClick={() => setAdvanced((s) => !s)} className="text-xs font-semibold text-brand dark:text-blue-400">
           {advanced ? 'Hide' : 'Show'} advanced
         </button>
         {advanced && (
@@ -312,7 +315,7 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
             />
           </div>
         )}
-        <div className="rounded-md bg-blue-50 p-3 text-xs text-slate-700">
+        <div className="rounded-md bg-blue-50 dark:bg-blue-500/10 p-3 text-xs text-foreground">
           Next you'll see LinkedIn's login page in a live window. Sign in with email + password and complete 2FA. Passkeys don't work in a
           remote browser.
         </div>
@@ -373,7 +376,7 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
             value={newChatCap}
             onChange={(e) => setNewChatCap(Number(e.target.value))}
           />
-          <p className="mt-1 text-xs text-slate-500">Cold outreach is what LinkedIn watches most; replies in existing chats are safer.</p>
+          <p className="mt-1 text-xs text-subtle">Cold outreach is what LinkedIn watches most; replies in existing chats are safer.</p>
         </div>
         <div>
           <label className="label">Automatic follow-up after (business days without a reply)</label>
@@ -385,7 +388,7 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
             value={followupDays}
             onChange={(e) => setFollowupDays(Number(e.target.value))}
           />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-subtle">
             When our message is the last one and the prospect stays silent this long (weekends don't count), a follow-up reminder is created
             for the teammate responsible, at 9:00 in this account's timezone. 0 = off.
           </p>
@@ -412,7 +415,7 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
             onChange={(e) => setProxy(e.target.value === 'none' ? '' : e.target.value || undefined)}
           />
         </div>
-        <p className="text-xs text-slate-500">Changing timezone or proxy restarts the account's browser. The LinkedIn login is kept.</p>
+        <p className="text-xs text-subtle">Changing timezone or proxy restarts the account's browser. The LinkedIn login is kept.</p>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-ghost">
             Cancel
@@ -457,7 +460,7 @@ function CredentialsModal({ a, onClose }: { a: Account; onClose: () => void }) {
   return (
     <Modal title={`LinkedIn login · ${a.label}`} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted">
           Stored encrypted on your server. It opens the Live window and lets the browser log back in by itself when LinkedIn signs out (a
           2FA or CAPTCHA prompt still needs a person). The password is never shown again.
         </p>
@@ -484,7 +487,7 @@ function CredentialsModal({ a, onClose }: { a: Account; onClose: () => void }) {
         </div>
         <div className="flex items-center justify-between">
           {a.hasCredentials ? (
-            <button className="btn-ghost text-red-600" onClick={clear}>
+            <button className="btn-ghost text-red-600 dark:text-red-400" onClick={clear}>
               Remove
             </button>
           ) : (
@@ -521,22 +524,22 @@ function GrantsModal({ a, onClose }: { a: Account; onClose: () => void }) {
   };
   return (
     <Modal title={`Team access · ${a.label}`} onClose={onClose} wide>
-      <p className="mb-3 text-xs text-slate-600">
+      <p className="mb-3 text-xs text-muted">
         <b>Read</b>: see conversations · <b>Reply</b>: send messages + watch Live LinkedIn · <b>Full</b>: control Live LinkedIn, settings,
         re-login. Owners and admins always have full access.
       </p>
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-border">
         {grants.data?.map((g) => (
           <div key={g.userId} className="flex items-center gap-3 py-2">
             <Avatar name={g.name} size={30} />
             <span className="flex-1 text-sm">
-              {g.name} <span className="text-xs text-slate-500">{g.role !== 'MEMBER' ? `(${g.role.toLowerCase()})` : ''}</span>
+              {g.name} <span className="text-xs text-subtle">{g.role !== 'MEMBER' ? `(${g.role.toLowerCase()})` : ''}</span>
             </span>
             {g.role !== 'MEMBER' ? (
-              <span className="text-xs text-slate-500">Full</span>
+              <span className="text-xs text-subtle">Full</span>
             ) : (
               <select
-                className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                className="rounded-md border border-border-strong px-2 py-1 text-sm"
                 value={(changes[g.userId] !== undefined ? changes[g.userId] : g.level) ?? ''}
                 onChange={(e) => setChanges((c) => ({ ...c, [g.userId]: (e.target.value || null) as Level | null }))}
               >

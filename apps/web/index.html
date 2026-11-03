@@ -10,6 +10,14 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0a66c2" />
     <link rel="apple-touch-icon" href="/icon.svg" />
+    <script>
+      // Set the theme before first paint (no flash): saved choice, else the OS preference.
+      try {
+        var t = localStorage.getItem('theme');
+        var dark = t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

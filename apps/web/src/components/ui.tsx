@@ -42,7 +42,7 @@ export function StatusDot({ status }: { status: AccountStatus }) {
 export function StatusBadge({ status }: { status: AccountStatus }) {
   const s = STATUS[status] ?? { label: status, color: 'bg-slate-400' };
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
       <span className={`h-2 w-2 rounded-full ${s.color}`} /> {s.label}
     </span>
   );
@@ -55,9 +55,9 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className={`card w-full ${wide ? 'max-w-2xl' : 'max-w-md'} shadow-xl`}>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
+          <button onClick={onClose} className="text-subtle hover:text-foreground">
             <X size={18} />
           </button>
         </div>
@@ -69,9 +69,9 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 
 export function Empty({ icon, title, children }: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-slate-500">
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-subtle">
       {icon}
-      <div className="font-semibold text-slate-700">{title}</div>
+      <div className="font-semibold text-foreground">{title}</div>
       {children && <div className="max-w-sm text-sm">{children}</div>}
     </div>
   );
@@ -122,7 +122,7 @@ export function Popover({
       {open && (
         <div
           style={{ width }}
-          className={`absolute z-30 rounded-lg border border-slate-200 bg-white p-1 shadow-lg ${side === 'top' ? 'bottom-full mb-1' : 'mt-1'} ${align === 'right' ? 'right-0' : 'left-0'}`}
+          className={`absolute z-30 rounded-lg border border-border bg-surface p-1 shadow-lg ${side === 'top' ? 'bottom-full mb-1' : 'mt-1'} ${align === 'right' ? 'right-0' : 'left-0'}`}
         >
           {children(() => setOpen(false))}
         </div>

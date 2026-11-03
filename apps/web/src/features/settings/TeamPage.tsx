@@ -15,7 +15,11 @@ import { BulkAssignModal, StaffAccessModal } from './StaffAccess';
 const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?: 'slate' | 'blue' | 'red' }) => (
   <span
     className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-      tone === 'blue' ? 'bg-blue-50 text-brand' : tone === 'red' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'
+      tone === 'blue'
+        ? 'bg-blue-50 dark:bg-blue-500/10 text-brand dark:text-blue-400'
+        : tone === 'red'
+          ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300'
+          : 'bg-surface-muted text-muted'
     }`}
   >
     {children}
@@ -45,15 +49,15 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
     <div className="card mb-4 grid gap-4 p-4 text-sm md:grid-cols-2">
       <div>
         <div className="mb-1 flex items-center gap-1.5 font-semibold">
-          <ShieldCheck size={16} className="text-brand" /> Sign-in
+          <ShieldCheck size={16} className="text-brand dark:text-blue-400" /> Sign-in
         </div>
         {info.microsoft ? (
-          <p className="text-slate-600">
+          <p className="text-muted">
             Company Microsoft 365 accounts (MFA and access policies from Microsoft).{' '}
             {info.passwordSignin === 'owner' ? 'Passwords: owner only, for emergencies.' : 'Passwords are also allowed.'}
           </p>
         ) : (
-          <p className="text-slate-600">Email and password. Configure Microsoft 365 sign-in to use company accounts and MFA.</p>
+          <p className="text-muted">Email and password. Configure Microsoft 365 sign-in to use company accounts and MFA.</p>
         )}
       </div>
       <div>
@@ -66,16 +70,16 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
           )}
         </div>
         {sync.mode === 'off' ? (
-          <p className="text-slate-600">Not connected.</p>
+          <p className="text-muted">Not connected.</p>
         ) : (
           <>
-            <p className="text-slate-600">
+            <p className="text-muted">
               {sync.mode === 'provision'
                 ? 'Adds staff (no account access until an admin assigns it) and disables leavers.'
                 : 'Disables leavers.'}
             </p>
             {last && (
-              <p className={`mt-1 text-xs ${last.ok ? 'text-slate-500' : 'text-red-600'}`}>
+              <p className={`mt-1 text-xs ${last.ok ? 'text-subtle' : 'text-red-600 dark:text-red-400'}`}>
                 Last run {fullTime(last.at)}:{' '}
                 {last.ok
                   ? `${last.staff} staff · ${last.linked} linked · ${last.provisioned} added · ${last.disabled} disabled · ${last.reenabled} re-enabled`
@@ -126,7 +130,7 @@ function StaffLimitsCard() {
     <div className="card mb-4 flex flex-wrap items-end gap-4 p-4 text-sm">
       <div className="min-w-56 flex-1">
         <div className="font-semibold">Staff send limits</div>
-        <p className="text-slate-600">
+        <p className="text-muted">
           Each staff member's messages and new chats per 24 hours, over all accounts, on top of each account's own limit. Admins are
           notified when someone gets close to it or sends a burst.
         </p>
@@ -188,7 +192,7 @@ function CrmCard() {
           </button>
         )}
       </div>
-      <p className="text-slate-600">
+      <p className="text-muted">
         A prospect reaches Twenty only after they reply and are bound to one Person (automatically when exactly one Person has their
         LinkedIn link); then every message since {s.since ? fullTime(s.since) : 'switch-on'} is a note on them. {s.people} prospects bound ·{' '}
         {s.needsBinding ?? 0} replied and waiting to be bound · {s.synced24h} messages logged in the last 24 hours · {s.pending} on their
@@ -196,13 +200,13 @@ function CrmCard() {
         {s.failed ? ` · ${s.failed} failed` : ''}.
       </p>
       {(!!s.reviewPending || !!s.reviewed) && (
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-subtle">
           Persons the earlier sync created for prospects who never replied: {s.reviewed ?? 0} marked “LinkedIn Console: review” in Twenty
           {s.reviewPending ? `, ${s.reviewPending} waiting for that field (scripts/twenty-fields.sh)` : ''}. Nothing is deleted.
         </p>
       )}
       {s.last && !s.last.ok && (
-        <p className="mt-1 text-xs text-red-600">
+        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
           Last problem {fullTime(s.last.at)}: {s.last.error}
         </p>
       )}
@@ -261,7 +265,7 @@ export function TeamPage() {
           <UserPlus size={16} /> Add staff
         </button>
       </PageHeader>
-      <p className="mb-4 text-sm text-slate-600">
+      <p className="mb-4 text-sm text-muted">
         Teammates sign in to this app, never to LinkedIn. Staff see no LinkedIn accounts until an admin assigns them (Assign on each person,
         or tick several), and every message they send is recorded. Admins and the owner see everything.
       </p>
@@ -281,7 +285,7 @@ export function TeamPage() {
           </button>
         </div>
       )}
-      <div className="card divide-y divide-slate-100">
+      <div className="card divide-y divide-border">
         {users.data?.map((u) => (
           <div key={u.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
             <input
@@ -296,26 +300,28 @@ export function TeamPage() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`font-semibold ${u.disabledAt ? 'text-slate-400' : ''}`}>{u.name}</span>
-                {u.id === me.id && <span className="text-xs text-slate-500">(you)</span>}
+                <span className={`font-semibold ${u.disabledAt ? 'text-subtle' : ''}`}>{u.name}</span>
+                {u.id === me.id && <span className="text-xs text-subtle">(you)</span>}
                 {u.microsoftLinked && <Badge tone="blue">Microsoft</Badge>}
                 {u.hasPassword === false && !u.microsoftLinked && <Badge>Microsoft sign-in</Badge>}
                 {u.source === 'staff_sync' && <Badge>From the staff list</Badge>}
                 {u.disabledAt && <Badge tone="red">{u.disabledReason ?? 'Disabled'}</Badge>}
               </div>
-              <div className="text-sm text-slate-600">
+              <div className="text-sm text-muted">
                 {u.email}
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-subtle">
                   {' '}
                   · {u.lastSignInAt ? `last sign-in ${fullTime(u.lastSignInAt)}` : 'never signed in'}
                 </span>
               </div>
             </div>
             {u.role === 'OWNER' ? (
-              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-brand">Owner</span>
+              <span className="rounded-full bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-brand dark:text-blue-400">
+                Owner
+              </span>
             ) : (
               <select
-                className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                className="rounded-md border border-border-strong px-2 py-1 text-sm"
                 value={u.role}
                 disabled={u.id === me.id}
                 onChange={(e) => update(u, { role: e.target.value }, 'Role updated')}
@@ -331,7 +337,7 @@ export function TeamPage() {
               </button>
             )}
             {isStaff(u) && (
-              <span className="text-xs text-slate-500" title="Messages and new chats in the last 24 hours, and this person's limit">
+              <span className="text-xs text-subtle" title="Messages and new chats in the last 24 hours, and this person's limit">
                 {u.sent24h ?? 0} sent today
                 {u.dailySendCap === null || u.dailySendCap === undefined ? '' : u.dailySendCap ? ` / ${u.dailySendCap}` : ' · no limit'}
               </span>
@@ -421,7 +427,7 @@ function AddUserModal({ microsoft, passwords, onClose }: { microsoft: boolean; p
             <p className="text-sm">
               Share these sign-in details with {form.name} privately. They can change the password under their profile.
             </p>
-            <pre className="mt-3 rounded-md bg-slate-100 p-3 text-sm">{`${location.origin}\nEmail: ${form.email}\nPassword: ${form.password}`}</pre>
+            <pre className="mt-3 rounded-md bg-surface-muted p-3 text-sm">{`${location.origin}\nEmail: ${form.email}\nPassword: ${form.password}`}</pre>
           </>
         ) : (
           <p className="text-sm">
@@ -499,7 +505,7 @@ function ResetModal({ user, onClose }: { user: User; onClose: () => void }) {
   return (
     <Modal title={`Reset password · ${user.name}`} onClose={onClose}>
       {done ? (
-        <pre className="rounded-md bg-slate-100 p-3 text-sm">New password: {password}</pre>
+        <pre className="rounded-md bg-surface-muted p-3 text-sm">New password: {password}</pre>
       ) : (
         <p className="text-sm">This signs {user.name} out everywhere and sets a new temporary password.</p>
       )}
@@ -546,7 +552,7 @@ function TwentyLinkModal({ user, pods, onClose }: { user: User; pods: string[]; 
   };
   return (
     <Modal title={`Twenty CRM · ${user.name}`} onClose={onClose}>
-      <p className="mb-3 text-sm text-slate-600">
+      <p className="mb-3 text-sm text-muted">
         Persons {user.name} adds to Twenty get them as owner and their pod. Binding to an existing Person fills these only where empty.
       </p>
       <label className="label">Their Twenty user</label>
@@ -561,7 +567,11 @@ function TwentyLinkModal({ user, pods, onClose }: { user: User; pods: string[]; 
         ))}
       </select>
       {suggested && !memberId && (
-        <button type="button" onClick={() => setMemberId(suggested.id)} className="mt-1 text-xs text-brand hover:underline">
+        <button
+          type="button"
+          onClick={() => setMemberId(suggested.id)}
+          className="mt-1 text-xs text-brand dark:text-blue-400 hover:underline"
+        >
           Use {suggested.name ?? suggested.email} (same email)
         </button>
       )}

@@ -83,9 +83,9 @@ export function ConnectionsPage() {
       )}
       {current && (
         <div className="card">
-          <div className="flex items-center gap-3 border-b border-slate-200 p-3">
+          <div className="flex items-center gap-3 border-b border-border p-3">
             <div className="relative flex-1">
-              <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+              <Search size={16} className="absolute left-3 top-2.5 text-subtle" />
               <input
                 className="input pl-9"
                 placeholder="Search by name, title or company"
@@ -93,16 +93,14 @@ export function ConnectionsPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <span className="text-sm text-slate-500">
-              {q && data ? `${data.matching} of ${data.total}` : (data?.total ?? 0)} connections
-            </span>
+            <span className="text-sm text-subtle">{q && data ? `${data.matching} of ${data.total}` : (data?.total ?? 0)} connections</span>
           </div>
           {data?.items.length === 0 && (
             <Empty icon={<ContactIcon size={32} />} title={q ? 'No matches' : 'No connections synced yet'}>
               {!q && 'Connections sync automatically once a day. Click Sync to start now.'}
             </Empty>
           )}
-          <div className={`divide-y divide-slate-100 ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
+          <div className={`divide-y divide-border ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
             {data?.items.map((c) => (
               <div key={c.id} className="flex items-center gap-3 px-4 py-3">
                 <Avatar name={c.name} src={c.avatarUrl} size={44} />
@@ -114,7 +112,7 @@ export function ConnectionsPage() {
                   ) : (
                     <span className="font-semibold">{c.name}</span>
                   )}
-                  <div className="truncate text-sm text-slate-600">{c.headline}</div>
+                  <div className="truncate text-sm text-muted">{c.headline}</div>
                 </div>
                 {current.level !== 'READ' && (
                   // Opens the chat with them in the inbox (or a new one there).
@@ -126,14 +124,14 @@ export function ConnectionsPage() {
             ))}
           </div>
           {!!data?.matching && (
-            <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 px-4 py-2 text-sm text-slate-600">
+            <div className="flex flex-wrap items-center gap-3 border-t border-border px-4 py-2 text-sm text-muted">
               <span>
                 {from}–{to} of {data.matching}
               </span>
               <label className="flex items-center gap-1.5">
                 Per page
                 <select
-                  className="rounded-md border border-slate-300 px-1.5 py-0.5"
+                  className="rounded-md border border-border-strong px-1.5 py-0.5"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value));

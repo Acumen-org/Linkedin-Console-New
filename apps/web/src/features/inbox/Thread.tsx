@@ -127,8 +127,8 @@ export function Thread({ conversationId }: { conversationId: string }) {
 
   const lastOutboundId = useMemo(() => [...(messages.data ?? [])].reverse().find((m) => m.direction === 'OUTBOUND')?.id, [messages.data]);
 
-  if (conv.isError) return <div className="m-auto text-sm text-slate-500">Conversation not found.</div>;
-  if (!c) return <div className="m-auto text-sm text-slate-500">Loading…</div>;
+  if (conv.isError) return <div className="m-auto text-sm text-subtle">Conversation not found.</div>;
+  if (!c) return <div className="m-auto text-sm text-subtle">Loading…</div>;
 
   const canReply = c.level === 'REPLY' || c.level === 'FULL';
   const disabledReason = !canReply
@@ -144,12 +144,12 @@ export function Thread({ conversationId }: { conversationId: string }) {
     <div className="flex min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2.5">
           <button onClick={() => nav('/inbox')} className="btn-ghost px-1 md:hidden">
             <ArrowLeft size={20} />
           </button>
           {c.isGroup ? (
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-border">
               <Users size={18} />
             </div>
           ) : (
@@ -165,9 +165,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
                 <span className="truncate font-semibold">{conversationTitle(c)}</span>
               )}
             </div>
-            <div className="truncate text-xs text-slate-500">
+            <div className="truncate text-xs text-subtle">
               {c.isGroup ? `${c.participants.length + 1} people` : main?.headline}
-              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">via {c.accountLabel}</span>
+              <span className="ml-2 rounded bg-surface-muted px-1.5 py-0.5 text-muted">via {c.accountLabel}</span>
             </div>
             {c.labels.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-1">
@@ -182,7 +182,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
             value={c.assignedTo ?? ''}
             onChange={(e) => patch({ assignedTo: e.target.value || null })}
             disabled={!canReply}
-            className="hidden rounded-md border border-slate-200 px-2 py-1 text-xs xl:block"
+            className="hidden rounded-md border border-border px-2 py-1 text-xs xl:block"
             title="Assign to teammate"
           >
             <option value="">Unassigned</option>
@@ -209,7 +209,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
           <SnoozeMenu conversation={c} disabled={!canReply} onChange={setConversation} />
           <button
             onClick={() => setShowNotes((s) => !s)}
-            className={`btn-ghost px-2 ${showNotes ? 'bg-blue-50 text-brand' : ''}`}
+            className={`btn-ghost px-2 ${showNotes ? 'bg-blue-50 dark:bg-blue-500/10 text-brand dark:text-blue-400' : ''}`}
             title="Team notes"
           >
             <StickyNote size={18} />
@@ -263,7 +263,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
               </button>
             </div>
           )}
-          {messages.isLoading && <div className="text-center text-sm text-slate-500">Loading messages…</div>}
+          {messages.isLoading && <div className="text-center text-sm text-subtle">Loading messages…</div>}
           {messages.data?.map((m, i, arr) => {
             const prev = arr[i - 1];
             const newDay = !prev || new Date(prev.sentAt).toDateString() !== new Date(m.sentAt).toDateString();
@@ -276,19 +276,19 @@ export function Thread({ conversationId }: { conversationId: string }) {
             return (
               <Fragment key={m.id}>
                 {newDay && (
-                  <div className="my-4 flex items-center gap-3 text-xs font-semibold text-slate-500">
-                    <div className="h-px flex-1 bg-slate-200" />
+                  <div className="my-4 flex items-center gap-3 text-xs font-semibold text-subtle">
+                    <div className="h-px flex-1 bg-border" />
                     {dayLabel(m.sentAt)}
-                    <div className="h-px flex-1 bg-slate-200" />
+                    <div className="h-px flex-1 bg-border" />
                   </div>
                 )}
                 <MessageBubble m={m} showSender={showSender} isLastOutbound={m.id === lastOutboundId} />
               </Fragment>
             );
           })}
-          {messages.data?.length === 0 && <div className="mt-10 text-center text-sm text-slate-500">No messages synced yet.</div>}
+          {messages.data?.length === 0 && <div className="mt-10 text-center text-sm text-subtle">No messages synced yet.</div>}
           {typingNow.length > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+            <div className="mt-3 flex items-center gap-2 text-xs text-subtle">
               <span className="flex gap-0.5">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
@@ -325,27 +325,27 @@ function NotesPanel({ conversationId, onClose }: { conversationId: string; onClo
   };
   return (
     // A slide-over on phones (next to the thread it would leave no room), a side panel on larger screens.
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-slate-200 bg-amber-50 shadow-xl md:static md:w-72 md:max-w-none md:shrink-0 md:bg-amber-50/40 md:shadow-none">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-amber-50 dark:bg-amber-500/10 shadow-xl md:static md:w-72 md:max-w-none md:shrink-0 md:bg-amber-50/40 md:shadow-none">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="text-sm font-semibold">Team notes</span>
-        <button onClick={onClose} className="text-xs text-slate-500 hover:underline">
+        <button onClick={onClose} className="text-xs text-subtle hover:underline">
           Close
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
         {notes.data?.length === 0 && (
-          <div className="text-xs text-slate-500">Notes are only visible to your team, never sent to LinkedIn.</div>
+          <div className="text-xs text-subtle">Notes are only visible to your team, never sent to LinkedIn.</div>
         )}
         {notes.data?.map((n) => (
-          <div key={n.id} className="rounded-lg bg-white p-2.5 text-sm shadow-sm">
+          <div key={n.id} className="rounded-lg bg-surface p-2.5 text-sm shadow-sm">
             <div className="whitespace-pre-wrap">{n.text}</div>
-            <div className="mt-1 text-[11px] text-slate-500">
+            <div className="mt-1 text-[11px] text-subtle">
               {n.userName} · {timeAgo(n.createdAt)}
             </div>
           </div>
         ))}
       </div>
-      <div className="flex gap-2 border-t border-slate-200 p-3">
+      <div className="flex gap-2 border-t border-border p-3">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -383,7 +383,7 @@ function SeenBy({ conversationId, meId }: { conversationId: string; meId: string
   const extra = names.length > 3 ? ` +${names.length - 3}` : '';
   const title = rows.map((r) => `${label(r)} — ${timeAgo(r.lastViewedAt)}`).join('\n');
   return (
-    <div className="mt-1 truncate text-xs text-slate-400" title={title}>
+    <div className="mt-1 truncate text-xs text-subtle" title={title}>
       Seen by {shown}
       {extra}
     </div>

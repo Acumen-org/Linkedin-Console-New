@@ -42,10 +42,10 @@ const WAIT_LABEL: Record<Wait, string> = {
 };
 
 const Tile = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
-  <div className="rounded-md bg-slate-50 p-3">
-    <div className="text-xs text-slate-500">{label}</div>
+  <div className="rounded-md bg-surface-muted p-3">
+    <div className="text-xs text-subtle">{label}</div>
     <div className="text-lg font-semibold">{value}</div>
-    {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+    {sub && <div className="text-[11px] text-subtle">{sub}</div>}
   </div>
 );
 
@@ -77,16 +77,16 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
   return (
     <Modal title={`Sync report: ${account.label}`} onClose={onClose} wide>
       {!r ? (
-        <div className="p-6 text-center text-sm text-slate-500">Loading…</div>
+        <div className="p-6 text-center text-sm text-subtle">Loading…</div>
       ) : (
         <div className="space-y-4">
           {isSyncing(r.sync) && <SyncProgress sync={r.sync} />}
           {r.sync?.finishedAt && (
-            <div className="flex items-center gap-1.5 text-sm text-emerald-700">
+            <div className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
               <CheckCircle2 size={16} /> First sync finished {timeAgo(r.sync.finishedAt)}
             </div>
           )}
-          {!r.sync && <div className="text-sm text-slate-500">This account connected before sync reports existed.</div>}
+          {!r.sync && <div className="text-sm text-subtle">This account connected before sync reports existed.</div>}
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Tile label="Recent chats" value={`${r.recent.count} / 100`} sub={`${r.conversations} chats in total`} />
@@ -117,9 +117,9 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
             )}
           </div>
 
-          <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
+          <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">
             {chats.length === 0 && (
-              <div className="p-4 text-center text-sm text-slate-500">
+              <div className="p-4 text-center text-sm text-subtle">
                 {onlyWaiting ? 'Every recent chat has its history.' : 'No chats yet.'}
               </div>
             )}
@@ -128,21 +128,21 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
                 {c.waiting ? (
                   <Clock size={16} className="shrink-0 text-amber-500" />
                 ) : (
-                  <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                  <CheckCircle2 size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
                 )}
                 <div className="min-w-0 flex-1">
                   <Link to={`/inbox/${c.id}`} className="truncate font-medium hover:underline">
                     {c.name}
                   </Link>
-                  <div className="truncate text-xs text-slate-500">
+                  <div className="truncate text-xs text-subtle">
                     {c.waiting
                       ? WAIT_LABEL[c.waiting]
                       : `${c.messages} message${c.messages === 1 ? '' : 's'} · history loaded ${timeAgo(c.historyAt!)}`}
                   </div>
                 </div>
-                <div className="shrink-0 text-right text-xs text-slate-500">
+                <div className="shrink-0 text-right text-xs text-subtle">
                   {c.lastMessageAt && timeAgo(c.lastMessageAt)}
-                  {c.unread > 0 && <div className="text-brand">{c.unread} unread</div>}
+                  {c.unread > 0 && <div className="text-brand dark:text-blue-400">{c.unread} unread</div>}
                 </div>
               </div>
             ))}
@@ -171,9 +171,11 @@ function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; 
     }
   };
   return (
-    <div className={`rounded-md border p-3 text-sm ${degraded ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+    <div
+      className={`rounded-md border p-3 text-sm ${degraded ? 'border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10' : 'border-border'}`}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        {degraded && <AlertTriangle size={16} className="text-amber-600" />}
+        {degraded && <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />}
         <span className="flex-1">
           {c ? (
             <>
@@ -192,7 +194,7 @@ function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; 
         </span>
         {account.level === 'FULL' &&
           (r.allChats ? (
-            <span className="text-xs text-slate-500">Loading all chats… {r.allChats.loaded} listed so far</span>
+            <span className="text-xs text-subtle">Loading all chats… {r.allChats.loaded} listed so far</span>
           ) : (
             <button type="button" onClick={start} disabled={r.status !== 'CONNECTED'} className="btn-outline text-xs">
               <Download size={13} /> Load all chats
@@ -200,7 +202,7 @@ function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; 
           ))}
       </div>
       {degraded && (
-        <p className="mt-1 text-xs text-amber-800">
+        <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
           LinkedIn changed how it sends the chat list, so most chats were added from the page: names only, their messages may be missing
           until the bridge is updated. The admins were alerted. A LinkedIn data archive (Import) brings the full history now.
         </p>

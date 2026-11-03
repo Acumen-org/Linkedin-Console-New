@@ -38,13 +38,13 @@ interface IntegrationsResp {
   staff: StaffStatus | null;
 }
 
-const field = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none';
+const field = 'w-full rounded-lg border border-border-strong px-3 py-2 text-sm focus:border-brand focus:outline-none';
 
 export function IntegrationsTab() {
   const q = useQuery({ queryKey: ['integrations'], queryFn: () => api.get<IntegrationsResp>('/api/integrations') });
   const [version, setVersion] = useState(0);
-  if (q.isLoading) return <p className="text-sm text-slate-500">Loading…</p>;
-  if (!q.data) return <p className="text-sm text-red-600">Couldn't load integration settings.</p>;
+  if (q.isLoading) return <p className="text-sm text-subtle">Loading…</p>;
+  if (!q.data) return <p className="text-sm text-red-600 dark:text-red-400">Couldn't load integration settings.</p>;
   return (
     <IntegrationsForm
       key={version}
@@ -87,7 +87,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
   return (
     <div className="space-y-6">
       {!s.credentialsEnabled && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
           Saving the Twenty API key or Microsoft secret here needs <code>CREDENTIALS_KEY</code> set on the server (a base64 32-byte key).
           Until then keep those secrets in the server environment; the toggles and field names below still work.
         </div>
@@ -96,18 +96,18 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
       <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold">Twenty connection</h3>
-          <span className={`text-xs ${s.twenty ? 'text-emerald-700' : 'text-slate-500'}`}>
+          <span className={`text-xs ${s.twenty ? 'text-emerald-700 dark:text-emerald-400' : 'text-subtle'}`}>
             {s.twenty ? 'Configured' : 'Not configured'}
           </span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">GraphQL API URL</span>
+            <span className="mb-1 block text-muted">GraphQL API URL</span>
             <input className={field} value={twUrl} onChange={(e) => setTwUrl(e.target.value)} placeholder="https://your-twenty/graphql" />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">
-              API key {s.twenty?.apiKeySet && <em className="text-slate-400">(set — blank keeps it)</em>}
+            <span className="mb-1 block text-muted">
+              API key {s.twenty?.apiKeySet && <em className="text-subtle">(set — blank keeps it)</em>}
             </span>
             <input
               className={field}
@@ -118,16 +118,16 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Web URL (for links; optional)</span>
+            <span className="mb-1 block text-muted">Web URL (for links; optional)</span>
             <input className={field} value={twWeb} onChange={(e) => setTwWeb(e.target.value)} placeholder="https://app.your-twenty" />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm">
-              <span className="mb-1 block text-slate-600">Owner field</span>
+              <span className="mb-1 block text-muted">Owner field</span>
               <input className={field} value={owner} onChange={(e) => setOwner(e.target.value)} />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-slate-600">Pod field</span>
+              <span className="mb-1 block text-muted">Pod field</span>
               <input className={field} value={pod} onChange={(e) => setPod(e.target.value)} />
             </label>
           </div>
@@ -160,7 +160,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           </button>
           {s.twenty && (
             <button
-              className="btn-ghost text-red-600"
+              className="btn-ghost text-red-600 dark:text-red-400"
               disabled={!!busy}
               onClick={() =>
                 run('disable-twenty', async () => {
@@ -196,7 +196,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             <span>{s.crmSync ? 'On' : 'Off'}</span>
           </label>
         </div>
-        <p className="mb-3 text-sm text-slate-600">
+        <p className="mb-3 text-sm text-muted">
           Writes each bound prospect's LinkedIn status and activity to their Twenty Person. Needs the Person fields below.
         </p>
         <label className="mb-3 flex items-start gap-2 text-sm">
@@ -213,7 +213,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
               })
             }
           />
-          <span className="text-slate-600">
+          <span className="text-muted">
             <b>Auto-bind matches.</b> When a replier clearly matches one Twenty Person (same LinkedIn link), bind them automatically. Off:
             binding to existing People is <b>manual</b> — a matching replier waits under "Needs CRM binding" for a teammate to bind them.
           </span>
@@ -232,7 +232,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
               })
             }
           />
-          <span className="text-slate-600">
+          <span className="text-muted">
             <b>Auto-create people in Twenty.</b> When a prospect replies and nobody in Twenty has their LinkedIn profile, create a new
             Person for them and bind automatically. Only ever when no Person already matches their link, so it never makes a duplicate. Off:
             those repliers wait under "Needs CRM binding" for someone to add them by hand.
@@ -252,7 +252,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
               })
             }
           />
-          <span className="text-slate-600">
+          <span className="text-muted">
             <b>Confidence auto-bind.</b> When a replier has no single exact-link match, auto-bind them to a <i>strong</i> fuzzy match (exact
             name + same company/role) when there's one clear winner; weaker or tied matches wait under "Needs CRM binding". Exact-link
             binding always happens regardless. A wrong fuzzy bind is reversible — review them under "CRM bindings".
@@ -292,17 +292,19 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             {busy === 'apply-fields' ? 'Setting up…' : 'Set up fields'}
           </button>
         </div>
-        {fieldsReport && <p className="mt-2 text-sm text-slate-700">{fieldsReport}</p>}
+        {fieldsReport && <p className="mt-2 text-sm text-foreground">{fieldsReport}</p>}
         {data.crm?.enabled && (
-          <div className="mt-3 text-xs text-slate-500">
+          <div className="mt-3 text-xs text-subtle">
             {data.crm.people ?? 0} bound · {data.crm.needsBinding ?? 0} need binding · {data.crm.synced24h ?? 0} synced (24h)
             {data.crm.failed ? ` · ${data.crm.failed} failed` : ''}
             {data.crm.pendingRecords ? ` · ${data.crm.pendingRecords} not yet in Twenty` : ''}
-            {data.crm.last && !data.crm.last.ok && <span className="text-red-600"> · last error: {data.crm.last.error}</span>}
+            {data.crm.last && !data.crm.last.ok && (
+              <span className="text-red-600 dark:text-red-400"> · last error: {data.crm.last.error}</span>
+            )}
           </div>
         )}
         {data.crm?.enabled && data.crm.conversationObject === false && (
-          <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-800">
+          <p className="mt-2 rounded-md bg-amber-50 dark:bg-amber-500/10 p-2 text-sm text-amber-800 dark:text-amber-200">
             The “LinkedIn conversations” object isn’t set up in Twenty, so bound prospects won’t appear there. Press{' '}
             <strong>Set up fields</strong> above to add it, then they’ll sync within a minute.
           </p>
@@ -311,13 +313,13 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
 
       <section className="card p-4">
         <h3 className="mb-2 font-semibold">Staff / member sync</h3>
-        <p className="mb-3 text-sm text-slate-600">
+        <p className="mb-3 text-sm text-muted">
           Keep the console's team in step with the source. <b>Link &amp; remove leavers</b> links people and disables anyone removed;{' '}
           <b>Provision</b> also creates a Member for each active person (Microsoft sign-in, no account access until granted).
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Mode</span>
+            <span className="mb-1 block text-muted">Mode</span>
             <select className={field} value={staffMode} onChange={(e) => setStaffMode(e.target.value as typeof staffMode)}>
               <option value="off">Off</option>
               <option value="disable">Link &amp; remove leavers</option>
@@ -325,7 +327,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             </select>
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Source</span>
+            <span className="mb-1 block text-muted">Source</span>
             <select className={field} value={staffSource} onChange={(e) => setStaffSource(e.target.value as typeof staffSource)}>
               <option value="twenty">Twenty workspace</option>
               <option value="twilio">Twilio console</option>
@@ -346,12 +348,12 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           Save staff sync
         </button>
         {data.staff && (
-          <div className="mt-3 text-xs text-slate-500">
+          <div className="mt-3 text-xs text-subtle">
             Last run:{' '}
             {data.staff.ok ? (
               `${data.staff.staff ?? 0} staff, ${data.staff.linked ?? 0} linked, ${data.staff.provisioned ?? 0} provisioned`
             ) : (
-              <span className="text-red-600">failed: {data.staff.error}</span>
+              <span className="text-red-600 dark:text-red-400">failed: {data.staff.error}</span>
             )}
           </div>
         )}
@@ -360,26 +362,26 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
       <section className="card p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold">Microsoft sign-in</h3>
-          <span className={`text-xs ${s.microsoft ? 'text-emerald-700' : 'text-slate-500'}`}>
+          <span className={`text-xs ${s.microsoft ? 'text-emerald-700 dark:text-emerald-400' : 'text-subtle'}`}>
             {s.microsoft ? 'Configured' : 'Not configured'}
           </span>
         </div>
-        <p className="mb-3 text-sm text-slate-600">
+        <p className="mb-3 text-sm text-muted">
           Required to provision staff (they have no password). In Azure, register a Web app with redirect URI{' '}
           <code>&lt;this console&gt;/api/auth/microsoft/callback</code> and scopes <code>openid profile email</code>.
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Tenant ID</span>
+            <span className="mb-1 block text-muted">Tenant ID</span>
             <input className={field} value={msTenant} onChange={(e) => setMsTenant(e.target.value)} />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Client ID</span>
+            <span className="mb-1 block text-muted">Client ID</span>
             <input className={field} value={msClient} onChange={(e) => setMsClient(e.target.value)} />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-slate-600">
-              Client secret {s.microsoft?.clientSecretSet && <em className="text-slate-400">(set)</em>}
+            <span className="mb-1 block text-muted">
+              Client secret {s.microsoft?.clientSecretSet && <em className="text-subtle">(set)</em>}
             </span>
             <input
               className={field}

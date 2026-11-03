@@ -183,19 +183,19 @@ export function ActivityPage() {
                 <>
                   <button
                     type="button"
-                    className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+                    className="block w-full rounded px-3 py-2 text-left hover:bg-surface-muted"
                     onClick={() => {
                       downloadSummaryCsv(summary.data?.staff ?? []);
                       close();
                     }}
                   >
                     Summary by pod (CSV)
-                    <span className="block text-xs text-slate-500">Per rep and pod: sent, new chats, replies, reply rate, follow-ups.</span>
+                    <span className="block text-xs text-subtle">Per rep and pod: sent, new chats, replies, reply rate, follow-ups.</span>
                   </button>
-                  <div className="my-1 border-t border-slate-100" />
+                  <div className="my-1 border-t border-border" />
                 </>
               )}
-              <p className="px-3 py-2 text-xs text-slate-500">
+              <p className="px-3 py-2 text-xs text-subtle">
                 Every message {person ? person.name : 'the team'} sent in this period, newest first. Exports are recorded in the audit log.
               </p>
               {(
@@ -207,7 +207,7 @@ export function ActivityPage() {
                 <button
                   key={format}
                   type="button"
-                  className="block w-full rounded px-3 py-2 text-left hover:bg-slate-50"
+                  className="block w-full rounded px-3 py-2 text-left hover:bg-surface-muted"
                   onClick={() => {
                     exportAs(format);
                     close();
@@ -248,7 +248,7 @@ export function ActivityPage() {
             ))}
           </select>
         </label>
-        <p className="flex-1 text-xs text-slate-500">Messages sent from this app, per teammate. Reading conversations is not tracked.</p>
+        <p className="flex-1 text-xs text-subtle">Messages sent from this app, per teammate. Reading conversations is not tracked.</p>
       </div>
 
       {person ? (
@@ -256,7 +256,7 @@ export function ActivityPage() {
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+            <thead className="bg-surface-muted text-left text-xs uppercase text-subtle">
               <tr>
                 <th className="px-4 py-2">Teammate</th>
                 <th className="px-4 py-2 text-right">Sent</th>
@@ -279,8 +279,8 @@ export function ActivityPage() {
               </tr>
             </thead>
             {groupByPod(summary.data?.staff ?? []).map((g) => (
-              <tbody key={g.pod ?? '—'} className="divide-y divide-slate-100 border-t-4 border-slate-100">
-                <tr className="bg-slate-50/70 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tbody key={g.pod ?? '—'} className="divide-y divide-border border-t-4 border-border">
+                <tr className="bg-surface-muted/70 text-xs font-semibold uppercase tracking-wide text-subtle">
                   <td className="px-4 py-1.5">{g.pod ?? 'No pod'}</td>
                   <td className="px-4 py-1.5 text-right">{g.total.sent}</td>
                   <td className="px-4 py-1.5 text-right">{g.total.newChats}</td>
@@ -294,13 +294,13 @@ export function ActivityPage() {
                   <td colSpan={3} />
                 </tr>
                 {g.rows.map((s) => (
-                  <tr key={s.id} onClick={() => setPerson(s)} className="cursor-pointer hover:bg-slate-50">
+                  <tr key={s.id} onClick={() => setPerson(s)} className="cursor-pointer hover:bg-surface-muted">
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
                         <Avatar name={s.name} size={28} />
                         <div>
-                          <div className={`font-medium ${s.disabledAt ? 'text-slate-400' : ''}`}>{s.name}</div>
-                          <div className="text-xs text-slate-500">{s.email}</div>
+                          <div className={`font-medium ${s.disabledAt ? 'text-subtle' : ''}`}>{s.name}</div>
+                          <div className="text-xs text-subtle">{s.email}</div>
                         </div>
                       </div>
                     </td>
@@ -311,11 +311,11 @@ export function ActivityPage() {
                     <td className="px-4 py-2 text-right">{s.chatsRead}</td>
                     <td className="px-4 py-2 text-right">
                       {s.followupsOpen}
-                      {s.followupsOverdue ? <span className="text-red-600"> ({s.followupsOverdue})</span> : null}
+                      {s.followupsOverdue ? <span className="text-red-600 dark:text-red-400"> ({s.followupsOverdue})</span> : null}
                     </td>
                     <td className="px-4 py-2 text-right">{minutes(s.medianReplyMinutes)}</td>
-                    <td className={`px-4 py-2 text-right ${s.failed ? 'text-red-600' : ''}`}>{s.failed}</td>
-                    <td className="px-4 py-2 text-xs text-slate-500">{s.lastActiveAt ? timeAgo(s.lastActiveAt) : 'No messages'}</td>
+                    <td className={`px-4 py-2 text-right ${s.failed ? 'text-red-600 dark:text-red-400' : ''}`}>{s.failed}</td>
+                    <td className="px-4 py-2 text-xs text-subtle">{s.lastActiveAt ? timeAgo(s.lastActiveAt) : 'No messages'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -352,24 +352,24 @@ function PersonMessages({
   const rows = list.data?.pages.flat() ?? [];
   return (
     <div className="card">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
         <button type="button" onClick={onBack} className="btn-ghost px-2">
           <ArrowLeft size={16} /> All staff
         </button>
-        <span className="text-sm text-slate-600">
+        <span className="text-sm text-muted">
           {person.sent} sent · {plural(person.newChats, 'new chat')} · {plural(person.conversations, 'conversation')}
         </span>
       </div>
       {rows.length === 0 && !list.isLoading && <Empty title="No messages in this period" />}
-      <div className="divide-y divide-slate-100">
+      <div className="divide-y divide-border">
         {rows.map((m) => (
           <div key={m.id} className="px-4 py-2.5 text-sm">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-subtle">
               <span title={fullTime(m.createdAt)}>{fullTime(m.createdAt)}</span>
               <span>· to {m.prospect}</span>
               <span>· via {m.accountLabel}</span>
               {m.status !== 'SENT' && (
-                <span className={m.status === 'FAILED' ? 'text-red-600' : 'text-amber-600'}>
+                <span className={m.status === 'FAILED' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}>
                   · {m.status.toLowerCase()}
                   {m.error ? `: ${m.error}` : ''}
                 </span>

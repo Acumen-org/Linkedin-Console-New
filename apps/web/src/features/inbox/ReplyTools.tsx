@@ -75,15 +75,15 @@ export function TemplatePicker({
                   onInsert(fillTemplate(t.body, conversation, me.name));
                   close();
                 }}
-                className="block w-full rounded px-2 py-1.5 text-left hover:bg-slate-100"
+                className="block w-full rounded px-2 py-1.5 text-left hover:bg-surface-muted"
               >
                 <div className="text-sm font-semibold">{t.title}</div>
-                <div className="truncate text-xs text-slate-500">{t.body}</div>
+                <div className="truncate text-xs text-subtle">{t.body}</div>
               </button>
             ))}
-            {list.length === 0 && <div className="px-2 py-2 text-xs text-slate-500">No saved replies{q ? ' match' : ' yet'}.</div>}
+            {list.length === 0 && <div className="px-2 py-2 text-xs text-subtle">No saved replies{q ? ' match' : ' yet'}.</div>}
           </div>
-          <div className="flex items-center justify-between border-t border-slate-100 px-1 pt-1">
+          <div className="flex items-center justify-between border-t border-border px-1 pt-1">
             <button
               disabled={!currentText.trim()}
               onClick={saveCurrent}
@@ -92,7 +92,7 @@ export function TemplatePicker({
             >
               <BookmarkPlus size={14} /> Save current
             </button>
-            <Link to="/settings/templates" className="text-xs text-brand hover:underline">
+            <Link to="/settings/templates" className="text-xs text-brand dark:text-blue-400 hover:underline">
               Manage
             </Link>
           </div>
@@ -145,7 +145,7 @@ export function AiDraftButton({
     >
       {(close) => (
         <div className="space-y-2 p-1">
-          <div className="text-xs font-semibold text-slate-600">Draft a reply with AI</div>
+          <div className="text-xs font-semibold text-muted">Draft a reply with AI</div>
           <input
             className="input py-1.5 text-sm"
             placeholder="Optional: e.g. propose a call on Thursday"
@@ -156,7 +156,7 @@ export function AiDraftButton({
           <button onClick={() => draft(close)} disabled={busy} className="btn-primary w-full">
             {busy ? 'Drafting…' : 'Write draft'}
           </button>
-          <div className="text-[11px] text-slate-500">The draft goes into the message box. You review and send it yourself.</div>
+          <div className="text-[11px] text-subtle">The draft goes into the message box. You review and send it yourself.</div>
         </div>
       )}
     </Popover>

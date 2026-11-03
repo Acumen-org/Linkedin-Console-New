@@ -2,7 +2,7 @@ import type { AccountSync } from '@linkedin-console/contracts';
 import { Loader2 } from 'lucide-react';
 
 const Bar = ({ value, max }: { value: number; max: number }) => (
-  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
     <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${max ? Math.min(100, (value / max) * 100) : 0}%` }} />
   </div>
 );
@@ -18,14 +18,14 @@ export function SyncProgress({ sync, compact = false }: { sync: AccountSync; com
   const chatsDone = c.done && h.done >= h.total;
   if (compact) {
     return (
-      <div className="flex items-center gap-1 text-[11px] text-slate-500" title="Importing this account's recent chats and connections">
+      <div className="flex items-center gap-1 text-[11px] text-subtle" title="Importing this account's recent chats and connections">
         <Loader2 size={11} className="animate-spin" />
         {chatsDone ? `connections ${n.loaded}${n.total ? `/${n.total}` : ''}` : `chats ${h.done}/${Math.max(h.total, c.loaded)}`}
       </div>
     );
   }
   return (
-    <div className="mt-2 grid gap-2 rounded-md bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-3">
+    <div className="mt-2 grid gap-2 rounded-md bg-surface-muted p-3 text-xs text-muted sm:grid-cols-3">
       <div>
         <div className="mb-1 flex justify-between">
           <span>Recent chats</span>

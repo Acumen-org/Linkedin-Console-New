@@ -42,11 +42,11 @@ export function ImportModal({ a, onClose }: { a: Account; onClose: () => void })
   return (
     <Modal title={`Import LinkedIn data · ${a.label}`} onClose={onClose}>
       <div className="space-y-3 text-sm">
-        <p className="text-slate-600">
+        <p className="text-muted">
           Brings in what the live sync can't see: every connection (with the date you connected) and older chat history. Nothing is
           duplicated, and importing the same file again adds nothing.
         </p>
-        <ol className="list-decimal space-y-1 pl-5 text-slate-600">
+        <ol className="list-decimal space-y-1 pl-5 text-muted">
           <li>
             In <b>Live LinkedIn</b>, open <b>Settings → Data privacy → Download your data</b>, choose the larger archive and request it.
           </li>
@@ -70,7 +70,9 @@ export function ImportModal({ a, onClose }: { a: Account; onClose: () => void })
           />
         </label>
         {s && s.state !== 'none' && (
-          <div className={`rounded-md p-3 ${s.state === 'failed' ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-700'}`}>
+          <div
+            className={`rounded-md p-3 ${s.state === 'failed' ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300' : 'bg-surface-muted text-foreground'}`}
+          >
             {s.state === 'failed'
               ? s.error
               : `${s.kind === 'messages' ? 'Messages' : 'Connections'}: ${s.processed ?? 0} read · ${s.added ?? 0} added · ${s.skipped ?? 0} already there or unusable${s.state === 'done' ? ' · done' : '…'}`}
@@ -121,7 +123,7 @@ export function ExportChatsMenu({ accounts }: { accounts: Account[] }) {
               onChange={(e) => setLimit(Math.max(1, Math.min(5000, Number(e.target.value) || 1)))}
             />
           </label>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-subtle">
             Each chat with every message stored here. For history older than the live sync, import the account's LinkedIn data archive
             first. Exports are recorded in the audit log.
           </p>

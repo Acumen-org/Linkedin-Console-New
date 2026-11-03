@@ -68,11 +68,11 @@ export function NewChat({ accountId, contactId }: { accountId: string; contactId
   const canSend = account && account.level !== 'READ';
 
   if (lookup.isError) {
-    return <div className="m-auto p-6 text-sm text-slate-500">This connection is no longer available.</div>;
+    return <div className="m-auto p-6 text-sm text-subtle">This connection is no longer available.</div>;
   }
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2.5">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
         <button onClick={() => nav('/inbox')} className="btn-ghost px-1 md:hidden">
           <ArrowLeft size={20} />
         </button>
@@ -85,12 +85,14 @@ export function NewChat({ accountId, contactId }: { accountId: string; contactId
           ) : (
             <span className="truncate font-semibold">{contact?.name ?? 'Loading…'}</span>
           )}
-          <div className="truncate text-xs text-slate-500">
+          <div className="truncate text-xs text-subtle">
             {contact?.headline}
-            {account && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">via {account.label}</span>}
+            {account && <span className="ml-2 rounded bg-surface-muted px-1.5 py-0.5 text-muted">via {account.label}</span>}
           </div>
         </div>
-        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-brand">New conversation</span>
+        <span className="rounded-full bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 text-xs text-brand dark:text-blue-400">
+          New conversation
+        </span>
       </div>
 
       <div className="flex flex-1 flex-col justify-end overflow-y-auto px-4 py-3">
@@ -99,7 +101,7 @@ export function NewChat({ accountId, contactId }: { accountId: string; contactId
             <div className="max-w-[75%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm bg-brand px-3.5 py-2 text-sm text-white opacity-80">
               {sent.text}
             </div>
-            <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+            <div className="mt-1 flex items-center gap-1 text-xs text-subtle">
               <Loader2 size={12} className="animate-spin" />
               {slow
                 ? 'Still waiting for LinkedIn. The conversation will open here once it is confirmed.'
@@ -107,14 +109,14 @@ export function NewChat({ accountId, contactId }: { accountId: string; contactId
             </div>
           </div>
         ) : (
-          <div className="m-auto max-w-sm text-center text-sm text-slate-500">
+          <div className="m-auto max-w-sm text-center text-sm text-subtle">
             No messages with {contact?.name ?? 'this connection'} yet. Your first message starts the conversation on LinkedIn.
           </div>
         )}
       </div>
 
       {canSend && !sent && (
-        <div className="border-t border-slate-200 p-3">
+        <div className="border-t border-border p-3">
           <div className="flex items-end gap-2">
             <textarea
               ref={taRef}

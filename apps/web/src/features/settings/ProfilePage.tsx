@@ -26,7 +26,7 @@ export function ProfilePage() {
         <Avatar name={me.name} size={56} />
         <div>
           <div className="text-lg font-semibold">{me.name}</div>
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-muted">
             {me.email} · {me.role.toLowerCase()}
           </div>
         </div>

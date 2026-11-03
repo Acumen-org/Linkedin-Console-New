@@ -137,28 +137,28 @@ export function Composer({ conversation, disabledReason }: { conversation: Conve
   };
 
   if (disabledReason) {
-    return <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm text-slate-500">{disabledReason}</div>;
+    return <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-sm text-subtle">{disabledReason}</div>;
   }
 
   return (
-    <div className="border-t border-slate-200 p-3">
+    <div className="border-t border-border p-3">
       {lockedByOther && (
-        <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
           <Lock size={14} /> {conversation.lockedByName ?? 'A teammate'} is replying to this conversation right now.
         </div>
       )}
       {(uploads.length > 0 || uploading > 0) && (
         <div className="mb-2 flex flex-wrap gap-2">
           {uploads.map((u) => (
-            <span key={u.id} className="flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs">
-              <Paperclip size={12} /> {u.name} <span className="text-slate-500">{formatBytes(u.size)}</span>
+            <span key={u.id} className="flex items-center gap-1 rounded-md bg-surface-muted px-2 py-1 text-xs">
+              <Paperclip size={12} /> {u.name} <span className="text-subtle">{formatBytes(u.size)}</span>
               <button onClick={() => setUploads((l) => l.filter((x) => x.id !== u.id))}>
                 <X size={12} />
               </button>
             </span>
           ))}
           {uploading > 0 && (
-            <span className="flex items-center gap-1 text-xs text-slate-500">
+            <span className="flex items-center gap-1 text-xs text-subtle">
               <Loader2 size={12} className="animate-spin" /> Uploading…
             </span>
           )}

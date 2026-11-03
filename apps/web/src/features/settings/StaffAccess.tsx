@@ -37,7 +37,7 @@ function PersonalLimit({ user }: { user: User }) {
     }
   };
   return (
-    <div className="mb-4 flex items-end gap-2 rounded-md bg-slate-50 p-3">
+    <div className="mb-4 flex items-end gap-2 rounded-md bg-surface-muted p-3">
       <label className="flex-1">
         <span className="label">Send limit per 24 hours</span>
         <input
@@ -49,7 +49,7 @@ function PersonalLimit({ user }: { user: User }) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <span className="mt-1 block text-xs text-slate-500">
+        <span className="mt-1 block text-xs text-subtle">
           {user.sent24h ?? 0} sent in the last 24 hours. Blank = the team default, 0 = no limit.
         </span>
       </label>
@@ -93,21 +93,21 @@ export function StaffAccessModal({ user, onClose }: { user: User; onClose: () =>
   return (
     <Modal title={`LinkedIn accounts · ${user.name}`} onClose={onClose} wide>
       <PersonalLimit user={user} />
-      <p className="mb-3 text-sm text-slate-600">
+      <p className="mb-3 text-sm text-muted">
         {user.name} sees only the accounts given here. Changes apply at once, also if they are signed in, and are recorded in the audit log.
       </p>
-      {access.data?.length === 0 && <div className="py-6 text-center text-sm text-slate-500">No LinkedIn accounts connected yet.</div>}
-      <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
+      {access.data?.length === 0 && <div className="py-6 text-center text-sm text-subtle">No LinkedIn accounts connected yet.</div>}
+      <div className="max-h-96 divide-y divide-border overflow-y-auto rounded-md border border-border">
         {access.data?.map((a) => (
           <div key={a.accountId} className="flex items-center gap-3 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-sm font-medium">
                 {a.label} <StatusBadge status={a.status} />
               </div>
-              {a.displayName && <div className="truncate text-xs text-slate-500">{a.displayName}</div>}
+              {a.displayName && <div className="truncate text-xs text-subtle">{a.displayName}</div>}
             </div>
             <select
-              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="rounded-md border border-border-strong px-2 py-1 text-sm"
               value={levels[a.accountId] ?? ''}
               onChange={(e) => setLevels({ ...levels, [a.accountId]: e.target.value as Level | '' })}
             >
@@ -168,9 +168,9 @@ export function BulkAssignModal({ users, onClose, onDone }: { users: User[]; onC
 
   return (
     <Modal title={`Assign accounts · ${who}`} onClose={onClose} wide>
-      <div className="mb-3 text-sm text-slate-600">{users.map((u) => u.name).join(', ')}</div>
+      <div className="mb-3 text-sm text-muted">{users.map((u) => u.name).join(', ')}</div>
       <label className="label">LinkedIn accounts</label>
-      <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
+      <div className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
         {accounts.data?.map((a) => (
           <label key={a.id} className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm">
             <input type="checkbox" checked={picked.has(a.id)} onChange={() => toggle(a.id)} />
