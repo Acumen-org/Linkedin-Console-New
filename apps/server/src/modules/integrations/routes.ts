@@ -69,6 +69,13 @@ export default async function integrationRoutes(app: FastifyInstance) {
           staffMode: settings.staffSync.mode,
         },
       });
+      // Self-heal: when the Twenty connection is set or sync is turned on, make sure the data model exists (the
+      // LinkedIn conversations object + its fields). Otherwise bound prospects never appear in Twenty and nothing
+      // says why (syncConversationRecords silently writes nothing). Fire-and-forget: the admin sees the outcome in
+      // the CRM status / "Check fields", and the save itself never waits on (or fails because of) Twenty.
+      if (settings.crmSync && settings.twenty && (update.twenty !== undefined || update.crmSync === true)) {
+        void syncTwentyFields(true).catch((err) => app.log.warn({ err }, 'auto-setup of Twenty fields after save failed'));
+      }
       return settings;
     } catch (err) {
       if (err instanceof IntegrationError) throw new HttpError(400, err.message);

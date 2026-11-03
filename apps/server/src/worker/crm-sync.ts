@@ -12,6 +12,7 @@ import { getSetting, sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { redis } from '../lib/redis.ts';
 import { addPersonNote, PersonGoneError } from '../lib/twenty.ts';
+import { conversationObjectFields } from '../lib/twenty-fields.ts';
 import { bindReplied, markForReview, prospectOf, unbindProspect } from './crm-binding.ts';
 import { syncConversationRecords, syncPersonFields } from './crm-fields.ts';
 
@@ -134,6 +135,13 @@ export async function crmSyncStatus() {
            count(*) FILTER (WHERE crm_review_person_id IS NOT NULL AND crm_review_marked_at IS NULL)::int AS review_pending,
            count(DISTINCT crm_review_person_id) FILTER (WHERE crm_review_marked_at IS NOT NULL)::int AS reviewed
     FROM conversations WHERE NOT is_group`;
+  // Is the "LinkedIn conversations" object actually set up in Twenty? When it isn't, bound prospects never appear
+  // there (syncConversationRecords silently writes nothing) — surface it instead of leaving it a silent mystery.
+  const objectReady = (await conversationObjectFields().catch(() => null)) !== null;
+  // Bound prospects whose conversation record hasn't reached Twenty yet (object missing, or just not synced yet).
+  const [{ pendingRecords }] = await sql<{ pendingRecords: number }[]>`
+    SELECT count(*)::int AS pending_records FROM conversations
+    WHERE crm_binding = 'bound' AND twenty_person_id IS NOT NULL AND twenty_record_id IS NULL AND NOT is_group`;
   const raw = await redis.get(STATUS_KEY);
   return {
     enabled: true as const,
@@ -142,6 +150,10 @@ export async function crmSyncStatus() {
     failed: counts.failed as number,
     synced24h: counts.synced24h as number,
     people: people.n as number,
+    /** Is the LinkedIn conversations object set up in Twenty (else bound prospects can't appear there). */
+    conversationObject: objectReady,
+    /** Bound prospects whose conversation record hasn't reached Twenty yet. */
+    pendingRecords: pendingRecords as number,
     /** Replied, waiting for a teammate to bind them (or for profile data). */
     needsBinding: binding.needed as number,
     /** Persons from the earlier sync (no reply) still to mark for review / marked. */

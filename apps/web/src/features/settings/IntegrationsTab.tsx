@@ -21,6 +21,8 @@ interface CrmStatus {
   needsBinding?: number;
   synced24h?: number;
   failed?: number;
+  conversationObject?: boolean;
+  pendingRecords?: number;
   last?: { ok: boolean; error?: string } | null;
 }
 interface StaffStatus {
@@ -295,8 +297,15 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           <div className="mt-3 text-xs text-slate-500">
             {data.crm.people ?? 0} bound · {data.crm.needsBinding ?? 0} need binding · {data.crm.synced24h ?? 0} synced (24h)
             {data.crm.failed ? ` · ${data.crm.failed} failed` : ''}
+            {data.crm.pendingRecords ? ` · ${data.crm.pendingRecords} not yet in Twenty` : ''}
             {data.crm.last && !data.crm.last.ok && <span className="text-red-600"> · last error: {data.crm.last.error}</span>}
           </div>
+        )}
+        {data.crm?.enabled && data.crm.conversationObject === false && (
+          <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm text-amber-800">
+            The “LinkedIn conversations” object isn’t set up in Twenty, so bound prospects won’t appear there. Press{' '}
+            <strong>Set up fields</strong> above to add it, then they’ll sync within a minute.
+          </p>
         )}
       </section>
 
