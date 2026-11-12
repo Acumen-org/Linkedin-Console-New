@@ -19,7 +19,7 @@ const TABS = [
   { id: 'labels', label: 'Labels' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'webhooks', label: 'Webhooks', admin: true },
-  { id: 'integrations', label: 'Twenty CRM', admin: true },
+  { id: 'integrations', label: 'Integrations', admin: true },
   { id: 'bindings', label: 'CRM bindings', crm: true },
 ];
 

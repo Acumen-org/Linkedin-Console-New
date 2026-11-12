@@ -95,6 +95,32 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
       )}
 
       <section className="card p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">LinkedIn people search</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={s.searchEnabled}
+              disabled={!!busy}
+              onChange={(e) =>
+                run('search', async () => {
+                  await put({ searchEnabled: e.target.checked });
+                  toast(e.target.checked ? 'People search on' : 'People search off', 'success');
+                  onChanged();
+                })
+              }
+            />
+            <span>{s.searchEnabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <p className="text-sm text-muted">
+          Lets the team use the <b>Search</b> section to find people on LinkedIn you're not connected to, through a connected account's
+          session. Searches are paced and capped per account per day. Off by default — automated search is the highest-risk action for an
+          account, so turn it on deliberately.
+        </p>
+      </section>
+
+      <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold">Twenty connection</h3>
           <span className={`text-xs ${s.twenty ? 'text-emerald-700 dark:text-emerald-400' : 'text-subtle'}`}>
@@ -176,32 +202,6 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             </button>
           )}
         </div>
-      </section>
-
-      <section className="card p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="font-semibold">LinkedIn people search</h3>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={s.searchEnabled}
-              disabled={!!busy}
-              onChange={(e) =>
-                run('search', async () => {
-                  await put({ searchEnabled: e.target.checked });
-                  toast(e.target.checked ? 'People search on' : 'People search off', 'success');
-                  onChanged();
-                })
-              }
-            />
-            <span>{s.searchEnabled ? 'On' : 'Off'}</span>
-          </label>
-        </div>
-        <p className="text-sm text-muted">
-          Lets the team use the <b>Search</b> section to find people on LinkedIn you're not connected to, through a connected account's
-          session. Searches are paced and capped per account per day. Off by default — automated search is the highest-risk action for an
-          account, so turn it on deliberately.
-        </p>
       </section>
 
       <section className="card p-4">
