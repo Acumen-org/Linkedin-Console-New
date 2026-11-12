@@ -12,7 +12,7 @@ CREATE TABLE ext_api_keys (
   id           text PRIMARY KEY,
   name         text NOT NULL,
   key_hash     text NOT NULL UNIQUE,         -- sha256 of the key; the key itself is shown once and never stored
-  created_by   text REFERENCES users(id),
+  created_by   text REFERENCES users(id) ON DELETE SET NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
   revoked_at   timestamptz

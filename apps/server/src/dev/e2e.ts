@@ -3500,7 +3500,7 @@ try {
       },
     ]);
     await until(
-      () => sql`SELECT id FROM conversations WHERE thread_urn = ${`2-C3${tag}`}`,
+      () => sql`SELECT id FROM conversations WHERE thread_urn = ${conv('C3')}`,
       (r) => r.length > 0,
       'C3 conversation',
     );

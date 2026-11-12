@@ -285,6 +285,13 @@ export async function conversationObjectFields(): Promise<Set<string> | null> {
   return o?.fields.has(CONVERSATION_OBJECT.relation.name) ? new Set(o.fields.keys()) : null;
 }
 
+/** Is the conversation object set up? A FRESH read that does NOT prime the shared schema cache — for status/UI
+ * callers (crmSyncStatus) that must not poison the field-type cache other reads depend on. */
+export async function conversationObjectReady(): Promise<boolean> {
+  const o = (await objectsSchema()).get(CONVERSATION_OBJECT.nameSingular);
+  return !!o?.fields.has(CONVERSATION_OBJECT.relation.name);
+}
+
 /** Forget the cached data model (after adding to it in this process; tests). */
 export const resetPersonFieldsCache = () => {
   cache = null;

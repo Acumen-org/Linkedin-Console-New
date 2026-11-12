@@ -12,7 +12,7 @@ import { getSetting, sql } from '../lib/db.ts';
 import { logger } from '../lib/logger.ts';
 import { redis } from '../lib/redis.ts';
 import { addPersonNote, PersonGoneError } from '../lib/twenty.ts';
-import { conversationObjectFields } from '../lib/twenty-fields.ts';
+import { conversationObjectReady } from '../lib/twenty-fields.ts';
 import { bindReplied, markForReview, prospectOf, unbindProspect } from './crm-binding.ts';
 import { syncConversationRecords, syncPersonFields } from './crm-fields.ts';
 
@@ -137,7 +137,7 @@ export async function crmSyncStatus() {
     FROM conversations WHERE NOT is_group`;
   // Is the "LinkedIn conversations" object actually set up in Twenty? When it isn't, bound prospects never appear
   // there (syncConversationRecords silently writes nothing) — surface it instead of leaving it a silent mystery.
-  const objectReady = (await conversationObjectFields().catch(() => null)) !== null;
+  const objectReady = await conversationObjectReady().catch(() => false);
   // Bound prospects whose conversation record hasn't reached Twenty yet (object missing, or just not synced yet).
   const [{ pendingRecords }] = await sql<{ pendingRecords: number }[]>`
     SELECT count(*)::int AS pending_records FROM conversations
