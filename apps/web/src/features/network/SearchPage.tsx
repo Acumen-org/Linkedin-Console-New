@@ -1,11 +1,10 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, ExternalLink, Monitor, Search as SearchIcon, SlidersHorizontal, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, Monitor, Search as SearchIcon, SlidersHorizontal, UserPlus } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { PageScroll } from '../../components/Layout';
 import { Avatar, Empty, PageHeader } from '../../components/ui';
 import { api, qs } from '../../lib/api';
-import { toast } from '../../lib/toast';
 import type { Account } from '../../types';
 
 /** The id to open a result in Live LinkedIn (C7): the vanity id when known, else the (obfuscated) member id. */
@@ -45,28 +44,10 @@ export function SearchPage() {
   // The actual query that's been run (so results don't refetch on every keystroke — each search hits LinkedIn).
   const [run, setRun] = useState<{ q: string; title: string; company: string; location: string; degree: string } | null>(null);
   const [page, setPage] = useState(1);
-  // Connection-request state per person (memberUrn → sending/done), so the button reflects what's happened.
-  const [invited, setInvited] = useState<Record<string, 'sending' | 'done'>>({});
 
-  const connect = async (memberUrn: string) => {
-    if (!current || invited[memberUrn]) return;
-    const note = window.prompt('Add a note to the connection request? (optional — leave blank to send without one)') ?? undefined;
-    setInvited((m) => ({ ...m, [memberUrn]: 'sending' }));
-    try {
-      const r = await api.post<{ ok: boolean; already: boolean }>(`/api/accounts/${current.id}/invite`, {
-        memberUrn,
-        note: note?.trim() || undefined,
-      });
-      setInvited((m) => ({ ...m, [memberUrn]: 'done' }));
-      toast(r.already ? 'Already connected or request pending' : 'Connection request sent', 'success');
-    } catch (e) {
-      setInvited((m) => {
-        const { [memberUrn]: _, ...rest } = m;
-        return rest;
-      });
-      toast((e as Error).message, 'error');
-    }
-  };
+  // We deliberately do NOT auto-send connection requests: that is automation LinkedIn polices hardest and the top
+  // account-ban trigger. Instead "Connect" opens the person in this account's own Live session, where a human clicks
+  // LinkedIn's real Connect button — the app still records the invite (the bridge observes it). See docs/event-feed.md.
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -157,7 +138,8 @@ export function SearchPage() {
           {!run && (
             <Empty icon={<SearchIcon size={32} />} title="Search LinkedIn">
               Find people you're not connected to, through {current.label}'s session. Searches are paced and capped to keep the account
-              safe.
+              safe. To connect, use <span className="font-medium">Connect in Live</span> and click LinkedIn's own Connect button there — the
+              tool never sends connection requests automatically.
             </Empty>
           )}
 
@@ -194,42 +176,32 @@ export function SearchPage() {
                   {r.location && <div className="truncate text-xs text-subtle">{r.location}</div>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {/* Open the profile in this account's own LinkedIn session (C7). */}
-                  {current && liveProfileId(r) && (
-                    <Link
-                      to={`/accounts/${current.id}/live?profile=${encodeURIComponent(liveProfileId(r) as string)}`}
-                      className="btn-ghost"
-                      title="Open in Live LinkedIn"
-                    >
-                      <Monitor size={14} /> Live
-                    </Link>
-                  )}
                   {r.profileUrl && (
-                    <a href={r.profileUrl} target="_blank" rel="noreferrer" className="btn-outline" title="Open profile">
+                    <a href={r.profileUrl} target="_blank" rel="noreferrer" className="btn-outline" title="Open profile in a new tab">
                       <ExternalLink size={14} /> View
                     </a>
                   )}
-                  {/* Connect needs a member URN (the id LinkedIn invites by); 1st-degree are already connected. */}
-                  {r.memberUrn && r.degree !== 1 && (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={!!invited[r.memberUrn]}
-                      onClick={() => connect(r.memberUrn as string)}
-                    >
-                      {invited[r.memberUrn] === 'done' ? (
-                        <>
-                          <Check size={14} /> Sent
-                        </>
-                      ) : invited[r.memberUrn] === 'sending' ? (
-                        'Sending…'
-                      ) : (
-                        <>
-                          <UserPlus size={14} /> Connect
-                        </>
-                      )}
-                    </button>
-                  )}
+                  {/* The primary action opens the person in this account's own LinkedIn session (C7). For a non-connection
+                      it's framed as "Connect in Live" — a human clicks LinkedIn's real Connect there (we never auto-send). */}
+                  {current &&
+                    liveProfileId(r) &&
+                    (r.degree !== 1 ? (
+                      <Link
+                        to={`/accounts/${current.id}/live?profile=${encodeURIComponent(liveProfileId(r) as string)}`}
+                        className="btn-primary"
+                        title="Open in Live and click Connect there — keeps the account safe (no automated requests)"
+                      >
+                        <UserPlus size={14} /> Connect in Live
+                      </Link>
+                    ) : (
+                      <Link
+                        to={`/accounts/${current.id}/live?profile=${encodeURIComponent(liveProfileId(r) as string)}`}
+                        className="btn-ghost"
+                        title="Open in Live LinkedIn"
+                      >
+                        <Monitor size={14} /> Live
+                      </Link>
+                    ))}
                 </div>
               </div>
             ))}
