@@ -274,18 +274,22 @@ export async function onSyncResult(accountId: string, r: BridgeEventMap['result'
       UPDATE conversations SET history_synced_at = now()
       WHERE account_id = ${accountId} AND thread_urn = ${r.conversationUrn}`;
   }
+  let connectionsNowDone = false;
   await mutate(accountId, (state) => {
     if (r.type === 'sync_inbox') state.conversations.done = true;
     if (r.type === 'sync_connections') {
       // The quick pass only finishes the list when it already reached LinkedIn's total.
       const complete = state.connections.total !== null && state.connections.loaded >= state.connections.total;
-      if (r.cmdId === state.fullConnectionsCmdId || complete) state.connections = { ...state.connections, done: true, etaMinutes: 0 };
+      if (r.cmdId === state.fullConnectionsCmdId || complete) {
+        state.connections = { ...state.connections, done: true, etaMinutes: 0 };
+        connectionsNowDone = true;
+      }
     }
     if (r.type === 'sync_thread') return false; // counted from the database in the refresh below
   });
-  // The first connection sync has run: from now on, a newly appearing connection is a real acceptance (C2), not part
-  // of the initial baseline — so onContacts may start emitting connection.accepted.
-  if (r.type === 'sync_connections') {
+  // Only once the FULL connection list has loaded (not the quick partial pass): from now on a newly appearing
+  // connection is a real acceptance (C2), not part of the baseline — so onContacts may start emitting connection.accepted.
+  if (connectionsNowDone) {
     await sql`UPDATE accounts SET connections_synced_at = now() WHERE id = ${accountId} AND connections_synced_at IS NULL`;
   }
   await refreshFirstSync(accountId, r.type !== 'sync_thread');

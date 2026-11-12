@@ -395,10 +395,16 @@ export async function onContacts(accountId: string, data: BridgeEventMap['contac
       for (const r of newlyConnected) {
         const memberUrn = (r.memberUrn as string | null) ?? null;
         const publicId = r.publicId as string;
-        // A new connection matching one of our pending invitations = they accepted us (match by either id).
+        // A new connection matching one of our pending invitations = they accepted us. The invite (from Live LinkedIn)
+        // usually knows only the obfuscated member URN while the connection list knows only the vanity public id, so
+        // resolve the pair both ways through the member↔vanity map before matching, not just the ids we happen to hold.
         const [inv] = await sql`
           UPDATE invitations SET status = 'accepted', accepted_at = now()
-          WHERE account_id = ${accountId} AND status = 'pending' AND (member_urn = ${memberUrn} OR public_id = ${publicId})
+          WHERE account_id = ${accountId} AND status = 'pending' AND (
+            member_urn = ${memberUrn}
+            OR public_id = ${publicId}
+            OR member_urn = (SELECT member_urn FROM linkedin_members WHERE public_id = ${publicId})
+            OR public_id = (SELECT public_id FROM linkedin_members WHERE member_urn = ${memberUrn}))
           RETURNING id`;
         const person = {
           memberUrn,

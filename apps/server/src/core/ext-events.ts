@@ -60,11 +60,14 @@ export async function revokeApiKey(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** The key id when the key is valid and not revoked, else null. Records that it was used. */
+/** The key id when the key is valid and not revoked, else null. Records that it was used (at most hourly per key, so
+ * a polling consumer doesn't cause a DB write per request). */
 export async function verifyApiKey(key: string): Promise<string | null> {
   if (!key) return null;
   const [k] = await sql`SELECT id FROM ext_api_keys WHERE key_hash = ${hashKey(key)} AND revoked_at IS NULL`;
   if (!k) return null;
-  await sql`UPDATE ext_api_keys SET last_used_at = now() WHERE id = ${k.id}`;
+  if (await redis.set(`lu:extused:${k.id}`, '1', 'EX', 3600, 'NX')) {
+    await sql`UPDATE ext_api_keys SET last_used_at = now() WHERE id = ${k.id}`;
+  }
   return k.id as string;
 }
