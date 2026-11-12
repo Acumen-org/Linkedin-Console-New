@@ -13,7 +13,7 @@ import { isCreateMessageRequest, scrubSendBody } from './send-template.ts';
 const LINKEDIN_DATA = /^https:\/\/www\.linkedin\.com\/(voyager\/api|realtime)/;
 /** The responses we use: messaging, the realtime stream, who is logged in, connections. Feed, search and
  * profile pages a teammate browses in Live View are skipped before their (large) bodies are read. */
-const USEFUL_DATA = /messag|messeng|realtime|\/voyager\/api\/me\b|connection|relationship|invitation/i;
+const USEFUL_DATA = /messag|messeng|realtime|\/voyager\/api\/me\b|connection|relationship|invitation|search/i;
 /** A realtime event bigger than this without an event boundary is not SSE we understand: drop it. */
 const MAX_SSE_BUFFER = 1024 * 1024;
 
