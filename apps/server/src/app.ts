@@ -15,6 +15,7 @@ import messageRoutes from './modules/conversations/messages.ts';
 import conversationRoutes from './modules/conversations/routes.ts';
 import crmRoutes from './modules/crm/routes.ts';
 import dataRoutes from './modules/data/routes.ts';
+import extRoutes from './modules/ext/routes.ts';
 import fileRoutes from './modules/files/routes.ts';
 import integrationRoutes from './modules/integrations/routes.ts';
 import labelRoutes from './modules/labels/routes.ts';
@@ -45,6 +46,7 @@ const MODULES = [
   crmRoutes,
   integrationRoutes,
   webhookRoutes,
+  extRoutes,
   pushRoutes,
   aiRoutes,
 ];

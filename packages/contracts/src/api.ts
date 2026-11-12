@@ -216,7 +216,15 @@ export interface Template {
   userName?: string;
 }
 
-export const WEBHOOK_EVENTS = ['message.received', 'message.sent', 'conversation.assigned', 'account.status'] as const;
+export const WEBHOOK_EVENTS = [
+  'message.received',
+  'message.sent',
+  'conversation.assigned',
+  'account.status',
+  'invitation.sent',
+  'invitation.withdrawn',
+  'connection.accepted',
+] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 export interface Webhook {

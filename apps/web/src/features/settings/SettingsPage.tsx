@@ -279,6 +279,9 @@ const EVENT_LABELS: Record<WebhookEvent, string> = {
   'message.sent': 'Message sent by the team',
   'conversation.assigned': 'Conversation assigned',
   'account.status': 'Account status changed',
+  'invitation.sent': 'Connection request sent',
+  'invitation.withdrawn': 'Connection request withdrawn',
+  'connection.accepted': 'Connection request accepted',
 };
 
 function WebhooksTab() {

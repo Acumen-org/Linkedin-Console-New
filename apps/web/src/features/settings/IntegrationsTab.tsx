@@ -449,6 +449,89 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           {busy === 'sync' ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
+
+      <ApiKeysSection />
     </div>
+  );
+}
+
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+/** API keys for the read-only external event feed (/api/ext/v1). The key value is shown once, on create. */
+function ApiKeysSection() {
+  const keys = useQuery({ queryKey: ['ext-keys'], queryFn: () => api.get<ApiKeyRow[]>('/api/integrations/keys') });
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [newKey, setNewKey] = useState<string | null>(null);
+
+  const create = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api.post<{ key: string }>('/api/integrations/keys', { name: name.trim() });
+      setNewKey(r.key);
+      setName('');
+      keys.refetch();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const revoke = async (id: string) => {
+    try {
+      await api.del(`/api/integrations/keys/${id}`);
+      keys.refetch();
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    }
+  };
+
+  const live = keys.data?.filter((k) => !k.revokedAt) ?? [];
+  return (
+    <section className="card p-4">
+      <h3 className="mb-2 font-semibold">External API keys</h3>
+      <p className="mb-3 text-sm text-muted">
+        Read-only access to the event feed (<code>/api/ext/v1</code>) for an outside system. The key is shown once — store it safely.
+      </p>
+      {newKey && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <div className="mb-1 font-semibold text-amber-900 dark:text-amber-200">Copy this key now — it won't be shown again:</div>
+          <code className="block break-all rounded bg-surface px-2 py-1 text-foreground">{newKey}</code>
+          <button type="button" className="btn-ghost mt-2" onClick={() => setNewKey(null)}>
+            Done
+          </button>
+        </div>
+      )}
+      <div className="mb-3 flex items-center gap-2">
+        <input className={field} placeholder="Key name (e.g. n8n outreach feed)" value={name} onChange={(e) => setName(e.target.value)} />
+        <button type="button" className="btn-primary" disabled={busy || !name.trim()} onClick={create}>
+          {busy ? 'Creating…' : 'Create key'}
+        </button>
+      </div>
+      {live.length === 0 ? (
+        <p className="text-sm text-subtle">No keys yet.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {live.map((k) => (
+            <li key={k.id} className="flex items-center gap-3 py-2 text-sm">
+              <span className="flex-1 font-medium">{k.name}</span>
+              <span className="text-subtle">
+                {k.lastUsedAt ? `last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : 'never used'}
+              </span>
+              <button type="button" className="btn-danger" onClick={() => revoke(k.id)}>
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

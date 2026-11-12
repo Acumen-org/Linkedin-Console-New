@@ -69,6 +69,9 @@ export const AUDIT_ACTIONS = {
   'crm.autocreate_paused': { label: 'Auto-create paused automatically (hourly safety limit)', category: 'settings' },
   'network.search': { label: 'Searched LinkedIn for people', category: 'account' },
   'network.invite': { label: 'Sent a LinkedIn connection request', category: 'account' },
+  'ext.key_created': { label: 'Created an external API key', category: 'settings' },
+  'ext.key_revoked': { label: 'Revoked an external API key', category: 'settings' },
+  'ext.api_used': { label: 'External API key used', category: 'settings' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 

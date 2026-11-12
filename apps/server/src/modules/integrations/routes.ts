@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
 import { requireAdmin } from '../../core/auth.ts';
+import { createApiKey, listApiKeys, revokeApiKey } from '../../core/ext-events.ts';
 import { lastStaffSync, runStaffSync } from '../../core/staff-sync.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { currentIntegrations, IntegrationError, type IntegrationUpdate, saveIntegrations } from '../../lib/integrations.ts';
@@ -107,6 +108,27 @@ export default async function integrationRoutes(app: FastifyInstance) {
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
+  });
+
+  // External API keys for the read-only event feed (/api/ext/v1). The key value is shown once on create.
+  app.get('/api/integrations/keys', async (req) => {
+    requireAdmin(req);
+    return listApiKeys();
+  });
+
+  app.post('/api/integrations/keys', async (req) => {
+    const admin = requireAdmin(req);
+    const { name } = z.object({ name: z.string().trim().min(1).max(80) }).parse(req.body ?? {});
+    const created = await createApiKey(name, admin.id);
+    await audit({ action: 'ext.key_created', meta: { by: admin.id, keyId: created.id, name } });
+    return created; // includes `key`, returned only this once
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/integrations/keys/:id', async (req) => {
+    const admin = requireAdmin(req);
+    const ok = await revokeApiKey(req.params.id);
+    if (ok) await audit({ action: 'ext.key_revoked', meta: { by: admin.id, keyId: req.params.id } });
+    return { ok };
   });
 
   // Run the CRM and staff syncs now instead of waiting for the schedule.

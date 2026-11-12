@@ -10,6 +10,7 @@ import { AUDIT_ACTIONS } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { hashPassword } from '../core/auth.ts';
 import { accountRef, personRef, userRef } from '../core/event-enrich.ts';
+import { emitExtEvent } from '../core/ext-events.ts';
 import { advanceRamp } from '../core/send-limits.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
 import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
@@ -3392,6 +3393,35 @@ try {
     }
     const unknown = await personRef(accountId, 'urn:li:fsd_profile:ACoAANOBODY');
     assert.equal(unknown.publicId, null, 'unknown member → no public id (not fetched)');
+  });
+
+  await step('External event feed (C5): API key gates /api/ext/v1, events replay by cursor, revoke + scope', async () => {
+    const created = await owner('POST', '/api/integrations/keys', { name: 'e2e feed' });
+    assert.equal(created.status, 200);
+    const key = created.data.key as string;
+    assert.ok(key?.startsWith('ext_'), 'the key is returned once on create');
+    const authed = (path: string, k = key) => fetch(`${API}${path}`, { headers: { authorization: `Bearer ${k}` } });
+    // No key / bad key → 401.
+    assert.equal((await fetch(`${API}/api/ext/v1/events`)).status, 401, 'no key → 401');
+    assert.equal((await authed('/api/ext/v1/events', 'ext_nope')).status, 401, 'bad key → 401');
+    // Emit an event, then it shows up after the cursor.
+    const before = (await (await authed('/api/ext/v1/events')).json()) as { events: { type: string }[]; nextCursor: number };
+    await emitExtEvent('invitation.sent', {
+      person: { memberUrn: 'urn:li:fsd_profile:ACoAAE2E', publicId: null, profileUrl: null, name: 'E2E P' },
+      account: { id: accountId, name: 'E2E' },
+      user: null,
+    });
+    const after = (await (await authed(`/api/ext/v1/events?after=${before.nextCursor}`)).json()) as { events: { type: string }[] };
+    assert.ok(
+      after.events.some((e) => e.type === 'invitation.sent'),
+      'the emitted event appears in the feed',
+    );
+    // Scope: the key cannot reach a normal (session) route.
+    assert.equal((await authed('/api/accounts')).status, 401, 'an ext key is scoped to /api/ext only');
+    // Revoke → 401; and keys are admin-only.
+    assert.equal((await owner('DELETE', `/api/integrations/keys/${created.data.id}`)).data.ok, true);
+    assert.equal((await authed('/api/ext/v1/events')).status, 401, 'a revoked key → 401');
+    assert.ok([401, 403].includes((await member('POST', '/api/integrations/keys', { name: 'x' })).status), 'keys are admin-only');
   });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
