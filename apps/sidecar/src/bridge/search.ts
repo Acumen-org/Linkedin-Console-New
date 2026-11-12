@@ -28,21 +28,33 @@ export function buildKeywords(keywords: string, f?: SearchFilters): string {
 function scrapeCards(): DomCard[] {
   const cards: DomCard[] = [];
   const seen = new Set<Element>();
+  // Each real result shows a connection-degree badge (1st/2nd/3rd); secondary links inside a card (the photo, mutual
+  // connections, "also viewed") do not have their own. So the result card = the nearest ancestor that shows a degree,
+  // and every link inside it collapses to that one card — otherwise each secondary link became its own bogus row.
+  const DEGREE = /\b(1st|2nd|3rd)\b/i;
   for (const a of Array.from(document.querySelectorAll('a[href*="/in/"]'))) {
     const href = (a.getAttribute('href') || '').split('?')[0];
     if (!/\/in\//.test(href)) continue;
-    // Climb to the enclosing result card (a list item), bounded so we never walk the whole page.
-    let el: Element | null = a;
-    for (let hops = 0; el && el.tagName !== 'LI' && hops < 6; hops++) el = el.parentElement;
-    const card = el ?? a;
-    if (seen.has(card)) continue;
-    seen.add(card);
-    const text = ((card as HTMLElement).innerText || '')
+    // The person's name is this link's own text; the photo link has none — skip it so the name link wins the card.
+    const name = ((a as HTMLElement).innerText || '').trim().split('\n')[0];
+    if (!name) continue;
+    let el: Element | null = a.parentElement;
+    let card: Element | null = null;
+    for (let hops = 0; el && hops < 10; hops++) {
+      if (DEGREE.test((el as HTMLElement).innerText || '')) {
+        card = el;
+        break;
+      }
+      el = el.parentElement;
+    }
+    const container = card ?? a;
+    if (seen.has(container)) continue;
+    seen.add(container);
+    const text = ((container as HTMLElement).innerText || '')
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
-    const name = ((a as HTMLElement).innerText || '').trim().split('\n')[0] || text[0] || null;
-    const img = card.querySelector('img');
+    const img = container.querySelector('img');
     cards.push({ href, name, lines: text, avatarUrl: img?.getAttribute('src') ?? null });
   }
   return cards;
