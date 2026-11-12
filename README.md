@@ -14,6 +14,7 @@
 | **Team work** | "Sent by" on every message, reply lock ("Ali is replying…"), assignment, internal notes, **saved replies** with variables, per-account access (Read / Reply / Full), audit log |
 | **Live LinkedIn** | The real linkedin.com of any account, streamed into the app (feed, profiles, posting…) with a "who's in control" lock |
 | **Network** | Each account's connections, searchable, with a "Message" button |
+| **Search** | Search all of LinkedIn for people you're *not* connected to, through an account, and send connection requests. Admin-enabled (off by default), paced and capped per account |
 | **Notifications** | In-app banners, **web push** (installable app), email alerts when an account needs re-login |
 | **Integrations** | Signed **webhooks** (new message, message sent, assignment, account status) for CRMs, Slack, Zapier, n8n |
 | **AI (optional)** | **Reply drafts** and **self-healing** UI selectors, using a local model (Ollama) or Claude |
@@ -84,6 +85,7 @@ See [docs/development.md](docs/development.md) for local setup, the bridge simul
   - CI runs the same 21-check end-to-end test against the Docker stack
 - **Not yet verified against a real logged-in LinkedIn account:**
   - the bridge's data extraction and sending selectors
+  - people search extraction and the connection-request call (Search section) — see [docs/bridge-maintenance.md](docs/bridge-maintenance.md)
   - live AI calls
   - [docs/bridge-maintenance.md](docs/bridge-maintenance.md) is the checklist for your first non-critical account
 
