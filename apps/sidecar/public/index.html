@@ -44,6 +44,16 @@ const $ = (id) => document.getElementById(id);
 const screen = $('screen');
 const base = location.pathname.replace(/\/$/, '');
 let ws, me = null, canControl = false, controllerId = null;
+// C7: open a profile passed as ?profile=<publicId>, once, as if the teammate typed the address — but never take
+// control from someone else (only when control is free or already ours).
+const wantProfile = new URLSearchParams(location.search).get('profile');
+let gotoSent = false;
+function maybeGoto() {
+  if (!wantProfile || gotoSent || !canControl || (controllerId && controllerId !== me)) return;
+  gotoSent = true;
+  send({ t: 'navigate', url: `https://www.linkedin.com/in/${encodeURIComponent(wantProfile)}/` });
+  screen.focus();
+}
 
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', 2500); }
 
@@ -61,8 +71,8 @@ function connect() {
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.t === 'frame') screen.src = 'data:image/jpeg;base64,' + m.data;
-    else if (m.t === 'hello') { me = m.id; canControl = m.canControl; renderControl(null); }
-    else if (m.t === 'control') { controllerId = m.id; renderControl(m.user); }
+    else if (m.t === 'hello') { me = m.id; canControl = m.canControl; renderControl(null); maybeGoto(); }
+    else if (m.t === 'control') { controllerId = m.id; renderControl(m.user); maybeGoto(); }
     else if (m.t === 'nav') $('url').value = m.url;
     else if (m.t === 'tab' || m.t === 'tabs') {
       if (m.url && document.activeElement !== $('url')) $('url').value = m.url;

@@ -4,12 +4,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../../core/audit.ts';
 import { verifyApiKey } from '../../core/ext-events.ts';
+import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
 import { HttpError } from '../../lib/errors.ts';
 import { redis } from '../../lib/redis.ts';
-
-/** Below LinkedIn's ~100/week; surfaced for the consumer's own pacing (the Console enforces nothing here). */
-const INVITE_WEEKLY_LIMIT = 80;
 
 export default async function extRoutes(app: FastifyInstance) {
   // Every route here requires a valid API key; this hook is scoped to this plugin, so no other route accepts the key.
@@ -50,6 +48,6 @@ export default async function extRoutes(app: FastifyInstance) {
       SELECT a.id, coalesce(a.display_name, a.label) AS name,
              (SELECT count(*)::int FROM invitations i WHERE i.account_id = a.id AND i.sent_at > now() - interval '7 days') AS invites_last7_days
       FROM accounts a ORDER BY a.label`;
-    return { accounts: rows.map((r) => ({ ...r, inviteWeeklyLimit: INVITE_WEEKLY_LIMIT })) };
+    return { accounts: rows.map((r) => ({ ...r, inviteWeeklyLimit: config.inviteWeeklyLimit })) };
   });
 }

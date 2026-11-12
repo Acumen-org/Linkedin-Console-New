@@ -11,6 +11,7 @@ import {
   onConversations,
   onConversationsProgress,
   onInvitations,
+  onMembers,
   onMessages,
   onResult,
   onSeen,
@@ -40,6 +41,8 @@ async function handleBridgeEvent(ev: BridgeEvent) {
       return onContacts(ev.accountId, ev.data);
     case 'invitations':
       return onInvitations(ev.accountId, ev.data);
+    case 'members':
+      return onMembers(ev.accountId, ev.data);
     case 'result':
       // Background list/history syncs (sync_inbox, sync_connections, backfill_conversations) update sync state;
       // everything else (sends, media) goes to onResult.

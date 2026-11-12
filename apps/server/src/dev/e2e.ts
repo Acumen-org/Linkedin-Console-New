@@ -3510,6 +3510,23 @@ try {
       'message.sent for the live-typed message reached the feed',
     );
   });
+
+  await step('Weekly invite count (C6): the account reports its last-7-days request count', async () => {
+    const accts = await owner('GET', '/api/accounts');
+    const me = (accts.data as { id: string; invitesLast7Days?: number }[]).find((x) => x.id === accountId);
+    assert.ok((me?.invitesLast7Days ?? 0) >= 1, 'invitesLast7Days reflects the requests sent earlier');
+  });
+
+  await step('Passive link learning (C8): a member↔vanity pair from a viewed profile is remembered', async () => {
+    const urn = `urn:li:fsd_profile:ACoAAC8${tag}`;
+    const pub = `viewed-${tag}`;
+    await emit('members', { pairs: [{ memberUrn: urn, publicId: pub }] });
+    await until(
+      () => sql`SELECT public_id, source FROM linkedin_members WHERE member_urn = ${urn}`,
+      (r) => r.length > 0 && r[0].publicId === pub && r[0].source === 'viewed',
+      'the viewed pair is in linkedin_members',
+    );
+  });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
   console.log(`✘ setup failed

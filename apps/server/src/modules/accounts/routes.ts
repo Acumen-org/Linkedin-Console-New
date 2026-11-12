@@ -31,7 +31,8 @@ export const ACCOUNT_COLUMNS = sql`
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
   (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy,
   (a.li_password_enc IS NOT NULL) AS has_credentials, a.sync_state AS sync,
-  a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, a.inbox_check, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left`;
+  a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, a.inbox_check, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left,
+  (SELECT count(*)::int FROM invitations i WHERE i.account_id = a.id AND i.sent_at > now() - interval '7 days') AS invites_last7_days`;
 
 async function loadAccount(id: string) {
   const [a] = await sql<(Omit<Account, 'level'> & { id: string })[]>`SELECT ${ACCOUNT_COLUMNS} FROM accounts a WHERE a.id = ${id}`;

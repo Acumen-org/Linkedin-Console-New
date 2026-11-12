@@ -29,6 +29,8 @@ const Env = z.object({
   SEARCH_CAP_PER_DAY: z.coerce.number().int().min(0).default(100),
   // Connection requests per account per day (from search results). Very conservative — invites are heavily policed.
   INVITE_CAP_PER_DAY: z.coerce.number().int().min(0).default(20),
+  // Soft weekly invite target shown for pacing (below LinkedIn's ~100/week); the console enforces nothing with it.
+  INVITE_WEEKLY_LIMIT: z.coerce.number().int().min(0).default(80),
   // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
   SEND_RAMP: z.enum(['on', 'off']).default('on'),
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
@@ -234,6 +236,9 @@ export const config = {
   },
   get inviteCapPerDay(): number {
     return e.INVITE_CAP_PER_DAY;
+  },
+  get inviteWeeklyLimit(): number {
+    return e.INVITE_WEEKLY_LIMIT;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;

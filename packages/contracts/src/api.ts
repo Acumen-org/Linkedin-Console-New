@@ -91,6 +91,8 @@ export interface Account {
   rampDaysLeft?: number | null;
   /** New chats (cold outreach) per day, within the daily cap. */
   newChatCap?: number;
+  /** Connection requests sent from this account in the last 7 days (C6; information only). */
+  invitesLast7Days?: number;
   /** Automatic follow-up after this many business days without a reply (0 = off). */
   followupDays?: number;
   hasProxy: boolean;

@@ -111,6 +111,13 @@ export function createReader(ctx: BridgeContext) {
     if (x.typing.length) await emit('typing', x.typing);
     if (x.profiles.length && ctx.state.collectingConnections) {
       await emit('contacts', { connections: true, items: x.profiles.filter((p) => p.urn !== ctx.state.selfUrn) });
+    } else if (x.profiles.length) {
+      // C8: a profile a teammate viewed carries the member↔vanity pair — learn it passively (no automated fetch),
+      // once per pair per session. This is what lets a replier who IS in Twenty be found without a profile visit.
+      const pairs = x.profiles
+        .filter((p) => p.urn?.startsWith('urn:li:') && p.publicId && p.urn !== ctx.state.selfUrn && fresh(`mem:${p.urn}:${p.publicId}`))
+        .map((p) => ({ memberUrn: p.urn, publicId: p.publicId }));
+      if (pairs.length) await emit('members', { pairs });
     }
   }
 

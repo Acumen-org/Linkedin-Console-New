@@ -156,6 +156,7 @@ function AccountCard({
             ? ` (ramping up to ${a.dailySendCap} over ${a.rampDaysLeft} more healthy day${a.rampDaysLeft === 1 ? '' : 's'})`
             : ''}
           {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
+          {a.invitesLast7Days !== undefined && a.invitesLast7Days > 0 && ` · ${a.invitesLast7Days} requests this week`}
           {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
         </div>
         <div className="text-xs text-subtle">

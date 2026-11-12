@@ -163,6 +163,8 @@ export type BridgeEventMap = {
    * (user id), null when unknown. `pending_list` = the Sent-invitations page a teammate opened (phone-sent too).
    */
   invitations: { action: 'sent' | 'withdrawn' | 'pending_list'; by: string | null; items: LiInvitation[] };
+  /** Member URN ↔ vanity id pairs learned passively from a profile a teammate viewed (C8); no automated fetch. */
+  members: { pairs: { memberUrn: string; publicId: string }[] };
   result: CommandResult;
   /** While a list is being loaded: how far it got (total = LinkedIn's own count, when shown). */
   progress: { kind: 'conversations' | 'connections'; loaded: number; total: number | null; done: boolean };

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Lock } from 'lucide-react';
 import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { StatusBadge } from '../../components/ui';
 import { api } from '../../lib/api';
 import { toast } from '../../lib/toast';
@@ -10,6 +10,9 @@ import type { Account } from '../../types';
 /** The real LinkedIn website of an account, streamed from its browser on the server. */
 export function LivePage() {
   const { accountId } = useParams();
+  // C7: /accounts/:id/live?profile=<publicId> opens that profile in the live session (handled by the viewer client).
+  const [params] = useSearchParams();
+  const profile = params.get('profile');
   const account = useQuery({ queryKey: ['account', accountId], queryFn: () => api.get<Account>(`/api/accounts/${accountId}`) });
   const gate = useQuery({
     queryKey: ['live-unlock', accountId],
@@ -37,7 +40,7 @@ export function LivePage() {
       ) : (
         <iframe
           title="Live LinkedIn"
-          src={`/live/${a.id}/`}
+          src={`/live/${a.id}/${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`}
           className="min-h-0 w-full flex-1 border-0 bg-border"
           allow="clipboard-read; clipboard-write"
         />

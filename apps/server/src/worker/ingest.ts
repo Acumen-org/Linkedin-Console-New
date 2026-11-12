@@ -337,6 +337,11 @@ async function feedMessageSent(accountId: string, conversationId: string, sentBy
   await recordExtEvent('message.sent', { ...refs, conversationId, at: new Date().toISOString() });
 }
 
+/** Member↔vanity pairs learned from a profile a teammate viewed (C8): remember them for CRM matching, nothing else. */
+export async function onMembers(_accountId: string, data: BridgeEventMap['members']) {
+  if (data.pairs?.length) await rememberMembers(data.pairs, 'viewed');
+}
+
 export async function onContacts(accountId: string, data: BridgeEventMap['contacts']) {
   // One statement per batch (a connections page holds hundreds). Postgres rejects a batch that touches the
   // same row twice, so the last copy of each person wins.
