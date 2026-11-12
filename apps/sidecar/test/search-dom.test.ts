@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { degreeFromLines, memberUrnFromHref, profileUrlFromHref, resultsFromCards } from '../src/bridge/search-dom.ts';
+import { degreeFromLines, memberUrnFromHref, parseSearchJson, profileUrlFromHref, resultsFromCards } from '../src/bridge/search-dom.ts';
 
 test('degree is read from a card badge', () => {
   assert.equal(degreeFromLines(['Jane Doe', '2nd', 'CEO at Acme']), 2);
@@ -44,4 +44,74 @@ test('cards become results: name, headline, location, degree; chrome dropped; du
   assert.equal(results[1].memberUrn, 'urn:li:fsd_profile:ACoAAXYZ');
   assert.equal(results[1].profileUrl, null);
   assert.equal(results[1].headline, 'Buyer');
+});
+
+test('parseSearchJson reads LinkedIn’s structured search response (people only, deduped)', () => {
+  const json = {
+    data: { data: { searchDashClustersByAll: { metadata: { totalResultCount: 142 } } } },
+    included: [
+      // A person result (TextViewModel fields, vanity link, degree badge, vector avatar).
+      {
+        $type: 'com.linkedin.voyager.dash.search.EntityResultViewModel',
+        entityUrn: 'urn:li:fsd_entityResultViewModel:(urn:li:fsd_profile:ACoAAJane,SEARCH,DEFAULT)',
+        trackingUrn: 'urn:li:member:98765',
+        navigationUrl: 'https://www.linkedin.com/in/jane-doe?miniProfileUrn=x',
+        title: { text: 'Jane Doe' },
+        primarySubtitle: { text: 'CEO at Acme' },
+        secondarySubtitle: { text: 'London, England' },
+        badgeText: { text: '• 2nd', accessibilityText: '2nd degree connection' },
+        image: {
+          attributes: [
+            {
+              detailData: {
+                nonEntityProfilePicture: {
+                  vectorImage: {
+                    rootUrl: 'https://media.licdn.com/img/',
+                    artifacts: [
+                      { width: 100, fileIdentifyingUrlPathSegment: 'small.jpg' },
+                      { width: 400, fileIdentifyingUrlPathSegment: 'large.jpg' },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      // A non-person entity (navigates to a company, not /in/) — must be ignored.
+      {
+        $type: 'com.linkedin.voyager.dash.search.EntityResultViewModel',
+        navigationUrl: 'https://www.linkedin.com/company/acme',
+        title: { text: 'Acme Corp' },
+      },
+      // The same person again (duplicate cluster entry) — deduped by member URN.
+      {
+        $type: 'com.linkedin.voyager.dash.search.EntityResultViewModel',
+        entityUrn: 'urn:li:fsd_entityResultViewModel:(urn:li:fsd_profile:ACoAAJane,SEARCH,DEFAULT)',
+        navigationUrl: 'https://www.linkedin.com/in/jane-doe',
+        title: { text: 'Jane Doe' },
+      },
+      // Not an entity-result at all (a cluster header) — ignored.
+      { $type: 'com.linkedin.voyager.dash.search.SearchClusterViewModel', title: { text: 'People' } },
+    ],
+  };
+  const { results, total } = parseSearchJson(json);
+  assert.equal(total, 142);
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0], {
+    memberUrn: 'urn:li:fsd_profile:ACoAAJane',
+    name: 'Jane Doe',
+    headline: 'CEO at Acme',
+    location: 'London, England',
+    degree: 2,
+    profileUrl: 'https://www.linkedin.com/in/jane-doe/',
+    avatarUrl: 'https://media.licdn.com/img/large.jpg',
+  });
+});
+
+test('parseSearchJson is defensive about unexpected shapes', () => {
+  assert.deepEqual(parseSearchJson(null), { results: [], total: null });
+  assert.deepEqual(parseSearchJson({}), { results: [], total: null });
+  assert.deepEqual(parseSearchJson({ included: 'nope' }), { results: [], total: null });
+  assert.deepEqual(parseSearchJson({ included: [null, 42, { $type: 'Other' }] }), { results: [], total: null });
 });

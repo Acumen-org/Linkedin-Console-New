@@ -1,19 +1,23 @@
 // People search across LinkedIn (non-connections included), run inside the account's logged-in page — one page
-// (~10 results) at a time, driven through the normal search results URL and read from the rendered DOM. This keeps
-// us off LinkedIn's drifting internal search GraphQL (which needs a per-release queryId); the search URL is stable.
+// (~10 results) at a time, driven through the normal search results URL.
 //
-// NOTE: the DOM selectors here are best-effort and have NOT been verified against a real logged-in LinkedIn account
-// (see docs/bridge-maintenance.md). The scraping is deliberately resilient (any `/in/` link in the results becomes a
-// result, text read line-by-line) and isolated to this file, so a maintenance pass only has to adjust `scrapeCards`
-// and search-dom.ts.
+// PRIMARY path: navigating the search URL makes LinkedIn fetch its results as a structured Voyager response
+// (voyagerSearchDashClusters). We intercept that response and parse its typed entities (parseSearchJson) — robust,
+// no reliance on DOM class names or a visible degree badge, and free of the mutual-connection / "also viewed" noise
+// that made DOM scraping return duplicate/empty rows.
+// FALLBACK: if that response isn't seen (SSR'd results, a changed endpoint), scrape the rendered DOM (scrapeCards).
+// Both the endpoint shape and the DOM are best-effort (see docs/bridge-maintenance.md) and isolated to this file +
+// search-dom.ts, so a maintenance pass only touches those two.
 import type { SearchFilters, SearchPeopleReply } from '@linkedin-console/contracts';
 import { IDLE_URL } from './actions.ts';
 import type { BridgeContext } from './context.ts';
-import { type DomCard, resultsFromCards } from './search-dom.ts';
+import { type DomCard, parseSearchJson, resultsFromCards } from './search-dom.ts';
 
 const LINKEDIN = 'https://www.linkedin.com';
 /** LinkedIn's wording when the free commercial-use / search limit is reached. */
 const LIMIT_TEXT = /commercial use limit|reached the (monthly )?limit|search limit/i;
+/** The Voyager response that carries people-search results (GraphQL voyagerSearchDashClusters, or the REST clusters). */
+const SEARCH_RESPONSE = /\/voyager\/api\/.*(search|cluster)/i;
 
 /** Fold simple facets into the keyword string — robust across LinkedIn's facet-URN changes (no geo/company URNs). */
 export function buildKeywords(keywords: string, f?: SearchFilters): string {
@@ -72,11 +76,22 @@ export async function searchPeople(
   const url = `${LINKEDIN}/search/results/people/?keywords=${encodeURIComponent(kw)}&origin=GLOBAL_SEARCH_HEADER&page=${Math.max(1, page)}`;
   return ctx.pageLock(async () => {
     try {
+      // Start listening for the results response BEFORE navigating, so we don't miss it.
+      const responsePromise = ctx.page
+        .waitForResponse((r) => SEARCH_RESPONSE.test(r.url()) && r.status() === 200, { timeout: 20_000 })
+        .catch(() => null);
       await ctx.page.goto(url, { waitUntil: 'domcontentloaded' });
       const bodyText = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
       if (LIMIT_TEXT.test(bodyText)) return { ok: true, results: [], total: null, limited: true };
-      // Let the result list render; if nothing shows, return an empty page rather than hanging.
-      await ctx.page.waitForSelector('a[href*="/in/"]', { timeout: 15_000 }).catch(() => {});
+      // PRIMARY: parse LinkedIn's structured search JSON.
+      const response = await responsePromise;
+      if (response) {
+        const json = await response.json().catch(() => null);
+        const { results, total } = json ? parseSearchJson(json) : { results: [], total: null };
+        if (results.length) return { ok: true, results, total };
+      }
+      // FALLBACK: scrape the rendered DOM (response not seen, or it yielded nothing).
+      await ctx.page.waitForSelector('a[href*="/in/"]', { timeout: 10_000 }).catch(() => {});
       const cards = await ctx.page.evaluate(scrapeCards).catch(() => [] as DomCard[]);
       return { ok: true, results: resultsFromCards(cards), total: null };
     } finally {
