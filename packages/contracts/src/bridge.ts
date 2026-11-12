@@ -92,6 +92,32 @@ export interface LiProfile {
   profileUrl: string;
 }
 
+/** A LinkedIn people-search filter set (all optional; empty = no filter). */
+export interface SearchFilters {
+  /** Connection degree to include: 'S' = 2nd, 'O' = 3rd+/everyone. Empty = any. */
+  network?: ('S' | 'O')[];
+  /** Current company name (free text, as typed in LinkedIn search). */
+  currentCompany?: string;
+  /** Job title (free text). */
+  title?: string;
+  /** Location, free text (e.g. "London") or a LinkedIn geo URN. */
+  location?: string;
+}
+
+/** One person from a people-search result (a non-connection; ephemeral, never stored as a contact). */
+export interface SearchResult {
+  /** The member URN (often the obfuscated urn:li:fsd_profile:ACoAA… form), or null. */
+  memberUrn: string | null;
+  name: string;
+  headline: string | null;
+  location: string | null;
+  /** Connection degree: 1 = already connected, 2, 3, or null when LinkedIn doesn't say. */
+  degree: number | null;
+  /** Vanity profile URL when LinkedIn exposes it, else null (non-connections are often URN-only). */
+  profileUrl: string | null;
+  avatarUrl: string | null;
+}
+
 export interface LiSelf {
   urn: string;
   name: string | null;
@@ -183,6 +209,8 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'fetch_media'; url: string }
   /** Resolve a prospect's obfuscated member URN (urn:li:fsd_profile:ACoAA…) to their vanity publicIdentifier. */
   | { type: 'resolve_profile'; memberUrn: string }
+  /** Search all of LinkedIn for people (non-connections included), one page (~10) at a time. */
+  | { type: 'search_people'; keywords: string; filters?: SearchFilters; page?: number }
   | { type: 'check_session' }
   /** Log back in with the stored LinkedIn password when the session dropped (2FA/CAPTCHA still needs a human). */
   | { type: 'login'; username: string; password: string }
@@ -191,3 +219,8 @@ export type BridgeCommand = { cmdId?: string } & (
 export type FetchMediaReply = { ok: true; path: string; mime: string; size: number } | { ok: false; error: string };
 
 export type ResolveProfileReply = { ok: true; memberUrn: string; publicId: string } | { ok: false; error: string };
+
+/** The bridge's reply to a `search_people` command. `limited` = LinkedIn's commercial-use/search limit was hit. */
+export type SearchPeopleReply =
+  | { ok: true; results: SearchResult[]; total: number | null; limited?: boolean }
+  | { ok: false; error: string };

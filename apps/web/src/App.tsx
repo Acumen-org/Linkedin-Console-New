@@ -9,6 +9,7 @@ import { ConnectPage } from './features/accounts/ConnectPage';
 import { LivePage } from './features/accounts/LivePage';
 import { InboxPage } from './features/inbox/InboxPage';
 import { ConnectionsPage } from './features/network/ConnectionsPage';
+import { SearchPage } from './features/network/SearchPage';
 import { ActivityPage } from './features/settings/ActivityPage';
 import { AuditPage } from './features/settings/AuditPage';
 import { ProfilePage } from './features/settings/ProfilePage';
@@ -82,6 +83,8 @@ export function App() {
           <Route path="/accounts/:accountId/live" element={<LivePage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
           <Route path="/connections/:accountId" element={<ConnectionsPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/search/:accountId" element={<SearchPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/activity" element={<ActivityPage />} />

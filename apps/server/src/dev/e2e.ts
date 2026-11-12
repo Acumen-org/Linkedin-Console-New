@@ -492,6 +492,37 @@ async function fakeBridge() {
       // History syncs are confirmed like the real bridge does (the conversation's history is then "in").
       if (cmd.type === 'sync_thread')
         await emitResult({ cmdId: cmd.cmdId, type: cmd.type, ok: true, conversationUrn: cmd.conversationUrn });
+      // People search: reply with a couple of fake results (one vanity, one obfuscated/URN-only), like the sidecar does.
+      if (cmd.type === 'search_people') {
+        await redis.rpush(
+          `li:reply:${cmd.cmdId}`,
+          JSON.stringify({
+            ok: true,
+            total: null,
+            results: [
+              {
+                memberUrn: null,
+                name: `${cmd.keywords} One`,
+                headline: 'Head of Growth',
+                location: 'London',
+                degree: 2,
+                profileUrl: `https://www.linkedin.com/in/${cmd.keywords.toLowerCase()}-one/`,
+                avatarUrl: null,
+              },
+              {
+                memberUrn: 'urn:li:fsd_profile:ACoAATEST',
+                name: `${cmd.keywords} Two`,
+                headline: null,
+                location: null,
+                degree: 3,
+                profileUrl: null,
+                avatarUrl: null,
+              },
+            ],
+          }),
+        );
+        continue;
+      }
       // Profile lookup: reply on the request/response list, like the sidecar's resolve_profile does.
       if (cmd.type === 'resolve_profile') {
         const publicId = vanityByMember[cmd.memberUrn];
@@ -3297,6 +3328,26 @@ try {
 
     // A malformed Twenty URL is rejected (nothing stored).
     assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);
+  });
+
+  await step('LinkedIn people search: off by default (gated), on → results come back and are audited', async () => {
+    // Off by default → the search route refuses with 409.
+    await owner('PUT', '/api/integrations', { searchEnabled: false });
+    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 409, 'search off → 409');
+    // Turn it on → fakeBridge replies with results.
+    await owner('PUT', '/api/integrations', { searchEnabled: true });
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.searchEnabled, true);
+    const res = await owner('GET', `/api/accounts/${accountId}/search?q=alice&page=1`);
+    assert.equal(res.status, 200, 'search returns results when enabled');
+    assert.ok(Array.isArray(res.data.results) && res.data.results.length >= 1, 'results returned');
+    assert.equal(res.data.results[0].name, 'alice One');
+    assert.ok(
+      commands.some((c) => c.type === 'search_people' && c.keywords === 'alice'),
+      'a search_people command reached the bridge',
+    );
+    const audited = await sql`SELECT 1 FROM audit_log WHERE action = 'network.search' AND account_id = ${accountId}`;
+    assert.ok(audited.length >= 1, 'the search was audited');
+    await owner('PUT', '/api/integrations', { searchEnabled: false });
   });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });

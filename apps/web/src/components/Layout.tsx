@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Contact, Inbox, Link2, LogOut, Moon, Settings, ShieldCheck, Sun, Users } from 'lucide-react';
+import { BarChart3, Contact, Inbox, Link2, LogOut, Moon, Search as SearchIcon, Settings, ShieldCheck, Sun, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { isAdmin, isAuditor, useMe } from '../App';
@@ -52,6 +52,9 @@ export function Layout() {
             </NavLink>
             <NavLink to="/connections" className={link}>
               <Contact size={22} /> Network
+            </NavLink>
+            <NavLink to="/search" className={link}>
+              <SearchIcon size={22} /> Search
             </NavLink>
             <NavLink to="/settings" className={link}>
               <Settings size={22} /> Settings

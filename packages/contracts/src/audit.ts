@@ -67,6 +67,7 @@ export const AUDIT_ACTIONS = {
   'integrations.updated': { label: 'Changed the Twenty / staff integration settings', category: 'settings' },
   'integrations.fields_applied': { label: 'Set up Twenty fields from the console', category: 'settings' },
   'crm.autocreate_paused': { label: 'Auto-create paused automatically (hourly safety limit)', category: 'settings' },
+  'network.search': { label: 'Searched LinkedIn for people', category: 'account' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 

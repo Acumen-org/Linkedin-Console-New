@@ -11,6 +11,7 @@ interface IntegrationView {
   crmAutoBind: boolean;
   crmAutoCreate: boolean;
   crmFuzzyBind: boolean;
+  searchEnabled: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -175,6 +176,32 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             </button>
           )}
         </div>
+      </section>
+
+      <section className="card p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">LinkedIn people search</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={s.searchEnabled}
+              disabled={!!busy}
+              onChange={(e) =>
+                run('search', async () => {
+                  await put({ searchEnabled: e.target.checked });
+                  toast(e.target.checked ? 'People search on' : 'People search off', 'success');
+                  onChanged();
+                })
+              }
+            />
+            <span>{s.searchEnabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <p className="text-sm text-muted">
+          Lets the team use the <b>Search</b> section to find people on LinkedIn you're not connected to, through a connected account's
+          session. Searches are paced and capped per account per day. Off by default — automated search is the highest-risk action for an
+          account, so turn it on deliberately.
+        </p>
       </section>
 
       <section className="card p-4">

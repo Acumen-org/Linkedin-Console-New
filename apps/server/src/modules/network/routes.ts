@@ -1,12 +1,14 @@
+import type { SearchFilters, SearchPeopleReply } from '@linkedin-console/contracts';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { assertAccount } from '../../core/access.ts';
 import { audit } from '../../core/audit.ts';
 import { requireUser } from '../../core/auth.ts';
-import { sendCommand } from '../../core/bridge.ts';
-import { assertCanSend, assertStaffCanSend, watchStaffVolume } from '../../core/send-limits.ts';
+import { requestCommand, sendCommand } from '../../core/bridge.ts';
+import { assertCanSearch, assertCanSend, assertStaffCanSend, watchStaffVolume } from '../../core/send-limits.ts';
+import { config } from '../../lib/config.ts';
 import { likeEscape, sql } from '../../lib/db.ts';
-import { notFound } from '../../lib/errors.ts';
+import { conflict, notFound } from '../../lib/errors.ts';
 import { redis } from '../../lib/redis.ts';
 
 /** Each account's LinkedIn connections (synced daily by the bridge). */
@@ -59,6 +61,40 @@ export default async function networkRoutes(app: FastifyInstance) {
       ORDER BY c.last_message_at DESC NULLS LAST LIMIT 1`;
     const { memberUrn: _urn, ...rest } = contact;
     return { contact: rest, conversationId: (conversation?.id as string | undefined) ?? null };
+  });
+
+  /**
+   * Search all of LinkedIn for people (non-connections included) through this account's live session. Admin-enabled
+   * (searchEnabled) and capped per account per day; every search is audited. One page (~10) at a time. Results are
+   * ephemeral — never stored as contacts.
+   */
+  app.get<{ Params: { id: string } }>('/api/accounts/:id/search', async (req) => {
+    const user = requireUser(req);
+    const { id } = req.params;
+    await assertAccount(user, id, 'REPLY');
+    if (!config.searchEnabled) throw conflict('LinkedIn people-search is turned off. An admin can enable it in Settings → Integrations.');
+    const q = z
+      .object({
+        q: z.string().trim().min(1).max(300),
+        page: z.coerce.number().int().min(1).max(100).default(1),
+        title: z.string().trim().max(200).optional(),
+        company: z.string().trim().max(200).optional(),
+        location: z.string().trim().max(200).optional(),
+        degree: z.enum(['2', '3']).optional(),
+      })
+      .parse(req.query);
+    // Connected + under the daily search cap.
+    await assertCanSearch(id);
+    const filters: SearchFilters = {
+      title: q.title,
+      currentCompany: q.company,
+      location: q.location,
+      network: q.degree === '2' ? ['S'] : q.degree === '3' ? ['O'] : undefined,
+    };
+    const reply = await requestCommand<SearchPeopleReply>(id, { type: 'search_people', keywords: q.q, filters, page: q.page }, 45);
+    await audit({ userId: user.id, accountId: id, action: 'network.search', meta: { chars: q.q.length, page: q.page }, ip: req.ip });
+    if (!reply.ok) throw conflict(reply.error || 'LinkedIn search failed');
+    return { results: reply.results, total: reply.total, limited: reply.limited ?? false, page: q.page };
   });
 
   app.post<{ Params: { id: string; contactId: string } }>('/api/accounts/:id/connections/:contactId/message', async (req) => {

@@ -9,6 +9,7 @@ import {
   RESULTS_STREAM,
   type ResolveProfileReply,
   replyKey,
+  type SearchPeopleReply,
 } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { logger } from '../logger.ts';
@@ -22,7 +23,7 @@ const isSend = (cmd: Command) => cmd.type === 'send_message' || cmd.type === 'st
 export interface Streams {
   redis: Redis;
   emit: Emit;
-  reply: (cmdId: string, payload: FetchMediaReply | ResolveProfileReply) => Promise<void>;
+  reply: (cmdId: string, payload: FetchMediaReply | ResolveProfileReply | SearchPeopleReply) => Promise<void>;
   consume: (handler: (cmd: Command) => Promise<unknown>) => Promise<never>;
 }
 
@@ -39,7 +40,7 @@ export function createStreams(redisUrl: string, accountId: string): Streams {
     await redis.xadd(target, 'MAXLEN', '~', '50000', '*', 'json', JSON.stringify({ accountId, type, data, at: Date.now() }));
   };
 
-  async function reply(cmdId: string, payload: FetchMediaReply | ResolveProfileReply) {
+  async function reply(cmdId: string, payload: FetchMediaReply | ResolveProfileReply | SearchPeopleReply) {
     const key = replyKey(cmdId);
     await redis.multi().lpush(key, JSON.stringify(payload)).expire(key, 120).exec();
   }

@@ -25,6 +25,8 @@ const Env = z.object({
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),
   // New chats (cold outreach) per account per day, within DAILY_SEND_CAP.
   NEW_CHAT_CAP: z.coerce.number().int().min(0).default(20),
+  // People-searches per account per day (the Search section). Conservative: searching is a prime restriction trigger.
+  SEARCH_CAP_PER_DAY: z.coerce.number().int().min(0).default(100),
   // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
   SEND_RAMP: z.enum(['on', 'off']).default('on'),
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
@@ -138,6 +140,7 @@ export interface IntegrationOverrides {
   crmAutoBind?: boolean;
   crmAutoCreate?: boolean;
   crmFuzzyBind?: boolean;
+  searchEnabled?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -218,6 +221,14 @@ export const config = {
   // always on regardless. A wrong fuzzy bind is reversible (admin unbind) and audited with its score.
   get crmFuzzyBind(): boolean {
     return overrides.crmFuzzyBind ?? false;
+  },
+  // LinkedIn people-search (the Search section). Off by default — an admin turns it on, because searching all of
+  // LinkedIn via automation is the highest-risk action for an account. Paced + capped (SEARCH_CAP_PER_DAY).
+  get searchEnabled(): boolean {
+    return overrides.searchEnabled ?? false;
+  },
+  get searchCapPerDay(): number {
+    return e.SEARCH_CAP_PER_DAY;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;
