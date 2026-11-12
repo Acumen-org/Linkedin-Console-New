@@ -45,6 +45,15 @@ The **Search** section searches all of LinkedIn (non-connections included) and c
 5. Confirm the guards work: a second search/invite is **audited** (Audit log → "LinkedIn accounts"), and the daily caps (`SEARCH_CAP_PER_DAY`, `INVITE_CAP_PER_DAY`) and the admin toggle behave.
 6. `./scripts/capture.sh off` and delete `captures/`.
 
+### Observing invitations for the event feed (C1)
+
+The [event feed](event-feed.md) reports connection requests (`invitation.sent` / `invitation.withdrawn`). The bridge **observes** the invite call Live LinkedIn makes — it never sends invites itself (that's the Search feature's `sendInvite`). The recogniser is `parseInvite` in `apps/sidecar/src/bridge/invites.ts` and is **best-effort until verified**:
+
+1. `./scripts/capture.sh on`, then in **Live LinkedIn** send one connection request (with and without a note) and withdraw one from **My Network → Manage → Sent**.
+2. In the captures, note the **invite-create** and **invite-withdraw** request URLs, methods and bodies. Adjust `INVITE_URL` and `findMemberUrn` in `invites.ts` so `parseInvite` returns the right `{action, memberUrn, note}` (unit tests: `apps/sidecar/test/invites.test.ts`).
+3. Confirm one `invitation.sent` / `invitation.withdrawn` reaches the feed, attributed to the controlling teammate, and **no extra requests** appear in Live LinkedIn's network log.
+4. **`pending_list` (phone-sent requests)** isn't wired yet: find the **Sent-invitations list** endpoint/shape when a teammate opens that page, parse it in `reader.ts`, and emit `invitations` with `action: 'pending_list'` (the server already handles it). Never open that page automatically.
+
 ### Safety (keep these)
 
 - Search stays **off by default** — it's the highest-risk feature; turn it on deliberately, per workspace.

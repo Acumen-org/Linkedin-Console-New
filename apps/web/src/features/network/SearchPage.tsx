@@ -1,12 +1,16 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, ExternalLink, Search as SearchIcon, SlidersHorizontal, UserPlus } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, ExternalLink, Monitor, Search as SearchIcon, SlidersHorizontal, UserPlus } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { PageScroll } from '../../components/Layout';
 import { Avatar, Empty, PageHeader } from '../../components/ui';
 import { api, qs } from '../../lib/api';
 import { toast } from '../../lib/toast';
 import type { Account } from '../../types';
+
+/** The id to open a result in Live LinkedIn (C7): the vanity id when known, else the (obfuscated) member id. */
+const liveProfileId = (r: { profileUrl: string | null; memberUrn: string | null }): string | null =>
+  r.profileUrl?.match(/\/in\/([^/?#]+)/)?.[1] ?? r.memberUrn?.match(/urn:li:fsd_profile:(.+)/)?.[1] ?? null;
 
 interface SearchResult {
   memberUrn: string | null;
@@ -190,6 +194,16 @@ export function SearchPage() {
                   {r.location && <div className="truncate text-xs text-subtle">{r.location}</div>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {/* Open the profile in this account's own LinkedIn session (C7). */}
+                  {current && liveProfileId(r) && (
+                    <Link
+                      to={`/accounts/${current.id}/live?profile=${encodeURIComponent(liveProfileId(r) as string)}`}
+                      className="btn-ghost"
+                      title="Open in Live LinkedIn"
+                    >
+                      <Monitor size={14} /> Live
+                    </Link>
+                  )}
                   {r.profileUrl && (
                     <a href={r.profileUrl} target="_blank" rel="noreferrer" className="btn-outline" title="Open profile">
                       <ExternalLink size={14} /> View
