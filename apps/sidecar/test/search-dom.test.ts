@@ -109,6 +109,74 @@ test('parseSearchJson reads LinkedIn’s structured search response (people only
   });
 });
 
+test('parseSearchJson walks the whole tree — nested GraphQL shape (no flat `included`)', () => {
+  // The GraphQL content-type returns results nested under data.…elements[].items[].item, NOT a top-level `included`.
+  // Walking the whole tree (like extract.ts) is what makes this work; the old `json.included`-only parser returned [].
+  const json = {
+    data: {
+      data: {
+        searchDashClustersByAll: {
+          metadata: { totalResultCount: 7 },
+          elements: [
+            {
+              items: [
+                {
+                  item: {
+                    entityResult: {
+                      _type: 'com.linkedin.voyager.dash.search.EntityResultViewModel',
+                      entityUrn: 'urn:li:fsd_entityResultViewModel:(urn:li:fsd_profile:ACoAABob,SEARCH,DEFAULT)',
+                      navigationUrl: 'https://www.linkedin.com/in/bob-smith?miniProfileUrn=y',
+                      title: { text: 'Bob Smith' },
+                      primarySubtitle: { text: 'Engineer at Foo' },
+                      secondarySubtitle: { text: 'Berlin, Germany' },
+                      entityCustomTrackingInfo: { memberDistance: 'DISTANCE_3' },
+                      image: {
+                        attributes: [
+                          {
+                            detailData: {
+                              nonEntityProfilePicture: {
+                                vectorImage: {
+                                  rootUrl: 'https://media.licdn.com/i/',
+                                  artifacts: [{ width: 200, fileIdentifyingUrlPathSegment: 'bob.jpg' }],
+                                },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  };
+  const { results, total } = parseSearchJson(json);
+  assert.equal(total, 7);
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0], {
+    memberUrn: 'urn:li:fsd_profile:ACoAABob',
+    name: 'Bob Smith',
+    headline: 'Engineer at Foo',
+    location: 'Berlin, Germany',
+    degree: 3,
+    profileUrl: 'https://www.linkedin.com/in/bob-smith/',
+    avatarUrl: 'https://media.licdn.com/i/bob.jpg',
+  });
+});
+
+test('parseSearchJson reads navigationContext.url when there is no inline navigationUrl', () => {
+  const { results } = parseSearchJson({
+    included: [{ navigationContext: { url: 'https://www.linkedin.com/in/ACoAACarol' }, title: { text: 'Carol' } }],
+  });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].name, 'Carol');
+  assert.equal(results[0].memberUrn, 'urn:li:fsd_profile:ACoAACarol');
+});
+
 test('parseSearchJson matches by shape, not a $type name (release-proof)', () => {
   // No $type at all: a person is any entity with a /in/ navigationUrl and a title.
   const { results } = parseSearchJson({
