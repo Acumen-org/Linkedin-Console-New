@@ -79,6 +79,22 @@ export async function assertCanSearch(accountId: string) {
   if (n >= cap) throw new HttpError(429, `Daily LinkedIn-search limit reached for this account (${cap}/24h)`);
 }
 
+/**
+ * Throws when this account may not send another connection request now: must be connected, and under the daily
+ * invite cap (connection requests are heavily policed by LinkedIn, so they are capped separately and conservatively).
+ */
+export async function assertCanInvite(accountId: string) {
+  const [a] = await sql`SELECT status FROM accounts WHERE id = ${accountId}`;
+  if (!a) throw new HttpError(404, 'Account not found');
+  if (a.status !== 'CONNECTED') throw conflict('This LinkedIn account is not connected right now');
+  const cap = config.inviteCapPerDay;
+  if (!cap) return;
+  const [{ n }] = await sql`
+    SELECT count(*)::int AS n FROM audit_log
+    WHERE account_id = ${accountId} AND action = 'network.invite' AND created_at > now() - interval '24 hours'`;
+  if (n >= cap) throw new HttpError(429, `Daily connection-request limit reached for this account (${cap}/24h)`);
+}
+
 // ---------- Per teammate ----------
 // Staff also have their own limit per 24 hours (messages and new chats, over all accounts): the team default
 // (Team page), or their own. Admins and the owner have none. Admins are alerted, once a day per person, when

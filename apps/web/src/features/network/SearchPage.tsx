@@ -1,10 +1,11 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, ExternalLink, Search as SearchIcon, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, ExternalLink, Search as SearchIcon, SlidersHorizontal, UserPlus } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { PageScroll } from '../../components/Layout';
 import { Avatar, Empty, PageHeader } from '../../components/ui';
 import { api, qs } from '../../lib/api';
+import { toast } from '../../lib/toast';
 import type { Account } from '../../types';
 
 interface SearchResult {
@@ -40,6 +41,28 @@ export function SearchPage() {
   // The actual query that's been run (so results don't refetch on every keystroke — each search hits LinkedIn).
   const [run, setRun] = useState<{ q: string; title: string; company: string; location: string; degree: string } | null>(null);
   const [page, setPage] = useState(1);
+  // Connection-request state per person (memberUrn → sending/done), so the button reflects what's happened.
+  const [invited, setInvited] = useState<Record<string, 'sending' | 'done'>>({});
+
+  const connect = async (memberUrn: string) => {
+    if (!current || invited[memberUrn]) return;
+    const note = window.prompt('Add a note to the connection request? (optional — leave blank to send without one)') ?? undefined;
+    setInvited((m) => ({ ...m, [memberUrn]: 'sending' }));
+    try {
+      const r = await api.post<{ ok: boolean; already: boolean }>(`/api/accounts/${current.id}/invite`, {
+        memberUrn,
+        note: note?.trim() || undefined,
+      });
+      setInvited((m) => ({ ...m, [memberUrn]: 'done' }));
+      toast(r.already ? 'Already connected or request pending' : 'Connection request sent', 'success');
+    } catch (e) {
+      setInvited((m) => {
+        const { [memberUrn]: _, ...rest } = m;
+        return rest;
+      });
+      toast((e as Error).message, 'error');
+    }
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -166,11 +189,34 @@ export function SearchPage() {
                   {r.headline && <div className="truncate text-sm text-muted">{r.headline}</div>}
                   {r.location && <div className="truncate text-xs text-subtle">{r.location}</div>}
                 </div>
-                {r.profileUrl && (
-                  <a href={r.profileUrl} target="_blank" rel="noreferrer" className="btn-outline" title="Open profile">
-                    <ExternalLink size={14} /> View
-                  </a>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {r.profileUrl && (
+                    <a href={r.profileUrl} target="_blank" rel="noreferrer" className="btn-outline" title="Open profile">
+                      <ExternalLink size={14} /> View
+                    </a>
+                  )}
+                  {/* Connect needs a member URN (the id LinkedIn invites by); 1st-degree are already connected. */}
+                  {r.memberUrn && r.degree !== 1 && (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={!!invited[r.memberUrn]}
+                      onClick={() => connect(r.memberUrn as string)}
+                    >
+                      {invited[r.memberUrn] === 'done' ? (
+                        <>
+                          <Check size={14} /> Sent
+                        </>
+                      ) : invited[r.memberUrn] === 'sending' ? (
+                        'Sending…'
+                      ) : (
+                        <>
+                          <UserPlus size={14} /> Connect
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

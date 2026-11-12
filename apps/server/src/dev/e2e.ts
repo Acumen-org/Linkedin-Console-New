@@ -523,6 +523,11 @@ async function fakeBridge() {
         );
         continue;
       }
+      // Connection request: the fake bridge just confirms it was sent.
+      if (cmd.type === 'invite') {
+        await redis.rpush(`li:reply:${cmd.cmdId}`, JSON.stringify({ ok: true, already: false }));
+        continue;
+      }
       // Profile lookup: reply on the request/response list, like the sidecar's resolve_profile does.
       if (cmd.type === 'resolve_profile') {
         const publicId = vanityByMember[cmd.memberUrn];
@@ -3347,7 +3352,24 @@ try {
     );
     const audited = await sql`SELECT 1 FROM audit_log WHERE action = 'network.search' AND account_id = ${accountId}`;
     assert.ok(audited.length >= 1, 'the search was audited');
+
+    // Connection request (phase 2): same gate, its own cap, audited; the bridge receives an invite command.
+    const inv = await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' });
+    assert.equal(inv.status, 200, 'invite sent when search is on');
+    assert.ok(
+      commands.some((c) => c.type === 'invite' && c.memberUrn === 'urn:li:fsd_profile:ACoAATEST'),
+      'an invite command reached the bridge',
+    );
+    assert.ok(
+      (await sql`SELECT 1 FROM audit_log WHERE action = 'network.invite' AND account_id = ${accountId}`).length >= 1,
+      'the invite was audited',
+    );
+    // A non-member-URN body is rejected (nothing sent).
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'nope' })).status, 400);
+
     await owner('PUT', '/api/integrations', { searchEnabled: false });
+    // Turned off → both search and invite are refused.
+    assert.equal((await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' })).status, 409);
   });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });

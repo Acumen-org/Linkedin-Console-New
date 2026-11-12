@@ -211,6 +211,8 @@ export type BridgeCommand = { cmdId?: string } & (
   | { type: 'resolve_profile'; memberUrn: string }
   /** Search all of LinkedIn for people (non-connections included), one page (~10) at a time. */
   | { type: 'search_people'; keywords: string; filters?: SearchFilters; page?: number }
+  /** Send a connection request to a person (from a search result). `note` is the optional invite message. */
+  | { type: 'invite'; memberUrn: string; note?: string }
   | { type: 'check_session' }
   /** Log back in with the stored LinkedIn password when the session dropped (2FA/CAPTCHA still needs a human). */
   | { type: 'login'; username: string; password: string }
@@ -224,3 +226,6 @@ export type ResolveProfileReply = { ok: true; memberUrn: string; publicId: strin
 export type SearchPeopleReply =
   | { ok: true; results: SearchResult[]; total: number | null; limited?: boolean }
   | { ok: false; error: string };
+
+/** The bridge's reply to an `invite` command. `already` = request already sent/pending or already connected. */
+export type InviteReply = { ok: true; already?: boolean } | { ok: false; error: string };

@@ -13,7 +13,16 @@ import { IDLE_URL, jitter, sleep } from './actions.ts';
 import { type BridgeContext, createExclusiveRunner, createLimiter } from './context.ts';
 import { extract } from './extract.ts';
 import { conversationsFromPage, threadIdFromPath } from './inbox-dom.ts';
-import { encodeUrn, forgetTemplate, hasSessionCookie, inPageFetch, isFormatRejection, resolveVanity, sendViaApi } from './linkedin.ts';
+import {
+  encodeUrn,
+  forgetTemplate,
+  hasSessionCookie,
+  inPageFetch,
+  isFormatRejection,
+  resolveVanity,
+  sendInvite,
+  sendViaApi,
+} from './linkedin.ts';
 import type { Reader } from './reader.ts';
 import { searchPeople } from './search.ts';
 import type { Command } from './streams.ts';
@@ -127,6 +136,19 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
   async function doSearch(cmd: Extract<Command, { type: 'search_people' }>) {
     try {
       await ctx.streams.reply(cmd.cmdId, await searchPeople(ctx, cmd.keywords, cmd.filters, cmd.page ?? 1));
+    } catch (e) {
+      await ctx.streams.reply(cmd.cmdId, { ok: false, error: (e as Error).message.split('\n')[0] });
+    }
+  }
+
+  /** Send a connection request to a person (from a search result); replies to the caller. */
+  async function doInvite(cmd: Extract<Command, { type: 'invite' }>) {
+    try {
+      const r = await sendInvite(ctx, cmd.memberUrn, cmd.note);
+      await ctx.streams.reply(
+        cmd.cmdId,
+        r.ok ? { ok: true, already: r.already } : { ok: false, error: `LinkedIn refused the invite (${r.status})` },
+      );
     } catch (e) {
       await ctx.streams.reply(cmd.cmdId, { ok: false, error: (e as Error).message.split('\n')[0] });
     }
@@ -486,6 +508,7 @@ export function createCommandHandler(ctx: BridgeContext, reader: Reader, checkSe
     if (cmd.type === 'fetch_media') return downloads(() => fetchMedia(cmd));
     if (cmd.type === 'resolve_profile') return lookups(() => resolveProfile(cmd));
     if (cmd.type === 'search_people') return lookups(() => doSearch(cmd));
+    if (cmd.type === 'invite') return lookups(() => doInvite(cmd));
     if (cmd.type === 'send_message' || cmd.type === 'start_chat') return sends(() => send(cmd));
     // Someone opened this conversation: its history goes before the rest of the background work.
     const priority = cmd.type === 'sync_thread' && cmd.priority ? 'high' : 'normal';

@@ -27,6 +27,8 @@ const Env = z.object({
   NEW_CHAT_CAP: z.coerce.number().int().min(0).default(20),
   // People-searches per account per day (the Search section). Conservative: searching is a prime restriction trigger.
   SEARCH_CAP_PER_DAY: z.coerce.number().int().min(0).default(100),
+  // Connection requests per account per day (from search results). Very conservative — invites are heavily policed.
+  INVITE_CAP_PER_DAY: z.coerce.number().int().min(0).default(20),
   // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
   SEND_RAMP: z.enum(['on', 'off']).default('on'),
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
@@ -229,6 +231,9 @@ export const config = {
   },
   get searchCapPerDay(): number {
     return e.SEARCH_CAP_PER_DAY;
+  },
+  get inviteCapPerDay(): number {
+    return e.INVITE_CAP_PER_DAY;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;
