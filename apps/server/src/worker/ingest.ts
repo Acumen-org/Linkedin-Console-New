@@ -12,6 +12,8 @@ import {
 } from '@linkedin-console/contracts';
 import { audit } from '../core/audit.ts';
 import { sendCommand } from '../core/bridge.ts';
+import { eventRefs } from '../core/event-enrich.ts';
+import { emitExtEvent } from '../core/ext-events.ts';
 import { emitWebhook } from '../core/webhooks.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
@@ -20,6 +22,7 @@ import { publish, redis } from '../lib/redis.ts';
 import { credentialsEnabled, decryptSecret } from '../lib/secretbox.ts';
 import { loadConversation, loadMessage } from '../modules/conversations/queries.ts';
 import { alertAccountStatus } from './alerts.ts';
+import { rememberMembers } from './crm-binding.ts';
 import { catchUp, catchUpWindow, missedWhileAway, refreshFirstSync, startFirstSync } from './first-sync.ts';
 import { notifyNewMessage } from './push.ts';
 
@@ -283,6 +286,39 @@ export async function onTyping(accountId: string, items: BridgeEventMap['typing'
     if (!c) continue;
     const who = (c.participants as LiParticipant[]).find((p) => p.urn === t.participantUrn);
     await publish(accountRoom(accountId), 'linkedin.typing', { conversationId: c.id, name: who?.name ?? 'Someone' });
+  }
+}
+
+/** Connection requests observed in Live LinkedIn (C1): record them and emit to the external feed. */
+export async function onInvitations(accountId: string, data: BridgeEventMap['invitations']) {
+  const by = data.by ?? null;
+  for (const item of data.items) {
+    const memberUrn = item.memberUrn;
+    if (!memberUrn?.startsWith('urn:li:')) continue;
+    // C8: an invite call usually carries both ids — remember the member↔vanity pair (no profile fetch needed).
+    if (item.publicId) await rememberMembers([{ memberUrn, publicId: item.publicId }], 'invited').catch(() => {});
+    if (data.action === 'sent') {
+      await sql`
+        INSERT INTO invitations (id, account_id, member_urn, public_id, status, sent_at, sent_by_user_id, source)
+        VALUES (${newId('inv')}, ${accountId}, ${memberUrn}, ${item.publicId ?? null}, 'pending', ${new Date(item.at)}, ${by}, 'live_view')
+        ON CONFLICT (account_id, member_urn) WHERE status = 'pending'
+        DO UPDATE SET sent_at = excluded.sent_at, sent_by_user_id = excluded.sent_by_user_id,
+          public_id = coalesce(excluded.public_id, invitations.public_id)`;
+      const refs = await eventRefs(accountId, memberUrn, by);
+      await emitExtEvent('invitation.sent', { ...refs, note: item.note ?? null, source: 'live_view' });
+    } else if (data.action === 'withdrawn') {
+      await sql`
+        UPDATE invitations SET status = 'withdrawn', withdrawn_at = now()
+        WHERE account_id = ${accountId} AND member_urn = ${memberUrn} AND status = 'pending'`;
+      const refs = await eventRefs(accountId, memberUrn, by);
+      await emitExtEvent('invitation.withdrawn', { ...refs });
+    } else {
+      // pending_list: a Sent-invitations page a teammate opened (picks up phone-sent requests). Record, no event.
+      await sql`
+        INSERT INTO invitations (id, account_id, member_urn, public_id, status, sent_at, source)
+        VALUES (${newId('inv')}, ${accountId}, ${memberUrn}, ${item.publicId ?? null}, 'pending', ${new Date(item.at)}, 'sent_list')
+        ON CONFLICT (account_id, member_urn) WHERE status = 'pending' DO NOTHING`;
+    }
   }
 }
 

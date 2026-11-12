@@ -3423,6 +3423,33 @@ try {
     assert.equal((await authed('/api/ext/v1/events')).status, 401, 'a revoked key → 401');
     assert.ok([401, 403].includes((await member('POST', '/api/integrations/keys', { name: 'x' })).status), 'keys are admin-only');
   });
+
+  await step('Invitations (C1): a sent/withdrawn event records the invitation and reaches the feed', async () => {
+    const urn = `urn:li:fsd_profile:ACoAAINV${tag}`;
+    await emit('invitations', {
+      action: 'sent',
+      by: null,
+      items: [{ memberUrn: urn, publicId: `inv-${tag}`, name: 'Invited One', at: Date.now() }],
+    });
+    const sent = await until(
+      () => sql`SELECT status, source FROM invitations WHERE account_id = ${accountId} AND member_urn = ${urn}`,
+      (r) => r.length > 0 && r[0].status === 'pending',
+      'invitation recorded as pending',
+    );
+    assert.equal(sent[0].source, 'live_view');
+    await until(
+      () => sql`SELECT 1 FROM ext_events WHERE type = 'invitation.sent' AND data->'person'->>'memberUrn' = ${urn}`,
+      (r) => r.length > 0,
+      'invitation.sent reached the feed',
+    );
+    // Withdrawing it flips the same row to withdrawn.
+    await emit('invitations', { action: 'withdrawn', by: null, items: [{ memberUrn: urn, at: Date.now() }] });
+    await until(
+      () => sql`SELECT status FROM invitations WHERE account_id = ${accountId} AND member_urn = ${urn}`,
+      (r) => r[0]?.status === 'withdrawn',
+      'invitation withdrawn',
+    );
+  });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
   console.log(`✘ setup failed

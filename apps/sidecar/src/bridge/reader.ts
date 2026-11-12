@@ -7,12 +7,13 @@ import type { Request } from 'patchright';
 import { logger } from '../logger.ts';
 import { type BridgeContext, createDedupe } from './context.ts';
 import { extract, parseSse } from './extract.ts';
+import { parseInvite } from './invites.ts';
 import { isCreateMessageRequest, scrubSendBody } from './send-template.ts';
 
 const LINKEDIN_DATA = /^https:\/\/www\.linkedin\.com\/(voyager\/api|realtime)/;
 /** The responses we use: messaging, the realtime stream, who is logged in, connections. Feed, search and
  * profile pages a teammate browses in Live View are skipped before their (large) bodies are read. */
-const USEFUL_DATA = /messag|messeng|realtime|\/voyager\/api\/me\b|connection|relationship/i;
+const USEFUL_DATA = /messag|messeng|realtime|\/voyager\/api\/me\b|connection|relationship|invitation/i;
 /** A realtime event bigger than this without an event boundary is not SSE we understand: drop it. */
 const MAX_SSE_BUFFER = 1024 * 1024;
 
@@ -155,6 +156,19 @@ export function createReader(ctx: BridgeContext) {
       const url = res.url();
       if (!LINKEDIN_DATA.test(url)) return;
       if (res.ok() && isCreateMessageRequest(res.request().method(), url)) rememberSendTemplate(res.request());
+      // Connection requests a teammate made in Live LinkedIn (C1): attribute to whoever holds control right now.
+      if (res.ok()) {
+        const inv = parseInvite(res.request().method(), url, res.request().postData() ?? null);
+        if (inv) {
+          await ctx.streams
+            .emit('invitations', {
+              action: inv.action,
+              by: ctx.shared.controller?.userId ?? null,
+              items: [{ memberUrn: inv.memberUrn, note: inv.note, at: Date.now() }],
+            })
+            .catch((err) => logger.warn({ err }, 'invitation event failed'));
+        }
+      }
       if (!USEFUL_DATA.test(url)) return;
       // LinkedIn's messaging GraphQL now answers with content-type `application/graphql` (it used to be a
       // `…+json` type); the body is still JSON. Accept both, or every conversation/message response is dropped

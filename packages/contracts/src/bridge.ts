@@ -118,6 +118,18 @@ export interface SearchResult {
   avatarUrl: string | null;
 }
 
+/** A connection request the bridge observed Live LinkedIn make (sent/withdrawn), or one listed on the Sent page. */
+export interface LiInvitation {
+  memberUrn: string;
+  publicId?: string | null;
+  profileUrl?: string | null;
+  name?: string | null;
+  /** When it happened/was seen (ms). */
+  at: number;
+  /** The invite note, when one was sent. */
+  note?: string | null;
+}
+
 export interface LiSelf {
   urn: string;
   name: string | null;
@@ -146,6 +158,11 @@ export type BridgeEventMap = {
   seen: LiSeenReceipt[];
   typing: LiTyping[];
   contacts: { connections: boolean; items: LiProfile[] };
+  /**
+   * Connection requests the bridge saw Live LinkedIn make (C1). `by` = the teammate holding control at the time
+   * (user id), null when unknown. `pending_list` = the Sent-invitations page a teammate opened (phone-sent too).
+   */
+  invitations: { action: 'sent' | 'withdrawn' | 'pending_list'; by: string | null; items: LiInvitation[] };
   result: CommandResult;
   /** While a list is being loaded: how far it got (total = LinkedIn's own count, when shown). */
   progress: { kind: 'conversations' | 'connections'; loaded: number; total: number | null; done: boolean };
