@@ -45,6 +45,8 @@ export default async function liveRoutes(app: FastifyInstance) {
       });
     }
     reply.header('X-LU-User', encodeURIComponent(user.name));
+    // The teammate's id too, so observed Live-LinkedIn actions (invites, messages) can be attributed to them (C4).
+    reply.header('X-LU-User-Id', user.id);
     reply.header('X-LU-Control', control ? '1' : '0');
     return reply.code(200).send('ok');
   });

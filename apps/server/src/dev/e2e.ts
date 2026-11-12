@@ -9,6 +9,7 @@ import os from 'node:os';
 import { AUDIT_ACTIONS } from '@linkedin-console/contracts';
 import { Redis } from 'ioredis';
 import { hashPassword } from '../core/auth.ts';
+import { accountRef, personRef, userRef } from '../core/event-enrich.ts';
 import { advanceRamp } from '../core/send-limits.ts';
 import { runStaffSync } from '../core/staff-sync.ts';
 import { addBusinessDays, isWeekend } from '../lib/business-days.ts';
@@ -3370,6 +3371,27 @@ try {
     await owner('PUT', '/api/integrations', { searchEnabled: false });
     // Turned off → both search and invite are refused.
     assert.equal((await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' })).status, 409);
+  });
+
+  await step('Event enrichment (C4): person/account/teammate refs resolve the way the feed will stamp events', async () => {
+    // Account ref: id + a name (LinkedIn display name, or the label).
+    const acc = await accountRef(accountId);
+    assert.equal(acc.id, accountId);
+    assert.ok(acc.name, 'account ref has a name/label');
+    // User ref: a teammate by work email, looked up by id (never derived from the account).
+    const [someUser] = await sql`SELECT id, email FROM users WHERE email IS NOT NULL LIMIT 1`;
+    const u = await userRef(someUser.id as string);
+    assert.equal(u?.email, someUser.email, 'user ref resolves the email by id');
+    assert.equal(await userRef(null), null, 'unknown actor → null');
+    // Person ref: a member URN we know → the vanity link; an unknown one → nulls (never looked up).
+    const [known] = await sql`SELECT member_urn FROM linkedin_members LIMIT 1`;
+    if (known) {
+      const p = await personRef(accountId, known.memberUrn as string);
+      assert.equal(p.memberUrn, known.memberUrn);
+      if (p.publicId) assert.match(p.profileUrl ?? '', /linkedin\.com\/in\//);
+    }
+    const unknown = await personRef(accountId, 'urn:li:fsd_profile:ACoAANOBODY');
+    assert.equal(unknown.publicId, null, 'unknown member → no public id (not fetched)');
   });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });

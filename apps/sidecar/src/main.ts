@@ -14,6 +14,6 @@ if (config.upstreamProxy) startProxyForwarder(config.upstreamProxy);
 const version = await waitForChrome();
 logger.info({ chrome: version.Browser }, 'chrome ready');
 
-const shared: SharedState = { bridgeTargetId: null, status: 'AWAITING_LOGIN' };
+const shared: SharedState = { bridgeTargetId: null, status: 'AWAITING_LOGIN', controller: null };
 startLiveView(shared);
 await startBridge(createStreams(config.redisUrl, config.accountId), shared);

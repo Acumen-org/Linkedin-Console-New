@@ -54,7 +54,7 @@ Disallow: /` 200
 	handle @live {
 		forward_auth api:4000 {
 			uri /api/live/auth
-			copy_headers X-LU-User X-LU-Control
+			copy_headers X-LU-User X-LU-User-Id X-LU-Control
 			# The auth check itself must be a plain GET, even when the original request is a WebSocket upgrade.
 			header_up -Upgrade
 			header_up -Connection

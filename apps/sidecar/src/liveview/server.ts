@@ -28,10 +28,14 @@ export interface SharedState {
   bridgeTargetId: string | null;
   /** Login state reported by the bridge; tabs are only parked when CONNECTED. */
   status: string;
+  /** Who holds control of Live LinkedIn right now, so the bridge can attribute actions it sees to a teammate (C4). */
+  controller?: { userId: string | null; user: string } | null;
 }
 
 interface Viewer {
   id: string;
+  /** The teammate's user id (from X-LU-User-Id), for attributing observed actions; null if the header is absent. */
+  userId: string | null;
   user: string;
   canControl: boolean;
 }
@@ -46,7 +50,12 @@ export function startLiveView(state: SharedState) {
   let meta: ScreenMeta | null = null;
   let lastFrame: string | null = null;
   let fileChooser: { backendNodeId: number; mode: string } | null = null;
-  let controller: { id: string; user: string; at: number } | null = null;
+  let controller: { id: string; userId: string | null; user: string; at: number } | null = null;
+  // Set the controller and mirror it to the shared state so the bridge can read who's in control (C4 attribution).
+  const setController = (c: typeof controller) => {
+    controller = c;
+    state.controller = c ? { userId: c.userId, user: c.user } : null;
+  };
   let lastViewerAt = Date.now();
   /** Tabs put to sleep while nobody watches: tab id → the URL to restore. */
   const parked = new Map<string, string>();
@@ -160,7 +169,7 @@ export function startLiveView(state: SharedState) {
   setInterval(async () => {
     if (!viewers.size) return;
     if (controller && Date.now() - controller.at > CONTROL_IDLE_MS) {
-      controller = null;
+      setController(null);
       broadcast(controlInfo());
     }
     try {
@@ -217,6 +226,7 @@ export function startLiveView(state: SharedState) {
   wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
     const viewer: Viewer = {
       id: crypto.randomUUID(),
+      userId: req.headers['x-lu-user-id'] ? decodeURIComponent(String(req.headers['x-lu-user-id'])) : null,
       user: decodeURIComponent(String(req.headers['x-lu-user'] ?? 'Someone')),
       canControl: req.headers['x-lu-control'] === '1',
     };
@@ -234,7 +244,7 @@ export function startLiveView(state: SharedState) {
       viewers.delete(ws);
       lastViewerAt = Date.now();
       if (controller?.id === viewer.id) {
-        controller = null;
+        setController(null);
         broadcast(controlInfo());
       }
       setTimeout(detachIfIdle, 5000);
@@ -252,12 +262,12 @@ export function startLiveView(state: SharedState) {
       }
       if (msg.t === 'take') {
         if (!viewer.canControl) return;
-        controller = { id: viewer.id, user: viewer.user, at: Date.now() };
+        setController({ id: viewer.id, userId: viewer.userId, user: viewer.user, at: Date.now() });
         return broadcast(controlInfo());
       }
       if (msg.t === 'release') {
         if (controller?.id === viewer.id) {
-          controller = null;
+          setController(null);
           broadcast(controlInfo());
         }
         return;
@@ -265,11 +275,12 @@ export function startLiveView(state: SharedState) {
       if (!viewer.canControl) return;
       // First person to interact while nobody holds control gets it automatically.
       if (!controller) {
-        controller = { id: viewer.id, user: viewer.user, at: Date.now() };
+        setController({ id: viewer.id, userId: viewer.userId, user: viewer.user, at: Date.now() });
         broadcast(controlInfo());
       }
-      if (controller.id !== viewer.id) return send(ws, { t: 'error', message: `${controller.user} is in control` });
-      controller.at = Date.now();
+      const held = controller;
+      if (!held || held.id !== viewer.id) return send(ws, { t: 'error', message: `${held?.user ?? 'Someone'} is in control` });
+      held.at = Date.now();
       handleControlled(msg).catch((e: Error) => send(ws, { t: 'error', message: e.message }));
     });
 
