@@ -1,14 +1,21 @@
 // People search across LinkedIn (non-connections included), run inside the account's logged-in page — one page
-// (~10 results) at a time, driven through the normal search results URL.
+// (~10 results) at a time, driven through the normal search results URL. Results are read from LinkedIn's own
+// structured JSON (parseSearchJson), tried from three sources in order of robustness, with DOM scraping last.
 //
-// PRIMARY path: navigating the search URL makes LinkedIn fetch its results as a structured Voyager response
-// (voyagerSearchDashClusters). We intercept that response and parse its typed entities (parseSearchJson) — robust,
-// no reliance on DOM class names or a visible degree badge, and free of the mutual-connection / "also viewed" noise
-// that made DOM scraping return duplicate/empty rows.
-// FALLBACK: if that response isn't seen (SSR'd results, a changed endpoint), scrape the rendered DOM (scrapeCards).
-// Both the endpoint shape and the DOM are best-effort (see docs/bridge-maintenance.md) and isolated to this file +
-// search-dom.ts, so a maintenance pass only touches those two.
-import type { SearchFilters, SearchPeopleReply } from '@linkedin-console/contracts';
+// Why this shape: a search page load fires SEVERAL voyager requests (typeahead, filters, THEN the results clusters),
+// and results may arrive by XHR or be server-rendered into the HTML. So instead of betting on one URL, we collect
+// every candidate response/embedded blob, parse each, and keep whichever yields the most people. The JSON is clean by
+// construction (one entity per person) — no mutual-connection / "also viewed" noise, no reliance on DOM class names or
+// a visible degree badge, which is what made the DOM scraper return duplicate/shifted/empty rows.
+//
+//   1. Intercepted XHR  — every voyager search/cluster response, parsed; best non-empty wins.
+//   2. Embedded model   — the Rest.li data model LinkedIn inlines in <code> blocks (covers server-rendered results).
+//   3. DOM scrape       — last resort when no structured data is found at all.
+//
+// The JSON shape and the DOM are best-effort (see docs/bridge-maintenance.md) and isolated to this file + search-dom.ts.
+import type { SearchFilters, SearchPeopleReply, SearchResult } from '@linkedin-console/contracts';
+import type { Response } from 'patchright';
+import { logger } from '../logger.ts';
 import { IDLE_URL } from './actions.ts';
 import type { BridgeContext } from './context.ts';
 import { type DomCard, parseSearchJson, resultsFromCards } from './search-dom.ts';
@@ -16,8 +23,18 @@ import { type DomCard, parseSearchJson, resultsFromCards } from './search-dom.ts
 const LINKEDIN = 'https://www.linkedin.com';
 /** LinkedIn's wording when the free commercial-use / search limit is reached. */
 const LIMIT_TEXT = /commercial use limit|reached the (monthly )?limit|search limit/i;
-/** The Voyager response that carries people-search results (GraphQL voyagerSearchDashClusters, or the REST clusters). */
+/** A voyager response that MIGHT carry people-search results (typeahead/filters match too; we parse to find out). */
 const SEARCH_RESPONSE = /\/voyager\/api\/.*(search|cluster)/i;
+
+interface Parsed {
+  results: SearchResult[];
+  total: number | null;
+}
+
+/** The candidate that found the most people (the results clusters response, not a typeahead), or null if none did. */
+function pickBest(candidates: Parsed[]): Parsed | null {
+  return candidates.length ? candidates.reduce((a, b) => (b.results.length > a.results.length ? b : a)) : null;
+}
 
 /** Fold simple facets into the keyword string — robust across LinkedIn's facet-URN changes (no geo/company URNs). */
 export function buildKeywords(keywords: string, f?: SearchFilters): string {
@@ -64,6 +81,17 @@ function scrapeCards(): DomCard[] {
   return cards;
 }
 
+/** Runs IN THE PAGE: the raw Rest.li data-model JSON blobs LinkedIn inlines in <code> blocks (for SSR'd results). */
+function scrapeEmbedded(): string[] {
+  const out: string[] = [];
+  for (const el of Array.from(document.querySelectorAll('code'))) {
+    const t = el.textContent || '';
+    // Only blobs that actually look like the normalized search model — not every inlined code block.
+    if (t.length > 200 && /"included"/.test(t) && /\/in\//.test(t)) out.push(t);
+  }
+  return out;
+}
+
 /** Search people and return one page of results. Leaves the bridge window back on the idle page afterwards. */
 export async function searchPeople(
   ctx: BridgeContext,
@@ -75,26 +103,56 @@ export async function searchPeople(
   if (!kw) return { ok: true, results: [], total: 0 };
   const url = `${LINKEDIN}/search/results/people/?keywords=${encodeURIComponent(kw)}&origin=GLOBAL_SEARCH_HEADER&page=${Math.max(1, page)}`;
   return ctx.pageLock(async () => {
+    const candidates: Parsed[] = [];
+    // Collect + parse EVERY voyager search/cluster response as it arrives; keep only ones that yield people. A
+    // typeahead or filter response parses to [] and is ignored; the real results clusters response wins pickBest.
+    const onResponse = (r: Response) => {
+      void (async () => {
+        try {
+          if (r.status() !== 200 || !SEARCH_RESPONSE.test(r.url())) return;
+          if (!/json|graphql/.test(r.headers()['content-type'] ?? '')) return;
+          const parsed = parseSearchJson(await r.json());
+          if (parsed.results.length) candidates.push(parsed);
+        } catch {}
+      })();
+    };
+    ctx.page.on('response', onResponse);
     try {
-      // Start listening for the results response BEFORE navigating, so we don't miss it.
-      const responsePromise = ctx.page
-        .waitForResponse((r) => SEARCH_RESPONSE.test(r.url()) && r.status() === 200, { timeout: 20_000 })
-        .catch(() => null);
       await ctx.page.goto(url, { waitUntil: 'domcontentloaded' });
       const bodyText = await ctx.page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
       if (LIMIT_TEXT.test(bodyText)) return { ok: true, results: [], total: null, limited: true };
-      // PRIMARY: parse LinkedIn's structured search JSON.
-      const response = await responsePromise;
-      if (response) {
-        const json = await response.json().catch(() => null);
-        const { results, total } = json ? parseSearchJson(json) : { results: [], total: null };
-        if (results.length) return { ok: true, results, total };
+      // Let the result list render, then give the results XHR a moment to arrive and be parsed by onResponse.
+      await ctx.page.waitForSelector('a[href*="/in/"]', { timeout: 15_000 }).catch(() => {});
+      await ctx.page.waitForTimeout(1_200);
+
+      // 1) Best intercepted response.
+      const fromXhr = pickBest(candidates);
+      if (fromXhr) {
+        logger.info({ source: 'xhr', results: fromXhr.results.length, responses: candidates.length }, 'search parsed');
+        return { ok: true, results: fromXhr.results, total: fromXhr.total };
       }
-      // FALLBACK: scrape the rendered DOM (response not seen, or it yielded nothing).
-      await ctx.page.waitForSelector('a[href*="/in/"]', { timeout: 10_000 }).catch(() => {});
+
+      // 2) Data model embedded in the page HTML (server-rendered results, no XHR).
+      const embedded = await ctx.page.evaluate(scrapeEmbedded).catch(() => [] as string[]);
+      for (const raw of embedded) {
+        try {
+          const parsed = parseSearchJson(JSON.parse(raw));
+          if (parsed.results.length) candidates.push(parsed);
+        } catch {}
+      }
+      const fromEmbedded = pickBest(candidates);
+      if (fromEmbedded) {
+        logger.info({ source: 'embedded', results: fromEmbedded.results.length, blobs: embedded.length }, 'search parsed');
+        return { ok: true, results: fromEmbedded.results, total: fromEmbedded.total };
+      }
+
+      // 3) Last resort: scrape the rendered DOM.
       const cards = await ctx.page.evaluate(scrapeCards).catch(() => [] as DomCard[]);
-      return { ok: true, results: resultsFromCards(cards), total: null };
+      const results = resultsFromCards(cards);
+      logger.warn({ source: 'dom', results: results.length, cards: cards.length }, 'search fell back to DOM scrape');
+      return { ok: true, results, total: null };
     } finally {
+      ctx.page.off('response', onResponse);
       // We already hold the page lock here, so navigate directly (ensureOnLinkedIn would re-take the lock → deadlock).
       await ctx.page.goto(IDLE_URL, { waitUntil: 'domcontentloaded' }).catch(() => {});
     }

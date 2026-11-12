@@ -116,8 +116,9 @@ export function parseSearchJson(json: unknown): { results: SearchResult[]; total
     : [];
   for (const e of included) {
     if (!e || typeof e !== 'object') continue;
-    if (!/EntityResult/i.test(String(e.$type ?? ''))) continue;
-    // People results navigate to /in/<id>; company/job/school results don't — this is the people-only filter.
+    // Match by SHAPE, not a `$type` discriminator (its exact name drifts between LinkedIn releases): a person result is
+    // any entity that navigates to a /in/<id> profile and has a title (its name). Company/job/school results navigate
+    // elsewhere; cluster headers and other view models have no /in/ navigationUrl. This keeps the parser release-proof.
     const nav = (typeof e.navigationUrl === 'string' ? e.navigationUrl : '').split('?')[0];
     if (!/\/in\//.test(nav)) continue;
     const name = tvmText(e.title);

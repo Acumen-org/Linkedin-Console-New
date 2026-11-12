@@ -109,9 +109,25 @@ test('parseSearchJson reads LinkedIn’s structured search response (people only
   });
 });
 
+test('parseSearchJson matches by shape, not a $type name (release-proof)', () => {
+  // No $type at all: a person is any entity with a /in/ navigationUrl and a title.
+  const { results } = parseSearchJson({
+    included: [
+      { navigationUrl: 'https://www.linkedin.com/in/ACoAAXYZ', title: { text: 'Raj K' }, primarySubtitle: { text: 'Buyer' } },
+      { navigationUrl: 'https://www.linkedin.com/company/acme', title: { text: 'Acme' } },
+      { navigationUrl: 'https://www.linkedin.com/in/ACoAAXYZ', title: 'Raj K' }, // duplicate (bare-string title) → deduped
+    ],
+  });
+  assert.equal(results.length, 1);
+  assert.equal(results[0].name, 'Raj K');
+  assert.equal(results[0].headline, 'Buyer');
+  assert.equal(results[0].memberUrn, 'urn:li:fsd_profile:ACoAAXYZ');
+  assert.equal(results[0].profileUrl, null);
+});
+
 test('parseSearchJson is defensive about unexpected shapes', () => {
   assert.deepEqual(parseSearchJson(null), { results: [], total: null });
   assert.deepEqual(parseSearchJson({}), { results: [], total: null });
   assert.deepEqual(parseSearchJson({ included: 'nope' }), { results: [], total: null });
-  assert.deepEqual(parseSearchJson({ included: [null, 42, { $type: 'Other' }] }), { results: [], total: null });
+  assert.deepEqual(parseSearchJson({ included: [null, 42, { foo: 'bar' }] }), { results: [], total: null });
 });
