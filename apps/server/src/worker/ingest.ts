@@ -12,8 +12,8 @@ import {
 } from '@linkedin-console/contracts';
 import { audit } from '../core/audit.ts';
 import { sendCommand } from '../core/bridge.ts';
-import { eventRefs } from '../core/event-enrich.ts';
-import { emitExtEvent } from '../core/ext-events.ts';
+import { accountRef, eventRefs } from '../core/event-enrich.ts';
+import { emitExtEvent, recordExtEvent } from '../core/ext-events.ts';
 import { emitWebhook } from '../core/webhooks.ts';
 import { config } from '../lib/config.ts';
 import { sql } from '../lib/db.ts';
@@ -251,6 +251,12 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
       await emitWebhook('message.received', { accountId, conversationId, message: saved });
       await notifyNewMessage(accountId, conversationId, saved).catch(() => {});
     }
+    // An outgoing message stored for the first time that was NOT an inbox send (typed in Live LinkedIn or on a phone):
+    // record it to the external feed (C3). Inbox sends are a message.updated merge here and emit from onResult instead,
+    // so each message produces exactly one message.sent.
+    if (event === 'message.created' && m.fromSelf && saved) {
+      await feedMessageSent(accountId, conversationId, (saved.sentByUserId as string | null) ?? null).catch(() => {});
+    }
   }
   // The time never goes backwards.
   for (const [id, n] of newest) {
@@ -322,6 +328,15 @@ export async function onInvitations(accountId: string, data: BridgeEventMap['inv
   }
 }
 
+/** Record an outgoing message in the external feed (C3): one `message.sent` per message, to the person it went to. */
+async function feedMessageSent(accountId: string, conversationId: string, sentByUserId: string | null) {
+  const [c] = await sql`SELECT is_group, participants FROM conversations WHERE id = ${conversationId}`;
+  if (!c || c.isGroup) return; // the feed tracks 1:1 outreach
+  const memberUrn = (c.participants?.[0]?.urn as string | undefined) ?? null;
+  const refs = await eventRefs(accountId, memberUrn, sentByUserId);
+  await recordExtEvent('message.sent', { ...refs, conversationId, at: new Date().toISOString() });
+}
+
 export async function onContacts(accountId: string, data: BridgeEventMap['contacts']) {
   // One statement per batch (a connections page holds hundreds). Postgres rejects a batch that touches the
   // same row twice, so the last copy of each person wins.
@@ -341,6 +356,15 @@ export async function onContacts(accountId: string, data: BridgeEventMap['contac
     });
   }
   const rows = [...byId.values()];
+  // C2: which of these are already connections, so we can tell which ones newly connected in this batch.
+  const connPublicIds = rows.filter((r) => r.isConnection).map((r) => r.publicId as string);
+  const alreadyConnected = connPublicIds.length
+    ? new Set(
+        (
+          await sql`SELECT public_id FROM contacts WHERE account_id = ${accountId} AND is_connection AND public_id IN ${sql(connPublicIds)}`
+        ).map((r) => r.publicId as string),
+      )
+    : new Set<string>();
   for (let i = 0; i < rows.length; i += 500) {
     await sql`
       INSERT INTO contacts ${sql(rows.slice(i, i + 500) as never, 'id', 'accountId', 'publicId', 'memberUrn', 'name', 'headline', 'avatarUrl', 'profileUrl', 'isConnection')}
@@ -352,6 +376,34 @@ export async function onContacts(accountId: string, data: BridgeEventMap['contac
         profile_url = coalesce(excluded.profile_url, contacts.profile_url),
         is_connection = contacts.is_connection OR excluded.is_connection,
         updated_at = now()`;
+  }
+  // C2: connections that appeared in this batch (not already connected). Stamp when first seen, and — once the first
+  // full connection sync is done (so the existing baseline doesn't all fire) — emit connection.accepted.
+  const newlyConnected = rows.filter((r) => r.isConnection && !alreadyConnected.has(r.publicId as string));
+  if (newlyConnected.length) {
+    await sql`
+      UPDATE contacts SET connected_seen_at = now()
+      WHERE account_id = ${accountId} AND connected_seen_at IS NULL AND public_id IN ${sql(newlyConnected.map((r) => r.publicId as string))}`;
+    const [acct] = await sql`SELECT connections_synced_at FROM accounts WHERE id = ${accountId}`;
+    if (acct?.connectionsSyncedAt) {
+      const account = await accountRef(accountId);
+      for (const r of newlyConnected) {
+        const memberUrn = (r.memberUrn as string | null) ?? null;
+        const publicId = r.publicId as string;
+        // A new connection matching one of our pending invitations = they accepted us (match by either id).
+        const [inv] = await sql`
+          UPDATE invitations SET status = 'accepted', accepted_at = now()
+          WHERE account_id = ${accountId} AND status = 'pending' AND (member_urn = ${memberUrn} OR public_id = ${publicId})
+          RETURNING id`;
+        const person = {
+          memberUrn,
+          publicId,
+          profileUrl: (r.profileUrl as string | null) ?? `https://www.linkedin.com/in/${publicId}/`,
+          name: (r.name as string | null) ?? null,
+        };
+        await emitExtEvent('connection.accepted', { person, account, user: null, invitedByUs: !!inv });
+      }
+    }
   }
   // New profile data (links): prospects waiting for a CRM binding are looked at again right away.
   const urns = rows.map((r) => r.memberUrn).filter((u): u is string => typeof u === 'string' && u.startsWith('urn:li:'));
@@ -459,7 +511,11 @@ export async function onResult(accountId: string, r: BridgeEventMap['result']) {
     });
     if (savedId) {
       const saved = await emitMessage(accountId, savedId, 'message.updated');
-      if (r.ok && saved) await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
+      if (r.ok && saved) {
+        await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
+        // The external feed records every outgoing message (C3); inbox sends are attributed to the teammate who sent it.
+        await feedMessageSent(accountId, saved.conversationId as string, (saved.sentByUserId as string | null) ?? null).catch(() => {});
+      }
     }
   }
   // History backfill paged a thread back to its first message: don't revisit it.

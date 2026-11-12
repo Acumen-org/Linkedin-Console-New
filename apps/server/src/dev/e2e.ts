@@ -3450,6 +3450,66 @@ try {
       'invitation withdrawn',
     );
   });
+
+  await step('Accepted connections (C2): a new connection after first sync emits connection.accepted', async () => {
+    // Pretend the first connection sync is done, so a newly appearing connection counts (not the baseline).
+    await sql`UPDATE accounts SET connections_synced_at = now() WHERE id = ${accountId}`;
+    const urn = `urn:li:fsd_profile:ACoAACC${tag}`;
+    const pub = `acc-${tag}`;
+    // We sent them a request earlier.
+    await emit('invitations', { action: 'sent', by: null, items: [{ memberUrn: urn, publicId: pub, name: 'Accepter', at: Date.now() }] });
+    await until(
+      () => sql`SELECT 1 FROM invitations WHERE member_urn = ${urn} AND status = 'pending'`,
+      (r) => r.length > 0,
+      'invite pending',
+    );
+    // They accept → the connection list now includes them.
+    await emit('contacts', {
+      connections: true,
+      items: [
+        { urn, publicId: pub, name: 'Accepter', headline: 'CTO', avatarUrl: null, profileUrl: `https://www.linkedin.com/in/${pub}/` },
+      ],
+    });
+    await until(
+      () => sql`SELECT status FROM invitations WHERE member_urn = ${urn}`,
+      (r) => r[0]?.status === 'accepted',
+      'invitation marked accepted',
+    );
+    await until(
+      () =>
+        sql`SELECT data->>'invitedByUs' AS by FROM ext_events WHERE type = 'connection.accepted' AND data->'person'->>'publicId' = ${pub}`,
+      (r) => r.length > 0 && r[0].by === 'true',
+      'connection.accepted (invitedByUs) reached the feed',
+    );
+  });
+
+  await step('Outgoing messages (C3): a message typed outside the inbox emits one message.sent to the feed', async () => {
+    const p = person(`urn:li:fsd_profile:ACoAAC3${tag}`, 'C3 Prospect');
+    await emit('conversations', [
+      {
+        urn: conv('C3'),
+        threadId: `2-C3${tag}`,
+        title: null,
+        isGroup: false,
+        unreadCount: 0,
+        lastActivityAt: Date.now(),
+        folder: 'focused',
+        participants: [p],
+      },
+    ]);
+    await until(
+      () => sql`SELECT id FROM conversations WHERE thread_urn = ${`2-C3${tag}`}`,
+      (r) => r.length > 0,
+      'C3 conversation',
+    );
+    // A self (OUTBOUND) message as if typed in Live LinkedIn / a phone — not an inbox send.
+    await emit('messages', [msg('C3', null, 'Hello from live', Date.now())]);
+    await until(
+      () => sql`SELECT 1 FROM ext_events WHERE type = 'message.sent' AND data->'person'->>'memberUrn' = ${p.urn}`,
+      (r) => r.length > 0,
+      'message.sent for the live-typed message reached the feed',
+    );
+  });
 } catch (e) {
   results.push({ name: 'setup', ok: false, error: (e as Error).message });
   console.log(`✘ setup failed

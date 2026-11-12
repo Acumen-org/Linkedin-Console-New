@@ -283,6 +283,11 @@ export async function onSyncResult(accountId: string, r: BridgeEventMap['result'
     }
     if (r.type === 'sync_thread') return false; // counted from the database in the refresh below
   });
+  // The first connection sync has run: from now on, a newly appearing connection is a real acceptance (C2), not part
+  // of the initial baseline — so onContacts may start emitting connection.accepted.
+  if (r.type === 'sync_connections') {
+    await sql`UPDATE accounts SET connections_synced_at = now() WHERE id = ${accountId} AND connections_synced_at IS NULL`;
+  }
   await refreshFirstSync(accountId, r.type !== 'sync_thread');
 }
 

@@ -12,10 +12,16 @@ import { emitWebhook } from './webhooks.ts';
 export const EXT_EVENT_TYPES = ['invitation.sent', 'invitation.withdrawn', 'connection.accepted', 'message.sent'] as const;
 export type ExtEventType = (typeof EXT_EVENT_TYPES)[number];
 
-/** Record an external event to the replayable feed AND queue the signed webhook with the same payload. */
-export async function emitExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<void> {
+/** Record an external event to the replayable feed only (no webhook). Used where a legacy webhook is kept separately
+ * (message.sent keeps its existing payload) so the feed can carry the enriched envelope without changing that webhook. */
+export async function recordExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<void> {
   const payload = { type, at: new Date().toISOString(), ...data };
   await sql`INSERT INTO ext_events (type, data) VALUES (${type}, ${sql.json(payload as never)})`;
+}
+
+/** Record to the replayable feed AND queue the signed webhook with the same payload (new event types). */
+export async function emitExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<void> {
+  await recordExtEvent(type, data);
   await emitWebhook(type as WebhookEvent, data);
 }
 
