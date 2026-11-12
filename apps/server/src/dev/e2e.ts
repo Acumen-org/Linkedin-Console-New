@@ -3338,6 +3338,8 @@ try {
   });
 
   await step('LinkedIn people search: off by default (gated), on → results come back and are audited', async () => {
+    // Search/invite require the account CONNECTED; an earlier recovery test may have left it otherwise.
+    await sql`UPDATE accounts SET status = 'CONNECTED', send_paused = false, paused_reason = NULL WHERE id = ${accountId}`;
     // Off by default → the search route refuses with 409.
     await owner('PUT', '/api/integrations', { searchEnabled: false });
     assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 409, 'search off → 409');
