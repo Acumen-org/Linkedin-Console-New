@@ -28,6 +28,7 @@ interface Stored {
   crmAutoCreate?: boolean;
   crmAutoBind?: boolean;
   crmFuzzyBind?: boolean;
+  searchEnabled?: boolean;
   twenty?: StoredTwenty | null;
   microsoft?: StoredMicrosoft | null;
   staffSync?: { mode?: 'off' | 'disable' | 'provision'; source?: 'twilio' | 'twenty' };
@@ -41,6 +42,7 @@ function toOverrides(s: Stored): IntegrationOverrides {
   if (typeof s.crmAutoCreate === 'boolean') o.crmAutoCreate = s.crmAutoCreate;
   if (typeof s.crmAutoBind === 'boolean') o.crmAutoBind = s.crmAutoBind;
   if (typeof s.crmFuzzyBind === 'boolean') o.crmFuzzyBind = s.crmFuzzyBind;
+  if (typeof s.searchEnabled === 'boolean') o.searchEnabled = s.searchEnabled;
   if (s.twenty !== undefined) {
     // A stored connection whose key can't be decrypted (CREDENTIALS_KEY gone) falls back to env instead of breaking.
     const apiKey = s.twenty?.apiKeyEnc ? safeDecrypt(s.twenty.apiKeyEnc) : '';
@@ -118,6 +120,7 @@ export interface IntegrationView {
   crmAutoCreate: boolean;
   crmAutoBind: boolean;
   crmFuzzyBind: boolean;
+  searchEnabled: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -133,6 +136,7 @@ export function currentIntegrations(): IntegrationView {
     crmAutoCreate: config.crmAutoCreate,
     crmAutoBind: config.crmAutoBind,
     crmFuzzyBind: config.crmFuzzyBind,
+    searchEnabled: config.searchEnabled,
     twenty: t ? { url: t.url, webUrl: t.webUrl, ownerField: t.ownerField, podField: t.podField, apiKeySet: !!t.apiKey } : null,
     microsoft: m ? { tenantId: m.tenantId, clientId: m.clientId, clientSecretSet: !!m.clientSecret } : null,
     staffSync: { mode: config.staffSync.mode, source: config.staffSync.source },
@@ -144,6 +148,7 @@ export interface IntegrationUpdate {
   crmAutoCreate?: boolean;
   crmAutoBind?: boolean;
   crmFuzzyBind?: boolean;
+  searchEnabled?: boolean;
   twenty?: { url?: string; apiKey?: string; webUrl?: string; ownerField?: string; podField?: string; disable?: boolean };
   microsoft?: { tenantId?: string; clientId?: string; clientSecret?: string; disable?: boolean };
   staffSync?: { mode?: 'off' | 'disable' | 'provision'; source?: 'twilio' | 'twenty' };
@@ -160,6 +165,7 @@ export async function saveIntegrations(update: IntegrationUpdate): Promise<Integ
   if (typeof update.crmAutoCreate === 'boolean') next.crmAutoCreate = update.crmAutoCreate;
   if (typeof update.crmAutoBind === 'boolean') next.crmAutoBind = update.crmAutoBind;
   if (typeof update.crmFuzzyBind === 'boolean') next.crmFuzzyBind = update.crmFuzzyBind;
+  if (typeof update.searchEnabled === 'boolean') next.searchEnabled = update.searchEnabled;
 
   if (update.twenty) {
     const u = update.twenty;

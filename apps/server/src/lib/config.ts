@@ -25,13 +25,17 @@ const Env = z.object({
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),
   // New chats (cold outreach) per account per day, within DAILY_SEND_CAP.
   NEW_CHAT_CAP: z.coerce.number().int().min(0).default(20),
+  // People-searches per account per day (the Search section's in-app automated search). Conservative: searching all of
+  // LinkedIn via automation is a prime restriction trigger, so it's admin-gated (searchEnabled) and capped.
+  SEARCH_CAP_PER_DAY: z.coerce.number().int().min(0).default(100),
   // Soft weekly invite target shown for pacing (below LinkedIn's ~100/week); the console enforces nothing with it.
   // Observation-only: the console never sends invites; this is just the pacing number the external feed reports.
   INVITE_WEEKLY_LIMIT: z.coerce.number().int().min(0).default(80),
   // CRM profile lookups (member URN → vanity id) per account per day. This is the only automated call the console makes
   // to LinkedIn beyond syncing the account's own data; it's LinkedIn's own lightweight identity finder (not a profile
-  // page) and is already paced per worker tick, so the daily cap is just a gentle runaway guard. 0 = no daily cap.
-  RESOLVE_CAP_PER_DAY: z.coerce.number().int().min(0).default(20),
+  // page) and is already paced per worker tick. Kept tight (ext-feed review: ≤5/account/day) now that C8 learns most
+  // vanity ids passively from profiles a teammate views. 0 = no daily cap.
+  RESOLVE_CAP_PER_DAY: z.coerce.number().int().min(0).default(5),
   // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
   SEND_RAMP: z.enum(['on', 'off']).default('on'),
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
@@ -145,6 +149,7 @@ export interface IntegrationOverrides {
   crmAutoBind?: boolean;
   crmAutoCreate?: boolean;
   crmFuzzyBind?: boolean;
+  searchEnabled?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -225,6 +230,15 @@ export const config = {
   // always on regardless. A wrong fuzzy bind is reversible (admin unbind) and audited with its score.
   get crmFuzzyBind(): boolean {
     return overrides.crmFuzzyBind ?? false;
+  },
+  // In-app automated people-search (the Search section). Off by default — an admin turns it on, because searching all of
+  // LinkedIn via automation is a prime restriction trigger. Paced + capped (SEARCH_CAP_PER_DAY). Read-only: never
+  // auto-connects (connecting is a human click in Live). "Search in Live" needs none of this — it's human-operated.
+  get searchEnabled(): boolean {
+    return overrides.searchEnabled ?? false;
+  },
+  get searchCapPerDay(): number {
+    return e.SEARCH_CAP_PER_DAY;
   },
   get inviteWeeklyLimit(): number {
     return e.INVITE_WEEKLY_LIMIT;

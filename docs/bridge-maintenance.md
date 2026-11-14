@@ -23,9 +23,25 @@ The bridge (`apps/sidecar/src/bridge/`) is the only part that depends on LinkedI
 6. If something's missing, copy a capture locally, turn it into an anonymized fixture in `apps/sidecar/test/`, adjust `extract.ts` until `pnpm --filter @linkedin-console/sidecar test` passes, then `./scripts/update.sh`.
 7. Turn capture off again: `./scripts/capture.sh off` (also deletes the captured files; they contain private messages). Delete `captures/` when done.
 
-## People search (the Search section) — observation-only
+## People search (the Search section)
 
-The console does **not** search LinkedIn or send connection requests itself: automated search and auto-invite are the top account-ban triggers, so they were removed. The **Search** section opens LinkedIn's own people-search inside the account's **Live** session (`/accounts/:id/live?search=<keywords>` → the viewer navigates the real session to `/search/results/people/?keywords=…` once, when the teammate holds control — the same one-shot mechanism as `?profile=`). A human browses the results and clicks LinkedIn's own **Connect**. There is no `search.ts`/`search-dom.ts`, no `sendInvite`, no `/api/accounts/:id/search` or `/api/accounts/:id/invite` route, and no `searchEnabled` toggle. Nothing here needs a capture pass, because the console issues no search or invite calls of its own.
+The **Search** section has two modes, and the console **never sends connection requests itself** — auto-invite (`sendInvite`, `/api/accounts/:id/invite`) was removed because it's a top ban trigger. Connecting is always a human click via **Connect in Live**.
+
+- **Search in Live** (no automation, no setup): opens LinkedIn's own people-search inside the account's **Live** session (`/accounts/:id/live?search=<keywords>` → the viewer navigates the real session to `/search/results/people/?keywords=…` once, when the teammate holds control — the same one-shot mechanism as `?profile=`). A human browses and connects. Nothing here needs a capture pass.
+- **In-app search** (automated, **admin-gated + capped**): the console drives LinkedIn's search and lists read-only results in the console. Off by default (`searchEnabled`), `SEARCH_CAP_PER_DAY`/account, paced. It was written **without a real logged-in account to test against**, so verify it once (below) before relying on it. Deliberately isolated:
+
+| File | Responsibility | Changes when LinkedIn… |
+|---|---|---|
+| `search.ts` | Collects the intercepted search JSON (and DOM-scrapes as a fallback), detects the commercial-use limit | redesigns the search results page |
+| `search-dom.ts` | Pure: `parseSearchJson` walks the whole response tree + matches people by shape; `resultsFromCards` turns scraped cards into results | changes the result entity shape / card text order |
+
+### Verify the in-app search once (non-critical account, `searchEnabled` on)
+
+1. Admin → **Settings → Integrations → LinkedIn people search (in-app) → On**. Connect a non-critical account and log in.
+2. `./scripts/capture.sh on`, then in the **Search** section run a query with that account and press **Search**.
+3. Check the results against the account's real LinkedIn search (open `/search/results/people/?keywords=…` in Live View): names, 2nd/3rd **degree** badges, headline/location look right (not "Connect"/"Message" chrome). If empty but Live shows results, the response shape changed — fix `parseSearchJson`/`scrapeCards` (`pnpm --filter @linkedin-console/sidecar test` covers `search-dom.ts`).
+4. Confirm the guards: a search is **audited** (`network.search`), the daily cap (`SEARCH_CAP_PER_DAY`) and the admin toggle behave, and **no Connect is ever auto-sent** (the only way to connect is the per-row **Connect in Live** link).
+5. `./scripts/capture.sh off` and delete `captures/`.
 
 ### Observing invitations for the event feed (C1)
 
@@ -57,6 +73,7 @@ With `HEAL_PROVIDER` set, a broken composer, Send or profile-Message selector do
 | "Fetch older history" does nothing | GraphQL query name changed | `rememberTemplate()` in `reader.ts` |
 | Text replies take a few seconds instead of under a second | No send template (first send of the account, or LinkedIn rejected the old one; the log says `learned the send request` once it's back) | Usually nothing: the next UI send re-learns it. If it never comes back, check `isCreateMessageRequest` in `send-template.ts` |
 | Connections page empty | Connections page now server-rendered | DOM fallback in `loadConnections()` |
+| In-app search returns nothing / wrong rows (but Live shows results) | Search response shape or card markup changed | `parseSearchJson` / `scrapeCards` in `search-dom.ts`, collection in `search.ts` |
 | "Search in Live" opens Live but not the search | `?search=` not forwarded or the viewer navigate changed | `maybeGoto()` in `apps/sidecar/public/index.html`, `liveQuery` in `LivePage.tsx` |
 | A connection request made in Live isn't tracked | Invite endpoint/body shape changed | `INVITE_URL` / `findMemberUrn` in `invites.ts` (observer only) |
 

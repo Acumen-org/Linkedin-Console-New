@@ -494,6 +494,37 @@ async function fakeBridge() {
       // History syncs are confirmed like the real bridge does (the conversation's history is then "in").
       if (cmd.type === 'sync_thread')
         await emitResult({ cmdId: cmd.cmdId, type: cmd.type, ok: true, conversationUrn: cmd.conversationUrn });
+      // People search: reply with a couple of fake results (one vanity, one obfuscated/URN-only), like the sidecar does.
+      if (cmd.type === 'search_people') {
+        await redis.rpush(
+          `li:reply:${cmd.cmdId}`,
+          JSON.stringify({
+            ok: true,
+            total: null,
+            results: [
+              {
+                memberUrn: null,
+                name: `${cmd.keywords} One`,
+                headline: 'Head of Growth',
+                location: 'London',
+                degree: 2,
+                profileUrl: `https://www.linkedin.com/in/${cmd.keywords.toLowerCase()}-one/`,
+                avatarUrl: null,
+              },
+              {
+                memberUrn: 'urn:li:fsd_profile:ACoAATEST',
+                name: `${cmd.keywords} Two`,
+                headline: null,
+                location: null,
+                degree: 3,
+                profileUrl: null,
+                avatarUrl: null,
+              },
+            ],
+          }),
+        );
+        continue;
+      }
       // Profile lookup: reply on the request/response list, like the sidecar's resolve_profile does.
       if (cmd.type === 'resolve_profile') {
         const publicId = vanityByMember[cmd.memberUrn];
@@ -3301,22 +3332,39 @@ try {
     assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);
   });
 
-  await step('observation-only: automated people-search and auto-invite are gone (searching/connecting happen in Live)', async () => {
+  await step('in-app people search: admin-gated + capped (on → results, audited); auto-invite stays gone', async () => {
     await sql`UPDATE accounts SET status = 'CONNECTED', send_paused = false, paused_reason = NULL WHERE id = ${accountId}`;
-    // The console no longer runs automated searches or sends connection requests itself — the top account-ban triggers.
-    // People search opens LinkedIn's own search in Live, where a human browses and connects; the bridge only observes.
-    // These routes must stay removed (a 404 proves there's no automated path), and the admin toggle must be gone.
-    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 404, 'no automated people-search route');
+    // Off by default → the search route refuses with 409.
+    await owner('PUT', '/api/integrations', { searchEnabled: false });
+    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 409, 'search off → 409');
+    // Turn it on → fakeBridge replies with results; the search is audited and the command reaches the bridge.
+    await owner('PUT', '/api/integrations', { searchEnabled: true });
+    assert.equal((await owner('GET', '/api/integrations')).data.settings.searchEnabled, true);
+    const res = await owner('GET', `/api/accounts/${accountId}/search?q=alice&page=1`);
+    assert.equal(res.status, 200, 'search returns results when enabled');
+    assert.ok(Array.isArray(res.data.results) && res.data.results.length >= 1, 'results returned');
+    assert.equal(res.data.results[0].name, 'alice One');
+    assert.ok(
+      commands.some((c) => c.type === 'search_people' && c.keywords === 'alice'),
+      'a search_people command reached the bridge',
+    );
+    assert.ok(
+      (await sql`SELECT 1 FROM audit_log WHERE action = 'network.search' AND account_id = ${accountId}`).length >= 1,
+      'the search was audited',
+    );
+    await owner('PUT', '/api/integrations', { searchEnabled: false });
+    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 409, 'turned off again → 409');
+    // Auto-invite stays removed — connecting is a human click in Live, never automated. The route is gone and the
+    // console never issues an invite command.
     assert.equal(
       (await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' })).status,
       404,
       'no auto-invite route',
     );
-    assert.equal('searchEnabled' in (await owner('GET', '/api/integrations')).data.settings, false, 'no searchEnabled setting');
     assert.equal(
-      commands.some((c) => c.type === 'search_people' || c.type === 'invite'),
+      commands.some((c) => c.type === 'invite'),
       false,
-      'no search_people / invite command ever reached the bridge',
+      'no invite command ever reached the bridge',
     );
   });
 

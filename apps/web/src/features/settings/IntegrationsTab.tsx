@@ -11,6 +11,7 @@ interface IntegrationView {
   crmAutoBind: boolean;
   crmAutoCreate: boolean;
   crmFuzzyBind: boolean;
+  searchEnabled: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -92,6 +93,33 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           Until then keep those secrets in the server environment; the toggles and field names below still work.
         </div>
       )}
+
+      <section className="card p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">LinkedIn people search (in-app)</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={s.searchEnabled}
+              disabled={!!busy}
+              onChange={(e) =>
+                run('search', async () => {
+                  await put({ searchEnabled: e.target.checked });
+                  toast(e.target.checked ? 'In-app search on' : 'In-app search off', 'success');
+                  onChanged();
+                })
+              }
+            />
+            <span>{s.searchEnabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <p className="text-sm text-muted">
+          Lets the team run the <b>Search</b> section's in-app search — the console drives LinkedIn's search and lists results here, paced
+          and capped per account per day. Off by default: automated search is a high-risk action for an account, so turn it on deliberately.
+          Connecting is always a human click via <b>Connect in Live</b> (never automated), and the <b>Search in Live</b> button works with
+          this off.
+        </p>
+      </section>
 
       <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">

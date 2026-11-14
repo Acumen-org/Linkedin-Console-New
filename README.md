@@ -85,7 +85,7 @@ See [docs/development.md](docs/development.md) for local setup, the bridge simul
   - CI runs the same 21-check end-to-end test against the Docker stack
 - **Not yet verified against a real logged-in LinkedIn account:**
   - the bridge's data extraction and sending selectors
-  - the connection-request **observer** (`parseInvite`, for the event feed) — the console never searches or sends invites itself; the Search section opens LinkedIn's own search in Live (see [docs/bridge-maintenance.md](docs/bridge-maintenance.md))
+  - the in-app people-search extraction (admin-gated, read-only) and the connection-request **observer** (`parseInvite`, for the event feed) — the console never sends invites itself; connecting is a human click via "Connect in Live" (see [docs/bridge-maintenance.md](docs/bridge-maintenance.md))
   - live AI calls
   - [docs/bridge-maintenance.md](docs/bridge-maintenance.md) is the checklist for your first non-critical account
 
