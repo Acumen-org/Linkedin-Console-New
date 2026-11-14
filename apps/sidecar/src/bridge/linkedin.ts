@@ -130,34 +130,3 @@ export async function resolveVanity(ctx: BridgeContext, memberUrn: string): Prom
 export async function hasSessionCookie(ctx: BridgeContext) {
   return (await ctx.context.cookies(LINKEDIN)).some((c) => c.name === 'li_at' && !!c.value);
 }
-
-/** The LinkedIn member id (profileId) from a member URN (urn:li:fsd_profile:ACoAA… → ACoAA…). */
-export const memberIdOf = (memberUrn: string) => memberUrn.replace(/^urn:li:fsd_profile:/, '');
-
-/**
- * Sends a connection request via LinkedIn's own invitations request. `already` when an invite is already pending or
- * the person is already connected (LinkedIn returns a 4xx for those). NOTE: this endpoint/shape drifts and is NOT
- * verified against a real logged-in account — check it first in a bridge-maintenance pass (docs/bridge-maintenance.md).
- */
-export async function sendInvite(
-  ctx: BridgeContext,
-  memberUrn: string,
-  note?: string,
-): Promise<{ ok: boolean; already?: boolean; status: number }> {
-  const trackingId = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');
-  const body = JSON.stringify({
-    invitee: { 'com.linkedin.voyager.growth.invitation.InviteeProfile': { profileId: memberIdOf(memberUrn) } },
-    trackingId,
-    ...(note?.trim() ? { message: note.trim().slice(0, 300) } : {}),
-  });
-  const r = await inPageFetch(
-    ctx,
-    `${LINKEDIN}/voyager/api/growth/normInvitations`,
-    { accept: 'application/json', 'content-type': 'application/json', 'x-restli-protocol-version': '2.0.0' },
-    { method: 'POST', body },
-  );
-  if (r.status === 200 || r.status === 201) return { ok: true, status: r.status };
-  // LinkedIn answers 409/422 when an invite already exists or they're already a connection.
-  if (r.status === 409 || r.status === 422) return { ok: true, already: true, status: r.status };
-  return { ok: false, status: r.status };
-}

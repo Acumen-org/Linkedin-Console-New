@@ -14,7 +14,7 @@ import { HttpError } from '../lib/errors.ts';
 import { disableAutoCreate } from '../lib/integrations.ts';
 import { logger } from '../lib/logger.ts';
 import { decide, rankCandidates } from '../lib/match-score.ts';
-import { publish } from '../lib/redis.ts';
+import { publish, redis } from '../lib/redis.ts';
 import {
   createPerson,
   deleteConversationRecordsForPerson,
@@ -167,6 +167,15 @@ const OBFUSCATED_URL = /\/in\/ACoA[A-Za-z0-9_-]+\/?$/i;
 async function resolveVanityUrl(accountId: string, memberUrn: string): Promise<string | null> {
   const [acct] = await sql`SELECT status FROM accounts WHERE id = ${accountId}`;
   if (acct?.status !== 'CONNECTED') return null;
+  // Daily per-account cap: the profile lookup is the only automated LinkedIn call the console makes beyond syncing
+  // the account's own data, so keep it gentle. Over the cap, the prospect stays queued and resolves another day.
+  const cap = config.resolveCapPerDay;
+  if (cap) {
+    const key = `lu:resolve:${accountId}:${new Date().toISOString().slice(0, 10)}`;
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, 36 * 3600);
+    if (n > cap) return null;
+  }
   try {
     const reply = await requestCommand<ResolveProfileReply>(accountId, { type: 'resolve_profile', memberUrn }, 30);
     if (reply.ok && reply.publicId) {

@@ -25,12 +25,13 @@ const Env = z.object({
   DAILY_SEND_CAP: z.coerce.number().int().positive().default(80),
   // New chats (cold outreach) per account per day, within DAILY_SEND_CAP.
   NEW_CHAT_CAP: z.coerce.number().int().min(0).default(20),
-  // People-searches per account per day (the Search section). Conservative: searching is a prime restriction trigger.
-  SEARCH_CAP_PER_DAY: z.coerce.number().int().min(0).default(100),
-  // Connection requests per account per day (from search results). Very conservative — invites are heavily policed.
-  INVITE_CAP_PER_DAY: z.coerce.number().int().min(0).default(20),
   // Soft weekly invite target shown for pacing (below LinkedIn's ~100/week); the console enforces nothing with it.
+  // Observation-only: the console never sends invites; this is just the pacing number the external feed reports.
   INVITE_WEEKLY_LIMIT: z.coerce.number().int().min(0).default(80),
+  // CRM profile lookups (member URN → vanity id) per account per day. This is the only automated call the console makes
+  // to LinkedIn beyond syncing the account's own data; it's LinkedIn's own lightweight identity finder (not a profile
+  // page) and is already paced per worker tick, so the daily cap is just a gentle runaway guard. 0 = no daily cap.
+  RESOLVE_CAP_PER_DAY: z.coerce.number().int().min(0).default(20),
   // Newly connected accounts start at RAMP_START sends/day and add RAMP_STEP per day up to their cap.
   SEND_RAMP: z.enum(['on', 'off']).default('on'),
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
@@ -144,7 +145,6 @@ export interface IntegrationOverrides {
   crmAutoBind?: boolean;
   crmAutoCreate?: boolean;
   crmFuzzyBind?: boolean;
-  searchEnabled?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -226,19 +226,11 @@ export const config = {
   get crmFuzzyBind(): boolean {
     return overrides.crmFuzzyBind ?? false;
   },
-  // LinkedIn people-search (the Search section). Off by default — an admin turns it on, because searching all of
-  // LinkedIn via automation is the highest-risk action for an account. Paced + capped (SEARCH_CAP_PER_DAY).
-  get searchEnabled(): boolean {
-    return overrides.searchEnabled ?? false;
-  },
-  get searchCapPerDay(): number {
-    return e.SEARCH_CAP_PER_DAY;
-  },
-  get inviteCapPerDay(): number {
-    return e.INVITE_CAP_PER_DAY;
-  },
   get inviteWeeklyLimit(): number {
     return e.INVITE_WEEKLY_LIMIT;
+  },
+  get resolveCapPerDay(): number {
+    return e.RESOLVE_CAP_PER_DAY;
   },
   get twenty(): TwentyConn | null {
     return overrides.twenty !== undefined ? overrides.twenty : envTwenty;

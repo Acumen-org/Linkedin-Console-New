@@ -248,14 +248,17 @@ export async function onMessages(accountId: string, items: LiMessage[]) {
     if (!prev || prev.sentAt <= sentAt) newest.set(conversationId, { sentAt, preview: preview(m), own });
     const saved = await emitMessage(accountId, messageId, event);
     if (freshInbound && saved) {
-      await emitWebhook('message.received', { accountId, conversationId, message: saved });
+      // Record to the replayable feed (message.received) and stamp the webhook with the same feed seq so a consumer
+      // can order and de-dupe the two.
+      const seq = await feedMessageReceived(accountId, conversationId, m.senderUrn, ts(m.sentAt)).catch(() => null);
+      await emitWebhook('message.received', { accountId, conversationId, message: saved, seq });
       await notifyNewMessage(accountId, conversationId, saved).catch(() => {});
     }
     // An outgoing message stored for the first time that was NOT an inbox send (typed in Live LinkedIn or on a phone):
     // record it to the external feed (C3). Inbox sends are a message.updated merge here and emit from onResult instead,
     // so each message produces exactly one message.sent.
     if (event === 'message.created' && m.fromSelf && saved) {
-      await feedMessageSent(accountId, conversationId, (saved.sentByUserId as string | null) ?? null).catch(() => {});
+      await feedMessageSent(accountId, conversationId, (saved.sentByUserId as string | null) ?? null, ts(m.sentAt)).catch(() => {});
     }
   }
   // The time never goes backwards.
@@ -319,22 +322,40 @@ export async function onInvitations(accountId: string, data: BridgeEventMap['inv
       const refs = await eventRefs(accountId, memberUrn, by);
       await emitExtEvent('invitation.withdrawn', { ...refs });
     } else {
-      // pending_list: a Sent-invitations page a teammate opened (picks up phone-sent requests). Record, no event.
-      await sql`
+      // pending_list: a Sent-invitations page a teammate opened (picks up phone-sent requests). Record it, and emit
+      // invitation.sent (source 'sent_list') only when it's newly seen, so phone-sent invites reach the feed too
+      // without a duplicate (the unique pending index + RETURNING makes this fire at most once per pending invite).
+      const [ins] = await sql`
         INSERT INTO invitations (id, account_id, member_urn, public_id, status, sent_at, source)
         VALUES (${newId('inv')}, ${accountId}, ${memberUrn}, ${item.publicId ?? null}, 'pending', ${new Date(item.at)}, 'sent_list')
-        ON CONFLICT (account_id, member_urn) WHERE status = 'pending' DO NOTHING`;
+        ON CONFLICT (account_id, member_urn) WHERE status = 'pending' DO NOTHING
+        RETURNING id`;
+      if (ins) {
+        const refs = await eventRefs(accountId, memberUrn, null);
+        await emitExtEvent('invitation.sent', { ...refs, note: item.note ?? null, source: 'sent_list' });
+      }
     }
   }
 }
 
-/** Record an outgoing message in the external feed (C3): one `message.sent` per message, to the person it went to. */
-async function feedMessageSent(accountId: string, conversationId: string, sentByUserId: string | null) {
+/** Record an outgoing message in the external feed (C3): one `message.sent` per message, to the person it went to.
+ * Stamped with the message's own time (not "now"), and returns the feed `seq` so the caller can stamp the webhook. */
+async function feedMessageSent(accountId: string, conversationId: string, sentByUserId: string | null, at: Date): Promise<number | null> {
   const [c] = await sql`SELECT is_group, participants FROM conversations WHERE id = ${conversationId}`;
-  if (!c || c.isGroup) return; // the feed tracks 1:1 outreach
+  if (!c || c.isGroup) return null; // the feed tracks 1:1 outreach
   const memberUrn = (c.participants?.[0]?.urn as string | undefined) ?? null;
   const refs = await eventRefs(accountId, memberUrn, sentByUserId);
-  await recordExtEvent('message.sent', { ...refs, conversationId, at: new Date().toISOString() });
+  return recordExtEvent('message.sent', { ...refs, conversationId, at: at.toISOString() });
+}
+
+/** Record an incoming message in the external feed (mirror of message.sent): one `message.received` per fresh inbound
+ * message, identifying the person who wrote it (no teammate). Stamped with the message's own time; returns the feed
+ * `seq` so the caller can stamp the webhook to match. */
+async function feedMessageReceived(accountId: string, conversationId: string, senderUrn: string | null, at: Date): Promise<number | null> {
+  const [c] = await sql`SELECT is_group FROM conversations WHERE id = ${conversationId}`;
+  if (!c || c.isGroup) return null; // the feed tracks 1:1 outreach
+  const refs = await eventRefs(accountId, senderUrn, null);
+  return recordExtEvent('message.received', { ...refs, conversationId, at: at.toISOString() });
 }
 
 /** Member↔vanity pairs learned from a profile a teammate viewed (C8): remember them for CRM matching, nothing else. */
@@ -523,9 +544,16 @@ export async function onResult(accountId: string, r: BridgeEventMap['result']) {
     if (savedId) {
       const saved = await emitMessage(accountId, savedId, 'message.updated');
       if (r.ok && saved) {
-        await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved });
         // The external feed records every outgoing message (C3); inbox sends are attributed to the teammate who sent it.
-        await feedMessageSent(accountId, saved.conversationId as string, (saved.sentByUserId as string | null) ?? null).catch(() => {});
+        // Record to the feed first so the webhook can carry the same feed seq (stamped with the message's own time).
+        const at = saved.sentAt ? new Date(saved.sentAt as string | number | Date) : new Date();
+        const seq = await feedMessageSent(
+          accountId,
+          saved.conversationId as string,
+          (saved.sentByUserId as string | null) ?? null,
+          at,
+        ).catch(() => null);
+        await emitWebhook('message.sent', { accountId, conversationId: saved.conversationId, message: saved, seq });
       }
     }
   }

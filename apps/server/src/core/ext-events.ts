@@ -9,20 +9,33 @@ import { redis } from '../lib/redis.ts';
 import { emitWebhook } from './webhooks.ts';
 
 /** The event types the external feed carries (a subset of WEBHOOK_EVENTS; all also delivered as signed webhooks). */
-export const EXT_EVENT_TYPES = ['invitation.sent', 'invitation.withdrawn', 'connection.accepted', 'message.sent'] as const;
+export const EXT_EVENT_TYPES = [
+  'invitation.sent',
+  'invitation.withdrawn',
+  'connection.accepted',
+  'message.sent',
+  'message.received',
+] as const;
 export type ExtEventType = (typeof EXT_EVENT_TYPES)[number];
 
-/** Record an external event to the replayable feed only (no webhook). Used where a legacy webhook is kept separately
- * (message.sent keeps its existing payload) so the feed can carry the enriched envelope without changing that webhook. */
-export async function recordExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<void> {
+/** Record an external event to the replayable feed only (no webhook) and return its feed `seq` (the feed's cursor and
+ * the stable id for de-duping against webhook deliveries). Used where a legacy webhook is kept separately (message.sent
+ * / message.received keep their existing payload) so the feed can carry the enriched envelope without changing that
+ * webhook — the caller stamps this seq onto the webhook so a consumer can match the two. */
+export async function recordExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<number> {
   const payload = { type, at: new Date().toISOString(), ...data };
-  await sql`INSERT INTO ext_events (type, data) VALUES (${type}, ${sql.json(payload as never)})`;
+  const [row] = await sql<
+    { seq: string }[]
+  >`INSERT INTO ext_events (type, data) VALUES (${type}, ${sql.json(payload as never)}) RETURNING seq`;
+  return Number(row.seq);
 }
 
-/** Record to the replayable feed AND queue the signed webhook with the same payload (new event types). */
-export async function emitExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<void> {
-  await recordExtEvent(type, data);
-  await emitWebhook(type as WebhookEvent, data);
+/** Record to the replayable feed AND queue the signed webhook with the same payload, stamped with the feed `seq` so a
+ * webhook consumer can order deliveries and de-dupe them against the feed. */
+export async function emitExtEvent(type: ExtEventType, data: Record<string, unknown>): Promise<number> {
+  const seq = await recordExtEvent(type, data);
+  await emitWebhook(type as WebhookEvent, { seq, ...data });
+  return seq;
 }
 
 /** Delete feed events older than 90 days; runs at most once a day (scheduled). */

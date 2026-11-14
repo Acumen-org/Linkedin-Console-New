@@ -494,42 +494,6 @@ async function fakeBridge() {
       // History syncs are confirmed like the real bridge does (the conversation's history is then "in").
       if (cmd.type === 'sync_thread')
         await emitResult({ cmdId: cmd.cmdId, type: cmd.type, ok: true, conversationUrn: cmd.conversationUrn });
-      // People search: reply with a couple of fake results (one vanity, one obfuscated/URN-only), like the sidecar does.
-      if (cmd.type === 'search_people') {
-        await redis.rpush(
-          `li:reply:${cmd.cmdId}`,
-          JSON.stringify({
-            ok: true,
-            total: null,
-            results: [
-              {
-                memberUrn: null,
-                name: `${cmd.keywords} One`,
-                headline: 'Head of Growth',
-                location: 'London',
-                degree: 2,
-                profileUrl: `https://www.linkedin.com/in/${cmd.keywords.toLowerCase()}-one/`,
-                avatarUrl: null,
-              },
-              {
-                memberUrn: 'urn:li:fsd_profile:ACoAATEST',
-                name: `${cmd.keywords} Two`,
-                headline: null,
-                location: null,
-                degree: 3,
-                profileUrl: null,
-                avatarUrl: null,
-              },
-            ],
-          }),
-        );
-        continue;
-      }
-      // Connection request: the fake bridge just confirms it was sent.
-      if (cmd.type === 'invite') {
-        await redis.rpush(`li:reply:${cmd.cmdId}`, JSON.stringify({ ok: true, already: false }));
-        continue;
-      }
       // Profile lookup: reply on the request/response list, like the sidecar's resolve_profile does.
       if (cmd.type === 'resolve_profile') {
         const publicId = vanityByMember[cmd.memberUrn];
@@ -3337,43 +3301,23 @@ try {
     assert.equal((await owner('PUT', '/api/integrations', { twenty: { url: 'not-a-url' } })).status, 400);
   });
 
-  await step('LinkedIn people search: off by default (gated), on → results come back and are audited', async () => {
-    // Search/invite require the account CONNECTED; an earlier recovery test may have left it otherwise.
+  await step('observation-only: automated people-search and auto-invite are gone (searching/connecting happen in Live)', async () => {
     await sql`UPDATE accounts SET status = 'CONNECTED', send_paused = false, paused_reason = NULL WHERE id = ${accountId}`;
-    // Off by default → the search route refuses with 409.
-    await owner('PUT', '/api/integrations', { searchEnabled: false });
-    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 409, 'search off → 409');
-    // Turn it on → fakeBridge replies with results.
-    await owner('PUT', '/api/integrations', { searchEnabled: true });
-    assert.equal((await owner('GET', '/api/integrations')).data.settings.searchEnabled, true);
-    const res = await owner('GET', `/api/accounts/${accountId}/search?q=alice&page=1`);
-    assert.equal(res.status, 200, 'search returns results when enabled');
-    assert.ok(Array.isArray(res.data.results) && res.data.results.length >= 1, 'results returned');
-    assert.equal(res.data.results[0].name, 'alice One');
-    assert.ok(
-      commands.some((c) => c.type === 'search_people' && c.keywords === 'alice'),
-      'a search_people command reached the bridge',
+    // The console no longer runs automated searches or sends connection requests itself — the top account-ban triggers.
+    // People search opens LinkedIn's own search in Live, where a human browses and connects; the bridge only observes.
+    // These routes must stay removed (a 404 proves there's no automated path), and the admin toggle must be gone.
+    assert.equal((await owner('GET', `/api/accounts/${accountId}/search?q=alice`)).status, 404, 'no automated people-search route');
+    assert.equal(
+      (await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' })).status,
+      404,
+      'no auto-invite route',
     );
-    const audited = await sql`SELECT 1 FROM audit_log WHERE action = 'network.search' AND account_id = ${accountId}`;
-    assert.ok(audited.length >= 1, 'the search was audited');
-
-    // Connection request (phase 2): same gate, its own cap, audited; the bridge receives an invite command.
-    const inv = await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' });
-    assert.equal(inv.status, 200, 'invite sent when search is on');
-    assert.ok(
-      commands.some((c) => c.type === 'invite' && c.memberUrn === 'urn:li:fsd_profile:ACoAATEST'),
-      'an invite command reached the bridge',
+    assert.equal('searchEnabled' in (await owner('GET', '/api/integrations')).data.settings, false, 'no searchEnabled setting');
+    assert.equal(
+      commands.some((c) => c.type === 'search_people' || c.type === 'invite'),
+      false,
+      'no search_people / invite command ever reached the bridge',
     );
-    assert.ok(
-      (await sql`SELECT 1 FROM audit_log WHERE action = 'network.invite' AND account_id = ${accountId}`).length >= 1,
-      'the invite was audited',
-    );
-    // A non-member-URN body is rejected (nothing sent).
-    assert.equal((await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'nope' })).status, 400);
-
-    await owner('PUT', '/api/integrations', { searchEnabled: false });
-    // Turned off → both search and invite are refused.
-    assert.equal((await owner('POST', `/api/accounts/${accountId}/invite`, { memberUrn: 'urn:li:fsd_profile:ACoAATEST' })).status, 409);
   });
 
   await step('Event enrichment (C4): person/account/teammate refs resolve the way the feed will stamp events', async () => {
@@ -3443,6 +3387,25 @@ try {
       () => sql`SELECT 1 FROM ext_events WHERE type = 'invitation.sent' AND data->'person'->>'memberUrn' = ${urn}`,
       (r) => r.length > 0,
       'invitation.sent reached the feed',
+    );
+    // A Sent-invitations page a teammate opened (picks up phone-sent requests) also reaches the feed, as source 'sent_list'.
+    const phoneUrn = `urn:li:fsd_profile:ACoAAPHONE${tag}`;
+    await emit('invitations', {
+      action: 'pending_list',
+      by: null,
+      items: [{ memberUrn: phoneUrn, publicId: `ph-${tag}`, name: 'Phone Sent', at: Date.now() }],
+    });
+    const phone = await until(
+      () => sql`SELECT source FROM invitations WHERE account_id = ${accountId} AND member_urn = ${phoneUrn}`,
+      (r) => r.length > 0,
+      'phone-sent invitation recorded',
+    );
+    assert.equal(phone[0].source, 'sent_list');
+    await until(
+      () =>
+        sql`SELECT data->>'source' AS source FROM ext_events WHERE type = 'invitation.sent' AND data->'person'->>'memberUrn' = ${phoneUrn}`,
+      (r) => r.length > 0 && r[0].source === 'sent_list',
+      'pending_list invitation.sent reached the feed (source sent_list)',
     );
     // Withdrawing it flips the same row to withdrawn.
     await emit('invitations', { action: 'withdrawn', by: null, items: [{ memberUrn: urn, at: Date.now() }] });

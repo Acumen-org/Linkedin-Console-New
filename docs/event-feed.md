@@ -47,12 +47,13 @@ Every event carries the same identity, so you can key on the LinkedIn profile an
 
 | `type` | Extra fields | When |
 |---|---|---|
-| `invitation.sent` | `note`, `source` (`live_view`) | A teammate sent a connection request in Live LinkedIn |
+| `invitation.sent` | `note`, `source` (`live_view` or `sent_list`) | A teammate sent a connection request in Live LinkedIn (`live_view`), or one was first seen on the account's Sent-invitations page — e.g. sent from a phone (`sent_list`) |
 | `invitation.withdrawn` | — | A request was withdrawn |
 | `connection.accepted` | `invitedByUs` (bool) | A new connection appeared; `invitedByUs` = it matched a request we sent |
-| `message.sent` | `conversationId` | Any outgoing message (inbox, Live LinkedIn, or phone), one per message |
+| `message.sent` | `conversationId` | Any outgoing message (inbox, Live LinkedIn, or phone), one per message. `at` is the message's own time |
+| `message.received` | `conversationId` | An incoming 1:1 message; `person` is who wrote it, `user` is null. `at` is the message's own time |
 
-The same `type` values are available as **webhook** subscriptions (Settings → Webhooks), signed with HMAC-SHA256.
+The same `type` values are available as **webhook** subscriptions (Settings → Webhooks), signed with HMAC-SHA256. A webhook body is `{ event, data, at }`; for every feed-backed event above, `data.seq` is the same `seq` the feed row has — use it to order webhook deliveries and de-dupe them against the feed.
 
 ## Consuming
 

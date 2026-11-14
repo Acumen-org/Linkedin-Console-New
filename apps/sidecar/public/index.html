@@ -44,14 +44,20 @@ const $ = (id) => document.getElementById(id);
 const screen = $('screen');
 const base = location.pathname.replace(/\/$/, '');
 let ws, me = null, canControl = false, controllerId = null;
-// C7: open a profile passed as ?profile=<publicId>, once, as if the teammate typed the address — but never take
-// control from someone else (only when control is free or already ours).
-const wantProfile = new URLSearchParams(location.search).get('profile');
+// Open a profile passed as ?profile=<publicId> (C7) or LinkedIn's own people-search passed as ?search=<keywords>,
+// once, as if the teammate typed the address — but never take control from someone else (only when control is free
+// or already ours). We navigate to LinkedIn's real page; the human browses and connects there (no automation).
+const _params = new URLSearchParams(location.search);
+const wantProfile = _params.get('profile');
+const wantSearch = _params.get('search');
 let gotoSent = false;
 function maybeGoto() {
-  if (!wantProfile || gotoSent || !canControl || (controllerId && controllerId !== me)) return;
+  if (gotoSent || (!wantProfile && !wantSearch) || !canControl || (controllerId && controllerId !== me)) return;
   gotoSent = true;
-  send({ t: 'navigate', url: `https://www.linkedin.com/in/${encodeURIComponent(wantProfile)}/` });
+  const url = wantProfile
+    ? `https://www.linkedin.com/in/${encodeURIComponent(wantProfile)}/`
+    : `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(wantSearch)}`;
+  send({ t: 'navigate', url });
   screen.focus();
 }
 
