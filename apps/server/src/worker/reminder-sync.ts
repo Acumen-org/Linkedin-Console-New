@@ -37,7 +37,7 @@ async function pushChanges() {
       const task = {
         title: `Follow up with ${prospect.name} on LinkedIn`,
         markdown: [
-          r.note || 'Follow-up reminder from LinkedIn Console.',
+          r.note || 'Follow-up reminder from Alpha Connect.',
           config.appUrl ? `Open the conversation: ${config.appUrl}/inbox/${r.conversationId}` : '',
         ]
           .filter(Boolean)

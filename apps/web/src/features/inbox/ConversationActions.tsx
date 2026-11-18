@@ -205,7 +205,7 @@ export function SnoozeMenu({
                 snooze(null);
                 close();
               }}
-              className="block w-full rounded px-2 py-1.5 text-left text-sm text-brand dark:text-blue-400 hover:bg-surface-muted"
+              className="block w-full rounded px-2 py-1.5 text-left text-sm text-accent hover:bg-surface-muted"
             >
               Unsnooze now
             </button>
@@ -262,7 +262,7 @@ export function ReminderMenu({
     ['Next Monday 9:00', nextMonday],
     ['In 2 weeks (10 business days)', () => businessMorning(10)],
   ];
-  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600 dark:text-red-400' : 'text-brand dark:text-blue-400') : '';
+  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600 dark:text-red-400' : 'text-accent') : '';
 
   return (
     <Popover

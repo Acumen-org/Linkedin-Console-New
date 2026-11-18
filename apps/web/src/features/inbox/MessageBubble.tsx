@@ -36,7 +36,7 @@ function AttachmentView({ m, i, a, mine }: { m: Message; i: number; a: Attachmen
       return (
         <a
           href={a.uploadId ? `/api/uploads/${a.uploadId}` : mediaUrl(m, i, true)}
-          className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${mine ? 'border-blue-300 dark:border-blue-500/30 bg-blue-600/30 text-white' : 'border-border bg-surface'}`}
+          className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${mine ? 'border-white/25 bg-white/15 text-white' : 'border-border bg-surface'}`}
         >
           <FileText size={22} />
           <div className="min-w-0">
@@ -48,9 +48,7 @@ function AttachmentView({ m, i, a, mine }: { m: Message; i: number; a: Attachmen
       );
     case 'reply':
       return (
-        <div
-          className={`border-l-2 pl-2 text-xs italic ${mine ? 'border-blue-200 dark:border-blue-500/30 text-blue-50' : 'border-border-strong text-subtle'}`}
-        >
+        <div className={`border-l-2 pl-2 text-xs italic ${mine ? 'border-white/30 text-white/80' : 'border-border-strong text-subtle'}`}>
           <CornerUpLeft size={11} className="mr-1 inline" />
           {a.text || 'Reply'}
         </div>
@@ -115,7 +113,7 @@ export function MessageBubble({ m, showSender, isLastOutbound }: { m: Message; s
           )}
           {mine && m.status === 'SENT' && !m.seenAt && <Check size={12} />}
           {mine && m.seenAt && isLastOutbound && (
-            <span className="flex items-center gap-0.5 text-brand dark:text-blue-400">
+            <span className="flex items-center gap-0.5 text-accent">
               <CheckCheck size={12} /> Seen
             </span>
           )}

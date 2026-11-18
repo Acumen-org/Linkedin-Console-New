@@ -235,7 +235,7 @@ export function CrmBindingsTab() {
               {needRows.map((u) => (
                 <tr key={u.memberUrn} className="hover:bg-surface-muted">
                   <td className="px-4 py-2">
-                    <a href={`/inbox/${u.conversationId}`} className="font-medium text-brand dark:text-blue-400 hover:underline">
+                    <a href={`/inbox/${u.conversationId}`} className="font-medium text-accent hover:underline">
                       {u.prospect}
                     </a>
                   </td>
@@ -272,7 +272,7 @@ export function CrmBindingsTab() {
               {rows.map((b) => (
                 <tr key={b.memberUrn} className="hover:bg-surface-muted">
                   <td className="px-4 py-2">
-                    <a href={`/inbox/${b.conversationId}`} className="font-medium text-brand dark:text-blue-400 hover:underline">
+                    <a href={`/inbox/${b.conversationId}`} className="font-medium text-accent hover:underline">
                       {b.prospect}
                     </a>
                   </td>
@@ -282,7 +282,7 @@ export function CrmBindingsTab() {
                         href={b.personUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-brand dark:text-blue-400 hover:underline"
+                        className="inline-flex items-center gap-1 text-accent hover:underline"
                       >
                         <Check size={13} /> {b.personName ?? 'Open in Twenty'} <ExternalLink size={12} />
                       </a>
@@ -303,7 +303,7 @@ export function CrmBindingsTab() {
                         <button
                           type="button"
                           onClick={() => unbind(b)}
-                          className="text-xs text-subtle hover:text-brand dark:hover:text-blue-400 hover:underline"
+                          className="text-xs text-subtle hover:text-brand dark:hover:text-accent hover:underline"
                         >
                           Unbind
                         </button>

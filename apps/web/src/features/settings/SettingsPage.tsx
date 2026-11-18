@@ -36,7 +36,7 @@ export function SettingsPage() {
             key={t.id}
             to={`/settings/${t.id}`}
             className={({ isActive }) =>
-              `-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${isActive || (tab === t.id) ? 'border-brand text-brand dark:text-blue-400' : 'border-transparent text-subtle hover:text-foreground'}`
+              `-mb-px border-b-2 px-4 py-2 text-sm font-semibold ${isActive || (tab === t.id) ? 'border-brand text-accent' : 'border-transparent text-subtle hover:text-foreground'}`
             }
           >
             {t.label}
@@ -251,7 +251,7 @@ function NotificationsTab() {
   return (
     <div className="card max-w-xl space-y-3 p-5">
       <div className="flex items-center gap-3">
-        {enabled ? <Bell className="text-brand dark:text-blue-400" /> : <BellOff className="text-subtle" />}
+        {enabled ? <Bell className="text-accent" /> : <BellOff className="text-subtle" />}
         <div className="flex-1">
           <div className="font-semibold">Push notifications on this device</div>
           <div className="text-sm text-muted">

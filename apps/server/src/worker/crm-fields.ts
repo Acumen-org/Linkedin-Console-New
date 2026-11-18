@@ -27,7 +27,7 @@ const busy = (err: unknown) => /answered (429|5\d\d)|timeout|fetch failed/i.test
 const hash = (v: unknown) => crypto.createHash('sha1').update(JSON.stringify(v)).digest('base64url');
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
 const conversationUrl = (id: string | null) => (id && config.appUrl ? `${config.appUrl}/inbox/${id}` : null);
-const link = (url: string | null) => (url ? { primaryLinkUrl: url, primaryLinkLabel: 'Open in LinkedIn Console' } : null);
+const link = (url: string | null) => (url ? { primaryLinkUrl: url, primaryLinkLabel: 'Open in Alpha Connect' } : null);
 const memberIdOf = (urn: string) => urn.split(':').pop() ?? urn;
 
 /** Only the fields this workspace has. */

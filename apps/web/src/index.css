@@ -4,13 +4,16 @@
    semantic tokens below. Default follows the OS; the header toggle overrides and is remembered. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  --color-brand: #0a66c2;
-  --color-brand-dark: #004182;
-}
-
-/* Semantic colors resolved at use-site so the .dark overrides take effect: bg-surface, text-foreground, border-border… */
+/* Brand = Alpha Connect navy + gold. Everything resolves through CSS vars so the .dark overrides take effect and a
+   future rebrand is a palette edit, not a find-replace. `brand` is the solid (buttons, white text on it, both modes);
+   `accent` is accent TEXT/links/active state and is lighter in dark so it reads on the dark canvas; `gold` is the
+   high-end highlight (the mark's ring, the active-nav bar). */
 @theme inline {
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-accent: var(--accent);
+  --color-gold: var(--gold);
+  --color-gold-dark: var(--gold-dark);
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
@@ -23,26 +26,36 @@
 
 :root {
   color-scheme: light;
-  --canvas: #f4f2ee;
+  --brand: #1f3a5f;
+  --brand-dark: #142a47;
+  --accent: #1f3a5f;
+  --gold: #c4a24a;
+  --gold-dark: #a9863a;
+  --canvas: #f8f7f3;
   --surface: #ffffff;
-  --surface-muted: #f1f5f9;
-  --foreground: #1d2226;
-  --muted: #475569;
-  --subtle: #64748b;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
+  --surface-muted: #f0eee7;
+  --foreground: #1a2230;
+  --muted: #525d6e;
+  --subtle: #6b7486;
+  --border: #e7e3da;
+  --border-strong: #d7d1c4;
 }
 
 .dark {
   color-scheme: dark;
-  --canvas: #0b1220;
-  --surface: #161f31;
-  --surface-muted: #1f2a40;
-  --foreground: #e5e7eb;
-  --muted: #9aa7b8;
-  --subtle: #7c8aa0;
-  --border: #2c3a52;
-  --border-strong: #3a4a66;
+  --brand: #1f3a5f;
+  --brand-dark: #142a47;
+  --accent: #8fb3dd;
+  --gold: #d8bb6a;
+  --gold-dark: #c4a24a;
+  --canvas: #0e1726;
+  --surface: #16202f;
+  --surface-muted: #1e2a3d;
+  --foreground: #e6e9ef;
+  --muted: #9aa6b8;
+  --subtle: #7d8a9e;
+  --border: #2a384e;
+  --border-strong: #3a4a63;
 }
 
 html,
@@ -63,7 +76,7 @@ body {
   @apply btn bg-brand text-white hover:bg-brand-dark;
 }
 @utility btn-outline {
-  @apply btn border border-brand text-brand hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40;
+  @apply btn border border-brand text-accent hover:bg-surface-muted;
 }
 @utility btn-ghost {
   @apply btn text-muted hover:bg-surface-muted;

@@ -90,9 +90,7 @@ export function NewChat({ accountId, contactId }: { accountId: string; contactId
             {account && <span className="ml-2 rounded bg-surface-muted px-1.5 py-0.5 text-muted">via {account.label}</span>}
           </div>
         </div>
-        <span className="rounded-full bg-blue-50 dark:bg-blue-500/10 px-2 py-0.5 text-xs text-brand dark:text-blue-400">
-          New conversation
-        </span>
+        <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">New conversation</span>
       </div>
 
       <div className="flex flex-1 flex-col justify-end overflow-y-auto px-4 py-3">

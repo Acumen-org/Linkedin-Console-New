@@ -209,7 +209,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
           <SnoozeMenu conversation={c} disabled={!canReply} onChange={setConversation} />
           <button
             onClick={() => setShowNotes((s) => !s)}
-            className={`btn-ghost px-2 ${showNotes ? 'bg-blue-50 dark:bg-blue-500/10 text-brand dark:text-blue-400' : ''}`}
+            className={`btn-ghost px-2 ${showNotes ? 'bg-accent/10 text-accent' : ''}`}
             title="Team notes"
           >
             <StickyNote size={18} />

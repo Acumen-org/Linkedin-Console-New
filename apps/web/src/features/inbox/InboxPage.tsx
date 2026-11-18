@@ -101,7 +101,7 @@ export function InboxPage() {
             <button
               key={v.id}
               onClick={() => setParam('view', v.id === 'all' ? '' : v.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${view === v.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${view === v.id ? 'bg-accent/10 font-semibold text-accent' : 'text-foreground hover:bg-surface-muted'}`}
             >
               <v.icon size={16} /> {v.label}
               {v.id === 'unread' && totalUnread > 0 && <span className="ml-auto text-xs text-subtle">{totalUnread}</span>}
@@ -109,13 +109,13 @@ export function InboxPage() {
           ))}
           <div className="mb-1 mt-4 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wide text-subtle">
             LinkedIn accounts
-            <Link to="/accounts" title="Connect an account" className="text-brand dark:text-blue-400">
+            <Link to="/accounts" title="Connect an account" className="text-accent">
               <Plus size={16} />
             </Link>
           </div>
           <button
             onClick={() => setParam('account', '')}
-            className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${!accountId ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
+            className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm ${!accountId ? 'bg-accent/10 font-semibold text-accent' : 'text-foreground hover:bg-surface-muted'}`}
           >
             <Users size={16} /> All accounts
           </button>
@@ -123,7 +123,7 @@ export function InboxPage() {
             <button
               key={a.id}
               onClick={() => setParam('account', a.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${accountId === a.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
+              className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${accountId === a.id ? 'bg-accent/10 font-semibold text-accent' : 'text-foreground hover:bg-surface-muted'}`}
             >
               <Avatar name={a.displayName ?? a.label} src={a.avatarUrl} size={22} />
               <span className="min-w-0 flex-1 truncate">
@@ -141,7 +141,7 @@ export function InboxPage() {
                 <button
                   key={l.id}
                   onClick={() => setParam('label', labelId === l.id ? '' : l.id)}
-                  className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${labelId === l.id ? 'bg-blue-50 dark:bg-blue-500/10 font-semibold text-brand dark:text-blue-400' : 'text-foreground hover:bg-surface-muted'}`}
+                  className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm ${labelId === l.id ? 'bg-accent/10 font-semibold text-accent' : 'text-foreground hover:bg-surface-muted'}`}
                 >
                   <Tag size={14} style={{ color: l.color }} />
                   <span className="min-w-0 flex-1 truncate">{l.name}</span>
@@ -153,7 +153,7 @@ export function InboxPage() {
           {accounts.data?.length === 0 && (
             <Link
               to="/accounts"
-              className="mx-3 mt-2 block rounded-md border border-dashed border-border-strong p-3 text-center text-xs text-subtle hover:border-brand hover:text-brand dark:hover:text-blue-400"
+              className="mx-3 mt-2 block rounded-md border border-dashed border-border-strong p-3 text-center text-xs text-subtle hover:border-brand hover:text-brand dark:hover:text-accent"
             >
               Connect your first LinkedIn account
             </Link>
@@ -200,7 +200,7 @@ export function InboxPage() {
             <button
               onClick={() => list.fetchNextPage()}
               disabled={list.isFetchingNextPage}
-              className="w-full py-3 text-sm font-semibold text-brand dark:text-blue-400 hover:bg-surface-muted"
+              className="w-full py-3 text-sm font-semibold text-accent hover:bg-surface-muted"
             >
               {list.isFetchingNextPage ? 'Loading…' : 'Load more'}
             </button>
@@ -231,7 +231,7 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
   return (
     <button
       onClick={() => nav(`/inbox/${c.id}${search ? `?${search}` : ''}`)}
-      className={`flex w-full gap-3 border-b border-border px-3 py-3 text-left ${active ? 'border-l-4 border-l-brand bg-blue-50/60 dark:bg-blue-500/10' : 'hover:bg-surface-muted'}`}
+      className={`flex w-full gap-3 border-b border-border px-3 py-3 text-left ${active ? 'border-l-4 border-l-brand bg-accent/10' : 'hover:bg-surface-muted'}`}
     >
       <div className="relative">
         {c.isGroup && !p?.avatarUrl ? (
@@ -268,7 +268,7 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
           ))}
           {c.reminder && (
             <span
-              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600 dark:text-red-400' : 'text-brand dark:text-blue-400'}`}
+              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600 dark:text-red-400' : 'text-accent'}`}
               title={c.reminder.note ?? 'Follow-up reminder'}
             >
               <BellRing size={11} />

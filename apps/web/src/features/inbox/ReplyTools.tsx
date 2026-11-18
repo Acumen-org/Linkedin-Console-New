@@ -92,7 +92,7 @@ export function TemplatePicker({
             >
               <BookmarkPlus size={14} /> Save current
             </button>
-            <Link to="/settings/templates" className="text-xs text-brand dark:text-blue-400 hover:underline">
+            <Link to="/settings/templates" className="text-xs text-accent hover:underline">
               Manage
             </Link>
           </div>

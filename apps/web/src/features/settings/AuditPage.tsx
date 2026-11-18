@@ -225,7 +225,7 @@ export function AuditPage() {
             type="button"
             onClick={() => log.fetchNextPage()}
             disabled={log.isFetchingNextPage}
-            className="w-full py-3 text-sm font-semibold text-brand dark:text-blue-400 hover:bg-surface-muted"
+            className="w-full py-3 text-sm font-semibold text-accent hover:bg-surface-muted"
           >
             {log.isFetchingNextPage ? 'Loading…' : 'Load more'}
           </button>

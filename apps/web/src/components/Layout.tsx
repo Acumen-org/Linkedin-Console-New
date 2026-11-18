@@ -30,12 +30,14 @@ export function Layout() {
   };
 
   const link = ({ isActive }: { isActive: boolean }) =>
-    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? 'text-brand dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10' : 'text-subtle hover:text-foreground hover:bg-surface-muted'}`;
+    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? "text-accent bg-accent/10 after:absolute after:left-0 after:inset-y-1.5 after:w-[3px] after:rounded-r-full after:bg-gold after:content-['']" : 'text-subtle hover:text-foreground hover:bg-surface-muted'}`;
 
   return (
     <div className="flex h-full">
       <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-3">
-        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white">LC</div>
+        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white ring-1 ring-gold/70">
+          AC
+        </div>
         {!isAuditor(me) && (
           <>
             <NavLink to="/inbox" className={link}>

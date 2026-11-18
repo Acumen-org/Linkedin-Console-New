@@ -1,8 +1,8 @@
-# LinkedIn Console
+# Alpha Connect
 
 **Self-hosted LinkedIn team inbox.** Connect many LinkedIn accounts and let your whole team read and reply from one unified inbox. Each account runs in its own real Chrome on **your** server. Teammates log in to this app, never to LinkedIn.
 
-> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. LinkedIn Console keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages, so use the access levels and tell your team.
+> ⚠️ LinkedIn's User Agreement prohibits sharing accounts and automated access. Alpha Connect keeps each account looking like one normal user, but restrictions are still possible. Start with non-critical accounts. Everyone with access can read private messages, so use the access levels and tell your team.
 
 ## Features
 

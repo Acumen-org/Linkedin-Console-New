@@ -175,7 +175,7 @@ function AccountCard({
         )}
         {isSyncing(a.sync) && <SyncProgress sync={a.sync} />}
         {a.level !== 'READ' && a.status === 'CONNECTED' && (
-          <button onClick={onReport} className="mt-1 text-xs text-brand dark:text-blue-400 hover:underline">
+          <button onClick={onReport} className="mt-1 text-xs text-accent hover:underline">
             Sync report: recent chats and their history
           </button>
         )}
@@ -302,7 +302,7 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
           </select>
           <p className="mt-1 text-xs text-subtle">The browser uses this so LinkedIn sees the owner's usual time.</p>
         </div>
-        <button onClick={() => setAdvanced((s) => !s)} className="text-xs font-semibold text-brand dark:text-blue-400">
+        <button onClick={() => setAdvanced((s) => !s)} className="text-xs font-semibold text-accent">
           {advanced ? 'Hide' : 'Show'} advanced
         </button>
         {advanced && (
@@ -316,7 +316,7 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
             />
           </div>
         )}
-        <div className="rounded-md bg-blue-50 dark:bg-blue-500/10 p-3 text-xs text-foreground">
+        <div className="rounded-md bg-accent/10 p-3 text-xs text-foreground">
           Next you'll see LinkedIn's login page in a live window. Sign in with email + password and complete 2FA. Passkeys don't work in a
           remote browser.
         </div>

@@ -16,7 +16,7 @@ const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?:
   <span
     className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
       tone === 'blue'
-        ? 'bg-blue-50 dark:bg-blue-500/10 text-brand dark:text-blue-400'
+        ? 'bg-accent/10 text-accent'
         : tone === 'red'
           ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300'
           : 'bg-surface-muted text-muted'
@@ -49,7 +49,7 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
     <div className="card mb-4 grid gap-4 p-4 text-sm md:grid-cols-2">
       <div>
         <div className="mb-1 flex items-center gap-1.5 font-semibold">
-          <ShieldCheck size={16} className="text-brand dark:text-blue-400" /> Sign-in
+          <ShieldCheck size={16} className="text-accent" /> Sign-in
         </div>
         {info.microsoft ? (
           <p className="text-muted">
@@ -316,9 +316,7 @@ export function TeamPage() {
               </div>
             </div>
             {u.role === 'OWNER' ? (
-              <span className="rounded-full bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-brand dark:text-blue-400">
-                Owner
-              </span>
+              <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent">Owner</span>
             ) : (
               <select
                 className="rounded-md border border-border-strong px-2 py-1 text-sm"
@@ -567,11 +565,7 @@ function TwentyLinkModal({ user, pods, onClose }: { user: User; pods: string[]; 
         ))}
       </select>
       {suggested && !memberId && (
-        <button
-          type="button"
-          onClick={() => setMemberId(suggested.id)}
-          className="mt-1 text-xs text-brand dark:text-blue-400 hover:underline"
-        >
+        <button type="button" onClick={() => setMemberId(suggested.id)} className="mt-1 text-xs text-accent hover:underline">
           Use {suggested.name ?? suggested.email} (same email)
         </button>
       )}

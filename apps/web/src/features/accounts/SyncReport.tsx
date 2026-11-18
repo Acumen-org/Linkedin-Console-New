@@ -142,7 +142,7 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
                 </div>
                 <div className="shrink-0 text-right text-xs text-subtle">
                   {c.lastMessageAt && timeAgo(c.lastMessageAt)}
-                  {c.unread > 0 && <div className="text-brand dark:text-blue-400">{c.unread} unread</div>}
+                  {c.unread > 0 && <div className="text-accent">{c.unread} unread</div>}
                 </div>
               </div>
             ))}

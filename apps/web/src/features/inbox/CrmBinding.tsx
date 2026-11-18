@@ -94,7 +94,7 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
             href={s.personUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1 font-medium text-brand dark:text-blue-400 hover:underline"
+            className="flex items-center gap-1 font-medium text-accent hover:underline"
           >
             <Check size={13} /> {label}
           </a>
@@ -105,7 +105,7 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
         )}
         {isAdmin(me) && (
           <span className="ml-auto flex items-center gap-3">
-            <button type="button" onClick={unbind} className="text-subtle hover:text-brand dark:hover:text-blue-400 hover:underline">
+            <button type="button" onClick={unbind} className="text-subtle hover:text-brand dark:hover:text-accent hover:underline">
               Unbind (wrong Person)
             </button>
             <button
@@ -189,7 +189,7 @@ function BindModal({
         {s.prospect.profileUrl && (
           <>
             {' '}
-            <a href={s.prospect.profileUrl} target="_blank" rel="noreferrer" className="text-brand dark:text-blue-400 hover:underline">
+            <a href={s.prospect.profileUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
               Their LinkedIn profile
             </a>
           </>
