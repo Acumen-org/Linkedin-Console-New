@@ -18,7 +18,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { isAdmin, useMe } from '../../App';
 import { PageScroll } from '../../components/Layout';
-import { Avatar, Empty, Modal, PageHeader, StatusBadge } from '../../components/ui';
+import { Avatar, Empty, Fact, Modal, PageHeader, StatusBadge } from '../../components/ui';
 import { api } from '../../lib/api';
 import { durationSince, TIMEZONES, timeAgo } from '../../lib/format';
 import { useAppConfig } from '../../lib/queries';
@@ -147,15 +147,25 @@ function AccountCard({
         <div className="truncate text-sm text-muted">
           {a.displayName ? `${a.displayName}${a.headline ? ` · ${a.headline}` : ''}` : 'Not logged in yet'}
         </div>
-        <div className="text-xs text-subtle">
-          Connected by {a.ownerName} · {a.timezone}
-          {a.hasProxy ? ' · via proxy' : ''} · limit {a.effectiveSendCap ?? a.dailySendCap}/day
-          {a.rampDaysLeft
-            ? ` (ramping up to ${a.dailySendCap} over ${a.rampDaysLeft} more healthy day${a.rampDaysLeft === 1 ? '' : 's'})`
-            : ''}
-          {a.newChatCap !== undefined && `, new chats ${a.newChatCap}/day`}
-          {a.invitesLast7Days !== undefined && a.invitesLast7Days > 0 && ` · ${a.invitesLast7Days} requests this week`}
-          {a.lastSeenAt && ` · last check ${timeAgo(a.lastSeenAt)}`} · your access: {a.level}
+        <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1.5">
+          <Fact label="Owner">{a.ownerName}</Fact>
+          <Fact label="Timezone">{a.timezone}</Fact>
+          {a.hasProxy && <Fact label="Proxy">{a.proxyLabel ?? 'Via proxy'}</Fact>}
+          <Fact label="Daily limit">
+            <span
+              title={
+                a.rampDaysLeft
+                  ? `Ramping up to ${a.dailySendCap}/day over ${a.rampDaysLeft} more healthy day${a.rampDaysLeft === 1 ? '' : 's'}`
+                  : undefined
+              }
+            >
+              {a.effectiveSendCap ?? a.dailySendCap}/day{a.rampDaysLeft ? ` ↑ ${a.dailySendCap}` : ''}
+            </span>
+          </Fact>
+          {a.newChatCap !== undefined && <Fact label="New chats">{a.newChatCap}/day</Fact>}
+          {!!a.invitesLast7Days && <Fact label="Requests (7d)">{a.invitesLast7Days}</Fact>}
+          {a.lastSeenAt && <Fact label="Last check">{timeAgo(a.lastSeenAt)}</Fact>}
+          <Fact label="Your access">{a.level}</Fact>
         </div>
         <div className="text-xs text-subtle">
           {a.onlineSince ? `Browser up for ${durationSince(a.onlineSince)}` : 'Browser not reporting'}
