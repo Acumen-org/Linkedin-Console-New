@@ -13,6 +13,7 @@ import { toast } from '../../lib/toast';
 import type { Template, Webhook, WebhookEvent } from '../../types';
 import { CrmBindingsTab } from './CrmBindingsTab';
 import { IntegrationsTab } from './IntegrationsTab';
+import { ProxiesTab } from './ProxiesTab';
 
 const TABS = [
   { id: 'templates', label: 'Saved replies' },
@@ -20,6 +21,7 @@ const TABS = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'webhooks', label: 'Webhooks', admin: true },
   { id: 'integrations', label: 'Integrations', admin: true },
+  { id: 'proxies', label: 'Proxies', admin: true, pool: true },
   { id: 'bindings', label: 'CRM bindings', crm: true },
 ];
 
@@ -31,7 +33,9 @@ export function SettingsPage() {
     <PageScroll>
       <PageHeader title="Settings" />
       <div className="mb-5 flex gap-1 border-b border-border">
-        {TABS.filter((t) => (!t.admin || isAdmin(me)) && (!t.crm || !!config.data?.twentyUrl)).map((t) => (
+        {TABS.filter(
+          (t) => (!t.admin || isAdmin(me)) && (!t.crm || !!config.data?.twentyUrl) && (!t.pool || !!config.data?.features.multiProxy),
+        ).map((t) => (
           <NavLink
             key={t.id}
             to={`/settings/${t.id}`}
@@ -48,6 +52,7 @@ export function SettingsPage() {
       {tab === 'notifications' && <NotificationsTab />}
       {tab === 'webhooks' && isAdmin(me) && <WebhooksTab />}
       {tab === 'integrations' && isAdmin(me) && <IntegrationsTab />}
+      {tab === 'proxies' && isAdmin(me) && config.data?.features.multiProxy && <ProxiesTab />}
       {tab === 'bindings' && <CrmBindingsTab />}
     </PageScroll>
   );

@@ -88,6 +88,9 @@ const Env = z.object({
   // Restart account browsers that stop reporting or whose containers are gone (off for test stacks: their
   // accounts have no real browser).
   AUTO_RECOVERY: z.enum(['on', 'off']).default('on'),
+  // Proxy pool (multi-proxy): register proxies once (Settings → Proxies) and pin accounts to them. Off by default; while
+  // off the app behaves exactly as before — one optional proxy field per account. The admin UI toggle overrides this.
+  MULTI_PROXY: z.enum(['on', 'off']).default('off'),
   // Encrypts stored LinkedIn account passwords at rest (AES-256-GCM): a base64-encoded 32-byte key
   // (`openssl rand -base64 32`). Unset = storing a LinkedIn login, the Live-window password gate and
   // auto re-login stay off; everything else works as before.
@@ -150,6 +153,7 @@ export interface IntegrationOverrides {
   crmAutoCreate?: boolean;
   crmFuzzyBind?: boolean;
   searchEnabled?: boolean;
+  multiProxy?: boolean;
   twenty?: TwentyConn | null;
   microsoft?: MicrosoftConn | null;
   staffSync?: Partial<Pick<StaffSyncConn, 'mode' | 'source' | 'url' | 'apiKey'>>;
@@ -169,6 +173,7 @@ const envTwenty: TwentyConn | null =
       }
     : null;
 const envCrmSync = e.CRM_SYNC === 'on';
+const envMultiProxy = e.MULTI_PROXY === 'on';
 const envStaff: StaffSyncConn = {
   mode: e.STAFF_SYNC,
   source: e.STAFF_SOURCE,
@@ -236,6 +241,11 @@ export const config = {
   // auto-connects (connecting is a human click in Live). "Search in Live" needs none of this — it's human-operated.
   get searchEnabled(): boolean {
     return overrides.searchEnabled ?? false;
+  },
+  // Proxy pool (multi-proxy). Off by default; an admin turns it on (Settings → Integrations). While off, accounts use
+  // the single optional proxy field exactly as before and the /api/proxies routes are refused.
+  get multiProxy(): boolean {
+    return overrides.multiProxy ?? envMultiProxy;
   },
   get searchCapPerDay(): number {
     return e.SEARCH_CAP_PER_DAY;

@@ -21,7 +21,7 @@ export default async function systemRoutes(app: FastifyInstance) {
     requireUser(req);
     const keys = await vapidKeys().catch(() => null);
     return {
-      features: { aiDrafts: aiEnabled(), push: !!keys },
+      features: { aiDrafts: aiEnabled(), push: !!keys, multiProxy: config.multiProxy },
       vapidPublicKey: keys?.publicKey ?? null,
       twentyUrl: config.crmSync && config.twenty ? twentyWebUrl() : null,
     };

@@ -2,6 +2,7 @@
 // write-only (shown as "set", never returned). Mirrors the server config in lib/integrations.ts.
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Toggle } from '../../components/ui';
 import { api } from '../../lib/api';
 import { toast } from '../../lib/toast';
 
@@ -12,6 +13,7 @@ interface IntegrationView {
   crmAutoCreate: boolean;
   crmFuzzyBind: boolean;
   searchEnabled: boolean;
+  multiProxy: boolean;
   twenty: { url: string; webUrl: string; ownerField: string; podField: string; apiKeySet: boolean } | null;
   microsoft: { tenantId: string; clientId: string; clientSecretSet: boolean } | null;
   staffSync: { mode: 'off' | 'disable' | 'provision'; source: 'twilio' | 'twenty' };
@@ -118,6 +120,32 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           and capped per account per day. Off by default: automated search is a high-risk action for an account, so turn it on deliberately.
           Connecting is always a human click via <b>Connect in Live</b> (never automated), and the <b>Search in Live</b> button works with
           this off.
+        </p>
+      </section>
+
+      <section className="card p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">Proxy pool (multi-proxy)</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <Toggle
+              checked={s.multiProxy}
+              disabled={!!busy}
+              label="Proxy pool"
+              onChange={(on) =>
+                run('multiproxy', async () => {
+                  await put({ multiProxy: on });
+                  toast(on ? 'Proxy pool on' : 'Proxy pool off', 'success');
+                  onChanged();
+                })
+              }
+            />
+            <span>{s.multiProxy ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+        <p className="text-sm text-muted">
+          Adds a <b>Proxies</b> tab where admins register proxies once and pin each account to one from its settings. While off, each
+          account keeps the single optional proxy field and nothing changes. An account is never rotated or moved between proxies
+          automatically — one account keeps one IP.
         </p>
       </section>
 

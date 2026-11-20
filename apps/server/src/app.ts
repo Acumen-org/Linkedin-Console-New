@@ -21,6 +21,7 @@ import integrationRoutes from './modules/integrations/routes.ts';
 import labelRoutes from './modules/labels/routes.ts';
 import liveRoutes from './modules/live/routes.ts';
 import networkRoutes from './modules/network/routes.ts';
+import proxyRoutes from './modules/proxies/routes.ts';
 import pushRoutes from './modules/push/routes.ts';
 import systemRoutes from './modules/system/routes.ts';
 import templateRoutes from './modules/templates/routes.ts';
@@ -33,6 +34,7 @@ const MODULES = [
   microsoftRoutes,
   userRoutes,
   accountRoutes,
+  proxyRoutes,
   dataRoutes,
   conversationRoutes,
   messageRoutes,

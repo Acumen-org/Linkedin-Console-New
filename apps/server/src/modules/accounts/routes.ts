@@ -8,6 +8,7 @@ import { requireAdmin, requireUser } from '../../core/auth.ts';
 import { podSpecOf, pods, sendCommand } from '../../core/bridge.ts';
 import { applyGrants } from '../../core/grants.ts';
 import { LIVE_UNLOCK_SECONDS, liveUnlockKey } from '../../core/live-gate.ts';
+import { pinProxy } from '../../core/proxies.ts';
 import { effectiveCapSql, rampDaysLeftSql } from '../../core/send-limits.ts';
 import { config } from '../../lib/config.ts';
 import { sql } from '../../lib/db.ts';
@@ -30,6 +31,7 @@ export const ACCOUNT_COLUMNS = sql`
   a.id, a.label, a.owner_user_id, a.status, a.profile_urn, a.display_name, a.headline, a.public_id, a.avatar_url,
   a.timezone, a.language, a.send_paused, a.daily_send_cap, a.last_seen_at, a.last_error, a.created_at,
   (a.proxy_server IS NOT NULL AND a.proxy_server <> '') AS has_proxy,
+  a.proxy_id, (SELECT p.label FROM proxies p WHERE p.id = a.proxy_id) AS proxy_label,
   (a.li_password_enc IS NOT NULL) AS has_credentials, a.sync_state AS sync,
   a.new_chat_cap, a.followup_days, a.paused_reason, a.online_since, a.last_restart_at, a.last_restart_reason, a.recover_attempts, a.inbox_check, ${effectiveCapSql} AS effective_send_cap, ${rampDaysLeftSql} AS ramp_days_left,
   (SELECT count(*)::int FROM invitations i WHERE i.account_id = a.id AND i.sent_at > now() - interval '7 days') AS invites_last7_days`;
@@ -73,13 +75,23 @@ export default async function accountRoutes(app: FastifyInstance) {
         timezone: Timezone.default(config.defaultTimezone),
         language: Language.default(config.defaultLanguage),
         proxyServer: ProxyUrl.optional().or(z.literal('')),
+        /** Pin to a pool proxy (admins only; proxy pool must be on). Its address is copied into proxy_server. */
+        proxyId: z.string().optional(),
       })
       .parse(req.body);
+    if (body.proxyId && !config.multiProxy) throw new HttpError(409, 'The proxy pool is off (turn it on in Settings → Integrations)');
     const id = newAccountId();
+    // The route this account uses: the pool proxy's address when pinned (resolved under a row lock), else the field.
+    let proxyServer: string | null = body.proxyServer || null;
     await sql.begin(async (tx) => {
+      let proxyId: string | null = null;
+      if (body.proxyId) {
+        proxyId = body.proxyId;
+        proxyServer = (await pinProxy(tx, body.proxyId, id)).address;
+      }
       await tx`
-        INSERT INTO accounts (id, label, owner_user_id, status, timezone, language, proxy_server, daily_send_cap, new_chat_cap, ramp_started_at)
-        VALUES (${id}, ${body.label}, ${user.id}, 'PROVISIONING', ${body.timezone}, ${body.language}, ${body.proxyServer || null},
+        INSERT INTO accounts (id, label, owner_user_id, status, timezone, language, proxy_server, proxy_id, daily_send_cap, new_chat_cap, ramp_started_at)
+        VALUES (${id}, ${body.label}, ${user.id}, 'PROVISIONING', ${body.timezone}, ${body.language}, ${proxyServer}, ${proxyId},
                 ${config.dailySendCap}, ${config.newChatCap}, ${config.sendRamp.on ? sql`now()` : null})`;
       await tx`INSERT INTO account_grants (account_id, user_id, level) VALUES (${id}, ${user.id}, 'FULL')`;
       if (config.defaultGrant !== 'NONE') {
@@ -90,7 +102,7 @@ export default async function accountRoutes(app: FastifyInstance) {
       }
     });
     try {
-      await pods.create(id, podSpecOf({ ...body, proxyServer: body.proxyServer || null }));
+      await pods.create(id, podSpecOf({ ...body, proxyServer }));
     } catch (e) {
       await sql`UPDATE accounts SET status = 'ERROR', last_error = ${(e as Error).message} WHERE id = ${id}`;
     }
@@ -116,24 +128,44 @@ export default async function accountRoutes(app: FastifyInstance) {
         timezone: Timezone.optional(),
         language: Language.optional(),
         proxyServer: ProxyUrl.optional().or(z.literal('')),
+        /** Pin to a pool proxy, or null to unpin (keeping the current route). Admins only; the pool must be on. */
+        proxyId: z.string().nullable().optional(),
       })
       .parse(req.body);
-    const [before] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
-    await sql`
-      UPDATE accounts SET
-        label = ${body.label ?? before.label},
-        send_paused = ${body.sendPaused ?? before.sendPaused},
-        paused_reason = ${body.sendPaused === false ? null : before.pausedReason},
-        daily_send_cap = ${body.dailySendCap ?? before.dailySendCap},
-        new_chat_cap = ${body.newChatCap ?? before.newChatCap},
-        followup_days = ${body.followupDays ?? before.followupDays},
-        ramp_started_at = ${body.skipRamp ? null : before.rampStartedAt},
-        timezone = ${body.timezone ?? before.timezone},
-        language = ${body.language ?? before.language},
-        proxy_server = ${body.proxyServer === undefined ? before.proxyServer : body.proxyServer || null}
-      WHERE id = ${id}`;
-    // Browser identity settings need a new container (the profile/session is kept).
-    if (body.timezone || body.language || body.proxyServer !== undefined) {
+    if (body.proxyId !== undefined) {
+      if (!config.multiProxy) throw new HttpError(409, 'The proxy pool is off (turn it on in Settings → Integrations)');
+      if (!isAdminRole(user.role)) throw new HttpError(403, 'Only an admin can pin an account to a pool proxy');
+    }
+    const { before, proxyServer } = await sql.begin(async (tx) => {
+      const [row] = await tx`SELECT * FROM accounts WHERE id = ${id} FOR UPDATE`;
+      // A pool pin copies the proxy's address into proxy_server (the browser path stays the single source of truth);
+      // unpinning (null) keeps the current route, so an account's IP is never silently changed.
+      let proxyId = row.proxyId as string | null;
+      let server: string | null = body.proxyServer === undefined ? (row.proxyServer as string | null) : body.proxyServer || null;
+      if (body.proxyId === null) proxyId = null;
+      else if (body.proxyId !== undefined) {
+        proxyId = body.proxyId;
+        server = (await pinProxy(tx, body.proxyId, id)).address;
+      }
+      await tx`
+        UPDATE accounts SET
+          label = ${body.label ?? row.label},
+          send_paused = ${body.sendPaused ?? row.sendPaused},
+          paused_reason = ${body.sendPaused === false ? null : row.pausedReason},
+          daily_send_cap = ${body.dailySendCap ?? row.dailySendCap},
+          new_chat_cap = ${body.newChatCap ?? row.newChatCap},
+          followup_days = ${body.followupDays ?? row.followupDays},
+          ramp_started_at = ${body.skipRamp ? null : row.rampStartedAt},
+          timezone = ${body.timezone ?? row.timezone},
+          language = ${body.language ?? row.language},
+          proxy_server = ${server},
+          proxy_id = ${proxyId}
+        WHERE id = ${id}`;
+      return { before: row, proxyServer: server };
+    });
+    // Browser identity settings need a new container (the profile/session is kept). A changed IP counts too.
+    const proxyServerChanged = proxyServer !== (before.proxyServer as string | null);
+    if (body.timezone || body.language || body.proxyServer !== undefined || (body.proxyId !== undefined && proxyServerChanged)) {
       const [a] = await sql`SELECT * FROM accounts WHERE id = ${id}`;
       await pods.recreate(id, podSpecOf(a));
     }

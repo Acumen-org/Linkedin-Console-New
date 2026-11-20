@@ -19,6 +19,7 @@ const Update = z.object({
   crmAutoCreate: z.boolean().optional(),
   crmFuzzyBind: z.boolean().optional(),
   searchEnabled: z.boolean().optional(),
+  multiProxy: z.boolean().optional(),
   twenty: z
     .object({
       url: z.string().optional(),

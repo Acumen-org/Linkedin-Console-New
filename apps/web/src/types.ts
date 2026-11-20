@@ -12,6 +12,7 @@ export type {
   LiParticipant as Participant,
   Message,
   Note,
+  PoolProxy,
   Role,
   Template,
   User,

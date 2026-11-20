@@ -96,6 +96,9 @@ export interface Account {
   /** Automatic follow-up after this many business days without a reply (0 = off). */
   followupDays?: number;
   hasProxy: boolean;
+  /** When the proxy pool is on: the pool proxy this account is pinned to (null = using the single field, or none). */
+  proxyId?: string | null;
+  proxyLabel?: string | null;
   /** A LinkedIn login (email + password) is stored for this account (the password is never returned). */
   hasCredentials?: boolean;
   lastSeenAt: string | null;
@@ -241,10 +244,22 @@ export interface Webhook {
 }
 
 export interface AppConfig {
-  features: { aiDrafts: boolean; push: boolean };
+  features: { aiDrafts: boolean; push: boolean; multiProxy: boolean };
   vapidPublicKey: string | null;
   /** Twenty CRM web address ("Open in Twenty" on a prospect), when the CRM sync is on. */
   twentyUrl: string | null;
+}
+
+/** A pool proxy as the admin API returns it. The address is masked (scheme://host:port); credentials are never sent. */
+export interface PoolProxy {
+  id: string;
+  label: string;
+  address: string;
+  maxAccounts: number;
+  disabled: boolean;
+  /** Accounts currently pinned to this proxy. */
+  inUse: number;
+  createdAt: string;
 }
 
 export interface ApiErrorBody {

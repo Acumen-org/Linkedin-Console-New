@@ -21,8 +21,9 @@ import { PageScroll } from '../../components/Layout';
 import { Avatar, Empty, Modal, PageHeader, StatusBadge } from '../../components/ui';
 import { api } from '../../lib/api';
 import { durationSince, TIMEZONES, timeAgo } from '../../lib/format';
+import { useAppConfig } from '../../lib/queries';
 import { toast } from '../../lib/toast';
-import type { Account, Level } from '../../types';
+import type { Account, Level, PoolProxy } from '../../types';
 import { ExportChatsMenu, ImportModal } from './DataTools';
 import { isSyncing, SyncProgress } from './SyncProgress';
 import { SyncReportModal } from './SyncReport';
@@ -264,12 +265,33 @@ function AccountCard({
   );
 }
 
+/** Pick a pool proxy for an account (shown instead of the raw proxy field when the proxy pool is on). */
+function RoutePicker({ value, onChange }: { value: string | null; onChange: (id: string | null) => void }) {
+  const proxies = useQuery({ queryKey: ['proxies'], queryFn: () => api.get<PoolProxy[]>('/api/proxies') });
+  const list = proxies.data ?? [];
+  return (
+    <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">No proxy</option>
+      {list.map((p) => {
+        const full = p.inUse >= p.maxAccounts && p.id !== value;
+        return (
+          <option key={p.id} value={p.id} disabled={p.disabled || full}>
+            {p.label} — {p.address} ({p.inUse}/{p.maxAccounts}){p.disabled ? ' · disabled' : full ? ' · full' : ''}
+          </option>
+        );
+      })}
+    </select>
+  );
+}
+
 function AddAccountModal({ onClose }: { onClose: () => void }) {
   const nav = useNavigate();
   const qc = useQueryClient();
+  const pool = !!useAppConfig().data?.features.multiProxy;
   const [label, setLabel] = useState('');
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago');
   const [proxyServer, setProxy] = useState('');
+  const [proxyId, setProxyId] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const zones = TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES];
@@ -277,7 +299,12 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
   const create = async () => {
     setBusy(true);
     try {
-      const a = await api.post<Account>('/api/accounts', { label, timezone, language: navigator.language || 'en-US', proxyServer });
+      const a = await api.post<Account>('/api/accounts', {
+        label,
+        timezone,
+        language: navigator.language || 'en-US',
+        ...(pool ? { proxyId } : { proxyServer }),
+      });
       qc.invalidateQueries({ queryKey: ['accounts'] });
       nav(`/accounts/${a.id}/connect`);
     } catch (e) {
@@ -308,12 +335,16 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
         {advanced && (
           <div>
             <label className="label">Proxy (only if the owner is outside your server's country)</label>
-            <input
-              className="input"
-              placeholder="http://user:pass@host:port"
-              value={proxyServer}
-              onChange={(e) => setProxy(e.target.value)}
-            />
+            {pool ? (
+              <RoutePicker value={proxyId} onChange={setProxyId} />
+            ) : (
+              <input
+                className="input"
+                placeholder="http://user:pass@host:port"
+                value={proxyServer}
+                onChange={(e) => setProxy(e.target.value)}
+              />
+            )}
           </div>
         )}
         <div className="rounded-md bg-accent/10 p-3 text-xs text-foreground">
@@ -335,6 +366,7 @@ function AddAccountModal({ onClose }: { onClose: () => void }) {
 
 function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
   const qc = useQueryClient();
+  const pool = !!useAppConfig().data?.features.multiProxy;
   const [label, setLabel] = useState(a.label);
   const [cap, setCap] = useState(a.dailySendCap);
   const [newChatCap, setNewChatCap] = useState(a.newChatCap ?? 20);
@@ -342,12 +374,16 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
   const [skipRamp, setSkipRamp] = useState(false);
   const [timezone, setTimezone] = useState(a.timezone);
   const [proxyServer, setProxy] = useState<string | undefined>(undefined);
+  // undefined = leave the pin as it is; null = unpin (keep the current route).
+  const [proxyId, setProxyId] = useState<string | null | undefined>(undefined);
   const save = async () => {
     try {
       const body: Record<string, unknown> = { label, dailySendCap: cap, newChatCap, followupDays };
       if (skipRamp) body.skipRamp = true;
       if (timezone !== a.timezone) body.timezone = timezone;
-      if (proxyServer !== undefined) body.proxyServer = proxyServer;
+      if (pool) {
+        if (proxyId !== undefined) body.proxyId = proxyId;
+      } else if (proxyServer !== undefined) body.proxyServer = proxyServer;
       await api.patch(`/api/accounts/${a.id}`, body);
       qc.invalidateQueries({ queryKey: ['accounts'] });
       toast('Saved', 'success');
@@ -408,14 +444,22 @@ function EditAccountModal({ a, onClose }: { a: Account; onClose: () => void }) {
             ))}
           </select>
         </div>
-        <div>
-          <label className="label">Proxy {a.hasProxy ? '(currently set, leave empty to keep, type "none" to remove)' : '(none)'}</label>
-          <input
-            className="input"
-            placeholder="http://user:pass@host:port"
-            onChange={(e) => setProxy(e.target.value === 'none' ? '' : e.target.value || undefined)}
-          />
-        </div>
+        {pool ? (
+          <div>
+            <label className="label">Proxy{a.proxyLabel ? ` (currently ${a.proxyLabel})` : ''}</label>
+            <RoutePicker value={proxyId === undefined ? (a.proxyId ?? null) : proxyId} onChange={setProxyId} />
+            <p className="mt-1 text-xs text-subtle">Choose "No proxy" to unpin; the account keeps its current route until you change it.</p>
+          </div>
+        ) : (
+          <div>
+            <label className="label">Proxy {a.hasProxy ? '(currently set, leave empty to keep, type "none" to remove)' : '(none)'}</label>
+            <input
+              className="input"
+              placeholder="http://user:pass@host:port"
+              onChange={(e) => setProxy(e.target.value === 'none' ? '' : e.target.value || undefined)}
+            />
+          </div>
+        )}
         <p className="text-xs text-subtle">Changing timezone or proxy restarts the account's browser. The LinkedIn login is kept.</p>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="btn-ghost">

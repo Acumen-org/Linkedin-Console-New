@@ -72,6 +72,9 @@ export const AUDIT_ACTIONS = {
   'ext.key_created': { label: 'Created an external API key', category: 'settings' },
   'ext.key_revoked': { label: 'Revoked an external API key', category: 'settings' },
   'ext.api_used': { label: 'External API key used', category: 'settings' },
+  'proxy.created': { label: 'Added a pool proxy', category: 'settings' },
+  'proxy.updated': { label: 'Changed a pool proxy', category: 'settings' },
+  'proxy.deleted': { label: 'Removed a pool proxy', category: 'settings' },
 } as const satisfies Record<string, { label: string; category: AuditCategory }>;
 export type AuditAction = keyof typeof AUDIT_ACTIONS;
 
