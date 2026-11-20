@@ -139,10 +139,7 @@ function AccountCard({
           <span className="font-semibold">{a.label}</span>
           <StatusBadge status={a.status} />
           {a.sendPaused && (
-            <span
-              className="rounded-full bg-amber-100 dark:bg-amber-500/15 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-200"
-              title={a.pausedReason ?? undefined}
-            >
+            <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs text-warning-ink" title={a.pausedReason ?? undefined}>
               {a.pausedReason ? 'Sending paused automatically' : 'Sending paused'}
             </span>
           )}
@@ -168,9 +165,9 @@ function AccountCard({
             !a.onlineSince &&
             ` · ${a.recoverAttempts} automatic restart${a.recoverAttempts === 1 ? '' : 's'} so far, still trying`}
         </div>
-        {a.lastError && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{a.lastError}</div>}
+        {a.lastError && <div className="mt-1 text-xs text-danger">{a.lastError}</div>}
         {a.pausedReason && (
-          <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          <div className="mt-1 text-xs text-warning-ink">
             {a.pausedReason}. Check the account in Live View, then resume sending (⏵) when it looks normal.
           </div>
         )}
@@ -242,7 +239,7 @@ function AccountCard({
             {ownerOrAdmin && (
               <button
                 onClick={() => setShowCreds(true)}
-                className={`btn-ghost ${a.hasCredentials ? 'text-emerald-600 dark:text-emerald-400' : ''}`}
+                className={`btn-ghost ${a.hasCredentials ? 'text-success' : ''}`}
                 title={
                   a.hasCredentials
                     ? 'LinkedIn login saved — update it'
@@ -253,7 +250,7 @@ function AccountCard({
               </button>
             )}
             {ownerOrAdmin && (
-              <button onClick={remove} className="btn-ghost text-red-600 dark:text-red-400" title="Disconnect">
+              <button onClick={remove} className="btn-ghost text-danger" title="Disconnect">
                 <Trash2 size={16} />
               </button>
             )}
@@ -532,7 +529,7 @@ function CredentialsModal({ a, onClose }: { a: Account; onClose: () => void }) {
         </div>
         <div className="flex items-center justify-between">
           {a.hasCredentials ? (
-            <button className="btn-ghost text-red-600 dark:text-red-400" onClick={clear}>
+            <button className="btn-ghost text-danger" onClick={clear}>
               Remove
             </button>
           ) : (

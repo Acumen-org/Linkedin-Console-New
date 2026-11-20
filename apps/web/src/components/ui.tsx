@@ -3,16 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { STATUS } from '../lib/format';
 import type { AccountStatus } from '../types';
 
-const COLORS = [
-  'bg-sky-600',
-  'bg-emerald-600',
-  'bg-violet-600',
-  'bg-amber-600',
-  'bg-rose-600',
-  'bg-teal-600',
-  'bg-indigo-600',
-  'bg-orange-600',
-];
+const COLORS = ['bg-sky-600', 'bg-success', 'bg-violet-600', 'bg-warning', 'bg-rose-600', 'bg-teal-600', 'bg-indigo-600', 'bg-orange-600'];
 const colorFor = (s: string) => COLORS[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
 const initials = (name: string) =>
   name

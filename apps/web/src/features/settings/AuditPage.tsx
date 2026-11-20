@@ -205,9 +205,7 @@ export function AuditPage() {
                   <div>{e.actorName ?? (e.userId ? 'Removed teammate' : 'System')}</div>
                   {e.actorEmail && <div className="text-xs text-subtle">{e.actorEmail}</div>}
                 </td>
-                <td className={`px-4 py-2 ${e.action === 'auth.login_failed' ? 'font-medium text-red-600 dark:text-red-400' : ''}`}>
-                  {auditLabel(e.action)}
-                </td>
+                <td className={`px-4 py-2 ${e.action === 'auth.login_failed' ? 'font-medium text-danger' : ''}`}>{auditLabel(e.action)}</td>
                 <td className="px-4 py-2">{e.accountLabel ?? ''}</td>
                 <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-subtle" title={e.userAgent ?? undefined}>
                   {e.ip ?? ''}

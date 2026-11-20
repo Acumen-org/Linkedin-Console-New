@@ -158,12 +158,7 @@ export function SnoozeMenu({
   return (
     <Popover
       trigger={({ toggle }) => (
-        <button
-          onClick={toggle}
-          disabled={disabled}
-          className={`btn-ghost px-2 ${snoozed ? 'text-amber-600 dark:text-amber-400' : ''}`}
-          title="Snooze"
-        >
+        <button onClick={toggle} disabled={disabled} className={`btn-ghost px-2 ${snoozed ? 'text-warning' : ''}`} title="Snooze">
           <AlarmClock size={18} />
         </button>
       )}
@@ -262,7 +257,7 @@ export function ReminderMenu({
     ['Next Monday 9:00', nextMonday],
     ['In 2 weeks (10 business days)', () => businessMorning(10)],
   ];
-  const tone = r ? (isOverdue(r.dueAt) ? 'text-red-600 dark:text-red-400' : 'text-accent') : '';
+  const tone = r ? (isOverdue(r.dueAt) ? 'text-danger' : 'text-accent') : '';
 
   return (
     <Popover

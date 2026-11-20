@@ -268,7 +268,7 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
           ))}
           {c.reminder && (
             <span
-              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-red-600 dark:text-red-400' : 'text-accent'}`}
+              className={`flex shrink-0 items-center gap-0.5 ${isOverdue(c.reminder.dueAt) ? 'font-semibold text-danger' : 'text-accent'}`}
               title={c.reminder.note ?? 'Follow-up reminder'}
             >
               <BellRing size={11} />
@@ -276,10 +276,10 @@ function ConversationRow({ c, active, search }: { c: Conversation; active: boole
               {c.reminder.responsibleName ? ` · ${c.reminder.responsibleName}` : ''}
             </span>
           )}
-          {c.isStarred && <Star size={12} className="fill-amber-400 text-amber-400" />}
+          {c.isStarred && <Star size={12} className="fill-amber-400 text-warning" />}
           {c.assignedToName && <span className="truncate">→ {c.assignedToName}</span>}
           {locked && (
-            <span className="flex items-center gap-1 text-amber-700 dark:text-amber-300">
+            <span className="flex items-center gap-1 text-warning-ink">
               <Lock size={11} /> {c.lockedByName} replying
             </span>
           )}

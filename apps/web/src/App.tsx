@@ -66,8 +66,7 @@ export function App() {
   if (setup.isLoading || (setup.data?.needsSetup === false && me.isLoading)) {
     return <div className="flex h-full items-center justify-center text-subtle">Loading…</div>;
   }
-  if (setup.isError)
-    return <div className="flex h-full items-center justify-center text-red-600 dark:text-red-400">Can't reach the server.</div>;
+  if (setup.isError) return <div className="flex h-full items-center justify-center text-danger">Can't reach the server.</div>;
   if (setup.data?.needsSetup) return <SetupPage />;
   if (!me.data) return <LoginPage />;
 

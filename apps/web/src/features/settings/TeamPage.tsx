@@ -15,11 +15,7 @@ import { BulkAssignModal, StaffAccessModal } from './StaffAccess';
 const Badge = ({ children, tone = 'slate' }: { children: React.ReactNode; tone?: 'slate' | 'blue' | 'red' }) => (
   <span
     className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-      tone === 'blue'
-        ? 'bg-accent/10 text-accent'
-        : tone === 'red'
-          ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300'
-          : 'bg-surface-muted text-muted'
+      tone === 'blue' ? 'bg-accent/10 text-accent' : tone === 'red' ? 'bg-danger-soft text-danger' : 'bg-surface-muted text-muted'
     }`}
   >
     {children}
@@ -79,7 +75,7 @@ function DirectoryCard({ info }: { info: DirectoryInfo }) {
                 : 'Disables leavers.'}
             </p>
             {last && (
-              <p className={`mt-1 text-xs ${last.ok ? 'text-subtle' : 'text-red-600 dark:text-red-400'}`}>
+              <p className={`mt-1 text-xs ${last.ok ? 'text-subtle' : 'text-danger'}`}>
                 Last run {fullTime(last.at)}:{' '}
                 {last.ok
                   ? `${last.staff} staff · ${last.linked} linked · ${last.provisioned} added · ${last.disabled} disabled · ${last.reenabled} re-enabled`
@@ -206,7 +202,7 @@ function CrmCard() {
         </p>
       )}
       {s.last && !s.last.ok && (
-        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+        <p className="mt-1 text-xs text-danger">
           Last problem {fullTime(s.last.at)}: {s.last.error}
         </p>
       )}

@@ -81,7 +81,7 @@ export function MessageBubble({ m, showSender, isLastOutbound }: { m: Message; s
         {showSender && !mine && <div className="mb-0.5 text-xs font-semibold text-foreground">{m.senderName}</div>}
         <div
           title={fullTime(m.sentAt)}
-          className={`flex flex-col gap-2 rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-tr-sm bg-brand text-white' : 'rounded-tl-sm bg-surface-muted text-foreground'} ${m.status === 'FAILED' ? 'opacity-70 ring-2 ring-red-400' : ''}`}
+          className={`flex flex-col gap-2 rounded-2xl px-3.5 py-2 text-sm ${mine ? 'rounded-tr-sm bg-brand text-white' : 'rounded-tl-sm bg-surface-muted text-foreground'} ${m.status === 'FAILED' ? 'opacity-70 ring-2 ring-danger' : ''}`}
         >
           {m.attachments?.map((a, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: attachments have no id and never reorder
@@ -118,7 +118,7 @@ export function MessageBubble({ m, showSender, isLastOutbound }: { m: Message; s
             </span>
           )}
           {m.status === 'FAILED' && (
-            <span className="flex items-center gap-0.5 text-red-600 dark:text-red-400">
+            <span className="flex items-center gap-0.5 text-danger">
               <AlertCircle size={11} /> {m.error ?? 'Failed'}
             </span>
           )}

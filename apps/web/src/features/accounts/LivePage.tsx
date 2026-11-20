@@ -23,7 +23,7 @@ export function LivePage() {
   });
   const [unlocked, setUnlocked] = useState(false);
   const a = account.data;
-  if (account.isError) return <div className="p-6 text-sm text-red-600 dark:text-red-400">Account not found or no access.</div>;
+  if (account.isError) return <div className="p-6 text-sm text-danger">Account not found or no access.</div>;
   if (!a || gate.isLoading) return <div className="p-6 text-sm text-subtle">Loading…</div>;
   const locked = !!gate.data?.hasCredentials && !gate.data.unlocked && !unlocked;
   return (

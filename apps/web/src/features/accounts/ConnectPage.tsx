@@ -27,7 +27,7 @@ export function ConnectPage() {
     }
   }, [a?.status]);
 
-  if (account.isError) return <div className="p-6 text-sm text-red-600 dark:text-red-400">Account not found.</div>;
+  if (account.isError) return <div className="p-6 text-sm text-danger">Account not found.</div>;
   if (!a) return <div className="p-6 text-sm text-subtle">Loading…</div>;
   const ready = a.status !== 'PROVISIONING' && a.status !== 'ERROR' && a.status !== 'OFFLINE';
 
@@ -47,13 +47,13 @@ export function ConnectPage() {
           </div>
         </div>
         {a.status === 'CONNECTED' && (
-          <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+          <span className="flex items-center gap-1 text-sm font-semibold text-success">
             <CheckCircle2 size={18} /> Connected as {a.displayName}
           </span>
         )}
       </div>
       {a.status === 'NEEDS_ATTENTION' && (
-        <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-500/10 px-4 py-2 text-sm text-amber-800 dark:text-amber-200">
+        <div className="flex items-center gap-2 bg-warning-soft px-4 py-2 text-sm text-warning-ink">
           <ShieldAlert size={16} /> LinkedIn logged this account out or asked for a security check. Sending is paused until you finish it
           here.
         </div>
@@ -70,7 +70,7 @@ export function ConnectPage() {
           <div className="flex h-full flex-col items-center justify-center gap-3 text-muted">
             {a.status === 'ERROR' || a.status === 'OFFLINE' ? (
               <>
-                <ShieldAlert size={32} className="text-red-500" />
+                <ShieldAlert size={32} className="text-danger" />
                 <div>The account's browser isn't running. {a.lastError}</div>
                 <button
                   className="btn-primary"

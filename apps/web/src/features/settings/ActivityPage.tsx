@@ -311,10 +311,10 @@ export function ActivityPage() {
                     <td className="px-4 py-2 text-right">{s.chatsRead}</td>
                     <td className="px-4 py-2 text-right">
                       {s.followupsOpen}
-                      {s.followupsOverdue ? <span className="text-red-600 dark:text-red-400"> ({s.followupsOverdue})</span> : null}
+                      {s.followupsOverdue ? <span className="text-danger"> ({s.followupsOverdue})</span> : null}
                     </td>
                     <td className="px-4 py-2 text-right">{minutes(s.medianReplyMinutes)}</td>
-                    <td className={`px-4 py-2 text-right ${s.failed ? 'text-red-600 dark:text-red-400' : ''}`}>{s.failed}</td>
+                    <td className={`px-4 py-2 text-right ${s.failed ? 'text-danger' : ''}`}>{s.failed}</td>
                     <td className="px-4 py-2 text-xs text-subtle">{s.lastActiveAt ? timeAgo(s.lastActiveAt) : 'No messages'}</td>
                   </tr>
                 ))}
@@ -369,7 +369,7 @@ function PersonMessages({
               <span>· to {m.prospect}</span>
               <span>· via {m.accountLabel}</span>
               {m.status !== 'SENT' && (
-                <span className={m.status === 'FAILED' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}>
+                <span className={m.status === 'FAILED' ? 'text-danger' : 'text-warning'}>
                   · {m.status.toLowerCase()}
                   {m.error ? `: ${m.error}` : ''}
                 </span>

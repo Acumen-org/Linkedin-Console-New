@@ -123,7 +123,7 @@ body {
   @apply btn text-muted hover:bg-surface-muted;
 }
 @utility btn-danger {
-  @apply btn border border-red-600 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40;
+  @apply btn border border-danger text-danger hover:bg-danger-soft;
 }
 @utility input {
   @apply w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-brand focus:ring-1 focus:ring-brand;

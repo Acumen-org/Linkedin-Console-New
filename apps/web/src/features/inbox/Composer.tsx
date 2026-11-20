@@ -143,7 +143,7 @@ export function Composer({ conversation, disabledReason }: { conversation: Conve
   return (
     <div className="border-t border-border p-3">
       {lockedByOther && (
-        <div className="mb-2 flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-warning-soft px-3 py-2 text-sm text-warning-ink">
           <Lock size={14} /> {conversation.lockedByName ?? 'A teammate'} is replying to this conversation right now.
         </div>
       )}

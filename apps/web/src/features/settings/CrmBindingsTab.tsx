@@ -158,7 +158,7 @@ export function CrmBindingsTab() {
 
   if (!appConfig.data?.twentyUrl) return <p className="text-sm text-subtle">Twenty CRM is not configured.</p>;
   if (q.isLoading) return <p className="text-sm text-subtle">Loading…</p>;
-  if (q.isError) return <p className="text-sm text-red-600 dark:text-red-400">{(q.error as Error).message}</p>;
+  if (q.isError) return <p className="text-sm text-danger">{(q.error as Error).message}</p>;
   const summary = q.data?.summary;
 
   return (
@@ -167,8 +167,8 @@ export function CrmBindingsTab() {
         <div className="grid grid-cols-3 gap-3">
           {(
             [
-              ['Bound', summary.bound, 'text-emerald-700 dark:text-emerald-400', 'all'],
-              ['Need binding', summary.needsBinding, 'text-amber-700 dark:text-amber-300', 'needsbinding'],
+              ['Bound', summary.bound, 'text-success', 'all'],
+              ['Need binding', summary.needsBinding, 'text-warning-ink', 'needsbinding'],
               ['Replied, not bound', summary.unbound, 'text-foreground', null],
             ] as const
           ).map(([label, n, color, target]) => (
@@ -311,7 +311,7 @@ export function CrmBindingsTab() {
                           type="button"
                           onClick={() => unbindDelete(b)}
                           title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
-                          className="inline-flex items-center gap-1 text-xs text-subtle hover:text-red-600 dark:hover:text-red-400 hover:underline"
+                          className="inline-flex items-center gap-1 text-xs text-subtle hover:text-danger dark:hover:text-danger hover:underline"
                         >
                           <Trash2 size={12} /> Unbind &amp; delete
                         </button>

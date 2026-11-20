@@ -47,7 +47,7 @@ export function IntegrationsTab() {
   const q = useQuery({ queryKey: ['integrations'], queryFn: () => api.get<IntegrationsResp>('/api/integrations') });
   const [version, setVersion] = useState(0);
   if (q.isLoading) return <p className="text-sm text-subtle">Loading…</p>;
-  if (!q.data) return <p className="text-sm text-red-600 dark:text-red-400">Couldn't load integration settings.</p>;
+  if (!q.data) return <p className="text-sm text-danger">Couldn't load integration settings.</p>;
   return (
     <IntegrationsForm
       key={version}
@@ -90,7 +90,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
   return (
     <div className="space-y-6">
       {!s.credentialsEnabled && (
-        <div className="rounded-lg border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+        <div className="rounded-lg border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning-ink">
           Saving the Twenty API key or Microsoft secret here needs <code>CREDENTIALS_KEY</code> set on the server (a base64 32-byte key).
           Until then keep those secrets in the server environment; the toggles and field names below still work.
         </div>
@@ -100,14 +100,14 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold">LinkedIn people search (in-app)</h3>
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Toggle
               checked={s.searchEnabled}
               disabled={!!busy}
-              onChange={(e) =>
+              label="In-app search"
+              onChange={(on) =>
                 run('search', async () => {
-                  await put({ searchEnabled: e.target.checked });
-                  toast(e.target.checked ? 'In-app search on' : 'In-app search off', 'success');
+                  await put({ searchEnabled: on });
+                  toast(on ? 'In-app search on' : 'In-app search off', 'success');
                   onChanged();
                 })
               }
@@ -152,9 +152,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
       <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold">Twenty connection</h3>
-          <span className={`text-xs ${s.twenty ? 'text-emerald-700 dark:text-emerald-400' : 'text-subtle'}`}>
-            {s.twenty ? 'Configured' : 'Not configured'}
-          </span>
+          <span className={`text-xs ${s.twenty ? 'text-success' : 'text-subtle'}`}>{s.twenty ? 'Configured' : 'Not configured'}</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -216,7 +214,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           </button>
           {s.twenty && (
             <button
-              className="btn-ghost text-red-600 dark:text-red-400"
+              className="btn-ghost text-danger"
               disabled={!!busy}
               onClick={() =>
                 run('disable-twenty', async () => {
@@ -237,14 +235,14 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold">CRM field sync</h3>
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Toggle
               checked={s.crmSync}
               disabled={!!busy || !s.twenty}
-              onChange={(e) =>
+              label="CRM field sync"
+              onChange={(on) =>
                 run('crm', async () => {
-                  await put({ crmSync: e.target.checked });
-                  toast(e.target.checked ? 'CRM sync on' : 'CRM sync off', 'success');
+                  await put({ crmSync: on });
+                  toast(on ? 'CRM sync on' : 'CRM sync off', 'success');
                   onChanged();
                 })
               }
@@ -256,38 +254,40 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           Writes each bound prospect's LinkedIn status and activity to their Twenty Person. Needs the Person fields below.
         </p>
         <label className="mb-3 flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={s.crmAutoBind}
-            disabled={!!busy || !s.twenty || !s.crmSync}
-            onChange={(e) =>
-              run('autobind', async () => {
-                await put({ crmAutoBind: e.target.checked });
-                toast(e.target.checked ? 'Auto-bind on' : 'Auto-bind off (manual binding)', 'success');
-                onChanged();
-              })
-            }
-          />
+          <span className="mt-0.5 shrink-0">
+            <Toggle
+              checked={s.crmAutoBind}
+              disabled={!!busy || !s.twenty || !s.crmSync}
+              label="Auto-bind matches"
+              onChange={(on) =>
+                run('autobind', async () => {
+                  await put({ crmAutoBind: on });
+                  toast(on ? 'Auto-bind on' : 'Auto-bind off (manual binding)', 'success');
+                  onChanged();
+                })
+              }
+            />
+          </span>
           <span className="text-muted">
             <b>Auto-bind matches.</b> When a replier clearly matches one Twenty Person (same LinkedIn link), bind them automatically. Off:
             binding to existing People is <b>manual</b> — a matching replier waits under "Needs CRM binding" for a teammate to bind them.
           </span>
         </label>
         <label className="mb-3 flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={s.crmAutoCreate}
-            disabled={!!busy || !s.twenty || !s.crmSync}
-            onChange={(e) =>
-              run('autocreate', async () => {
-                await put({ crmAutoCreate: e.target.checked });
-                toast(e.target.checked ? 'Auto-create on' : 'Auto-create off', 'success');
-                onChanged();
-              })
-            }
-          />
+          <span className="mt-0.5 shrink-0">
+            <Toggle
+              checked={s.crmAutoCreate}
+              disabled={!!busy || !s.twenty || !s.crmSync}
+              label="Auto-create people in Twenty"
+              onChange={(on) =>
+                run('autocreate', async () => {
+                  await put({ crmAutoCreate: on });
+                  toast(on ? 'Auto-create on' : 'Auto-create off', 'success');
+                  onChanged();
+                })
+              }
+            />
+          </span>
           <span className="text-muted">
             <b>Auto-create people in Twenty.</b> When a prospect replies and nobody in Twenty has their LinkedIn profile, create a new
             Person for them and bind automatically. Only ever when no Person already matches their link, so it never makes a duplicate. Off:
@@ -295,19 +295,20 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
           </span>
         </label>
         <label className="mb-3 flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-0.5"
-            checked={s.crmFuzzyBind}
-            disabled={!!busy || !s.twenty || !s.crmSync}
-            onChange={(e) =>
-              run('fuzzybind', async () => {
-                await put({ crmFuzzyBind: e.target.checked });
-                toast(e.target.checked ? 'Fuzzy auto-bind on' : 'Fuzzy auto-bind off', 'success');
-                onChanged();
-              })
-            }
-          />
+          <span className="mt-0.5 shrink-0">
+            <Toggle
+              checked={s.crmFuzzyBind}
+              disabled={!!busy || !s.twenty || !s.crmSync}
+              label="Confidence auto-bind"
+              onChange={(on) =>
+                run('fuzzybind', async () => {
+                  await put({ crmFuzzyBind: on });
+                  toast(on ? 'Fuzzy auto-bind on' : 'Fuzzy auto-bind off', 'success');
+                  onChanged();
+                })
+              }
+            />
+          </span>
           <span className="text-muted">
             <b>Confidence auto-bind.</b> When a replier has no single exact-link match, auto-bind them to a <i>strong</i> fuzzy match (exact
             name + same company/role) when there's one clear winner; weaker or tied matches wait under "Needs CRM binding". Exact-link
@@ -354,13 +355,11 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             {data.crm.people ?? 0} bound · {data.crm.needsBinding ?? 0} need binding · {data.crm.synced24h ?? 0} synced (24h)
             {data.crm.failed ? ` · ${data.crm.failed} failed` : ''}
             {data.crm.pendingRecords ? ` · ${data.crm.pendingRecords} not yet in Twenty` : ''}
-            {data.crm.last && !data.crm.last.ok && (
-              <span className="text-red-600 dark:text-red-400"> · last error: {data.crm.last.error}</span>
-            )}
+            {data.crm.last && !data.crm.last.ok && <span className="text-danger"> · last error: {data.crm.last.error}</span>}
           </div>
         )}
         {data.crm?.enabled && data.crm.conversationObject === false && (
-          <p className="mt-2 rounded-md bg-amber-50 dark:bg-amber-500/10 p-2 text-sm text-amber-800 dark:text-amber-200">
+          <p className="mt-2 rounded-md bg-warning-soft p-2 text-sm text-warning-ink">
             The “LinkedIn conversations” object isn’t set up in Twenty, so bound prospects won’t appear there. Press{' '}
             <strong>Set up fields</strong> above to add it, then they’ll sync within a minute.
           </p>
@@ -409,7 +408,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
             {data.staff.ok ? (
               `${data.staff.staff ?? 0} staff, ${data.staff.linked ?? 0} linked, ${data.staff.provisioned ?? 0} provisioned`
             ) : (
-              <span className="text-red-600 dark:text-red-400">failed: {data.staff.error}</span>
+              <span className="text-danger">failed: {data.staff.error}</span>
             )}
           </div>
         )}
@@ -418,9 +417,7 @@ function IntegrationsForm({ data, onChanged }: { data: IntegrationsResp; onChang
       <section className="card p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold">Microsoft sign-in</h3>
-          <span className={`text-xs ${s.microsoft ? 'text-emerald-700 dark:text-emerald-400' : 'text-subtle'}`}>
-            {s.microsoft ? 'Configured' : 'Not configured'}
-          </span>
+          <span className={`text-xs ${s.microsoft ? 'text-success' : 'text-subtle'}`}>{s.microsoft ? 'Configured' : 'Not configured'}</span>
         </div>
         <p className="mb-3 text-sm text-muted">
           Required to provision staff (they have no password). In Azure, register a Web app with redirect URI{' '}
@@ -530,8 +527,8 @@ function ApiKeysSection() {
         Read-only access to the event feed (<code>/api/ext/v1</code>) for an outside system. The key is shown once — store it safely.
       </p>
       {newKey && (
-        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
-          <div className="mb-1 font-semibold text-amber-900 dark:text-amber-200">Copy this key now — it won't be shown again:</div>
+        <div className="mb-3 rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm dark:border-warning/30 bg-warning-soft">
+          <div className="mb-1 font-semibold text-warning-ink">Copy this key now — it won't be shown again:</div>
           <code className="block break-all rounded bg-surface px-2 py-1 text-foreground">{newKey}</code>
           <button type="button" className="btn-ghost mt-2" onClick={() => setNewKey(null)}>
             Done

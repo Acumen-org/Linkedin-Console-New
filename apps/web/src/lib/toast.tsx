@@ -37,7 +37,7 @@ export function Toaster() {
       {list.map((t) => (
         <div
           key={t.id}
-          className={`flex items-start gap-2 rounded-lg px-4 py-3 shadow-lg text-sm max-w-sm text-white ${t.kind === 'error' ? 'bg-red-600' : t.kind === 'success' ? 'bg-emerald-600' : 'bg-slate-800'}`}
+          className={`flex items-start gap-2 rounded-lg px-4 py-3 shadow-lg text-sm max-w-sm text-white ${t.kind === 'error' ? 'bg-danger' : t.kind === 'success' ? 'bg-success' : 'bg-slate-800'}`}
         >
           {t.kind === 'error' ? <AlertCircle size={18} /> : t.kind === 'success' ? <CheckCircle2 size={18} /> : <Info size={18} />}
           <span className="flex-1">{t.text}</span>

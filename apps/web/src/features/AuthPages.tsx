@@ -69,9 +69,7 @@ export function LoginPage() {
   const passwordForm = !microsoft || methods.data?.password === 'on' || showPassword;
   return (
     <Shell title="Sign in" subtitle="Your team's unified LinkedIn inbox">
-      {redirectError && (
-        <div className="mb-3 rounded-md bg-red-50 dark:bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">{redirectError}</div>
-      )}
+      {redirectError && <div className="mb-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{redirectError}</div>}
       {microsoft && (
         <a href="/api/auth/microsoft" className="btn-outline mb-3 w-full justify-center py-2">
           <MicrosoftLogo /> Sign in with Microsoft
@@ -100,7 +98,7 @@ export function LoginPage() {
               required
             />
           </div>
-          {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
+          {error && <div className="text-sm text-danger">{error}</div>}
           <button className="btn-primary w-full py-2" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
@@ -138,7 +136,7 @@ export function SetupPage() {
             required
           />
         </div>
-        {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
+        {error && <div className="text-sm text-danger">{error}</div>}
         <button className="btn-primary w-full py-2" disabled={busy}>
           {busy ? 'Creating…' : 'Create owner account'}
         </button>

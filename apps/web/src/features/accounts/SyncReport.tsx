@@ -82,7 +82,7 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
         <div className="space-y-4">
           {isSyncing(r.sync) && <SyncProgress sync={r.sync} />}
           {r.sync?.finishedAt && (
-            <div className="flex items-center gap-1.5 text-sm text-emerald-700 dark:text-emerald-400">
+            <div className="flex items-center gap-1.5 text-sm text-success">
               <CheckCircle2 size={16} /> First sync finished {timeAgo(r.sync.finishedAt)}
             </div>
           )}
@@ -126,9 +126,9 @@ export function SyncReportModal({ account, onClose }: { account: Account; onClos
             {chats.map((c) => (
               <div key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm">
                 {c.waiting ? (
-                  <Clock size={16} className="shrink-0 text-amber-500" />
+                  <Clock size={16} className="shrink-0 text-warning" />
                 ) : (
-                  <CheckCircle2 size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle2 size={16} className="shrink-0 text-success" />
                 )}
                 <div className="min-w-0 flex-1">
                   <Link to={`/inbox/${c.id}`} className="truncate font-medium hover:underline">
@@ -171,11 +171,9 @@ function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; 
     }
   };
   return (
-    <div
-      className={`rounded-md border p-3 text-sm ${degraded ? 'border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10' : 'border-border'}`}
-    >
+    <div className={`rounded-md border p-3 text-sm ${degraded ? 'border-warning/30 bg-warning-soft' : 'border-border'}`}>
       <div className="flex flex-wrap items-center gap-2">
-        {degraded && <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />}
+        {degraded && <AlertTriangle size={16} className="text-warning" />}
         <span className="flex-1">
           {c ? (
             <>
@@ -202,7 +200,7 @@ function InboxCheckPanel({ account, report: r, onStarted }: { account: Account; 
           ))}
       </div>
       {degraded && (
-        <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+        <p className="mt-1 text-xs text-warning-ink">
           LinkedIn changed how it sends the chat list, so most chats were added from the page: names only, their messages may be missing
           until the bridge is updated. The admins were alerted. A LinkedIn data archive (Import) brings the full history now.
         </p>

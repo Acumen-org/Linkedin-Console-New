@@ -70,9 +70,7 @@ export function ImportModal({ a, onClose }: { a: Account; onClose: () => void })
           />
         </label>
         {s && s.state !== 'none' && (
-          <div
-            className={`rounded-md p-3 ${s.state === 'failed' ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300' : 'bg-surface-muted text-foreground'}`}
-          >
+          <div className={`rounded-md p-3 ${s.state === 'failed' ? 'bg-danger-soft text-danger' : 'bg-surface-muted text-foreground'}`}>
             {s.state === 'failed'
               ? s.error
               : `${s.kind === 'messages' ? 'Messages' : 'Connections'}: ${s.processed ?? 0} read · ${s.added ?? 0} added · ${s.skipped ?? 0} already there or unusable${s.state === 'done' ? ' · done' : '…'}`}

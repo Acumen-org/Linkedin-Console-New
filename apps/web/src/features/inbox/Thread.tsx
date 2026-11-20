@@ -195,7 +195,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
               ))}
           </select>
           <button onClick={() => patch({ isStarred: !c.isStarred })} className="btn-ghost px-2" title="Star">
-            <Star size={18} className={c.isStarred ? 'fill-amber-400 text-amber-400' : ''} />
+            <Star size={18} className={c.isStarred ? 'fill-amber-400 text-warning' : ''} />
           </button>
           <button
             onClick={() => patch({ isArchived: !c.isArchived })}
@@ -325,7 +325,7 @@ function NotesPanel({ conversationId, onClose }: { conversationId: string; onClo
   };
   return (
     // A slide-over on phones (next to the thread it would leave no room), a side panel on larger screens.
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-amber-50 dark:bg-amber-500/10 shadow-xl md:static md:w-72 md:max-w-none md:shrink-0 md:bg-amber-50/40 md:shadow-none">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-sm flex-col border-l border-border bg-warning-soft shadow-xl md:static md:w-72 md:max-w-none md:shrink-0 md:bg-warning-soft md:shadow-none">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <span className="text-sm font-semibold">Team notes</span>
         <button onClick={onClose} className="text-xs text-subtle hover:underline">

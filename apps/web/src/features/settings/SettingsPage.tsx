@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router';
 import { isAdmin, useMe } from '../../App';
 import { PageScroll } from '../../components/Layout';
-import { Empty, LabelChip, Modal, PageHeader } from '../../components/ui';
+import { Empty, LabelChip, Modal, PageHeader, Toggle } from '../../components/ui';
 import { api } from '../../lib/api';
 import { timeAgo } from '../../lib/format';
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../../lib/push';
@@ -95,7 +95,7 @@ function TemplatesTab() {
                 <button onClick={() => setEditing(t)} className="btn-ghost px-2" title="Edit">
                   <Pencil size={16} />
                 </button>
-                <button onClick={() => remove(t)} className="btn-ghost px-2 text-red-600 dark:text-red-400" title="Delete">
+                <button onClick={() => remove(t)} className="btn-ghost px-2 text-danger" title="Delete">
                   <Trash2 size={16} />
                 </button>
               </>
@@ -211,7 +211,7 @@ function LabelsTab() {
               {l.usage} conversation{l.usage === 1 ? '' : 's'}
             </span>
             {isAdmin(me) && (
-              <button onClick={() => remove(l.id, l.name)} className="btn-ghost px-2 text-red-600 dark:text-red-400">
+              <button onClick={() => remove(l.id, l.name)} className="btn-ghost px-2 text-danger">
                 <Trash2 size={16} />
               </button>
             )}
@@ -326,7 +326,7 @@ function WebhooksTab() {
                 {h.events.map((e) => EVENT_LABELS[e]).join(' · ')} {!h.active && '· paused'}
               </div>
               {h.lastDeliveryAt && (
-                <div className={`text-xs ${h.lastError ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                <div className={`text-xs ${h.lastError ? 'text-danger' : 'text-success'}`}>
                   Last delivery {timeAgo(h.lastDeliveryAt)}: {h.lastError ?? `HTTP ${h.lastStatus}`}
                 </div>
               )}
@@ -337,7 +337,7 @@ function WebhooksTab() {
             <button onClick={() => setEditing(h)} className="btn-ghost px-2">
               <Pencil size={16} />
             </button>
-            <button onClick={() => remove(h)} className="btn-ghost px-2 text-red-600 dark:text-red-400">
+            <button onClick={() => remove(h)} className="btn-ghost px-2 text-danger">
               <Trash2 size={16} />
             </button>
           </div>
@@ -411,7 +411,7 @@ function WebhookModal({ hook, onClose }: { hook: Partial<Webhook>; onClose: (sec
           ))}
         </div>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active
+          <Toggle checked={active} onChange={setActive} label="Active" /> Active
         </label>
         <div className="flex justify-end gap-2">
           <button onClick={() => onClose()} className="btn-ghost">

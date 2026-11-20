@@ -112,7 +112,7 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
               type="button"
               onClick={unbindDelete}
               title="Delete this Person and its LinkedIn conversations from Twenty, then unbind (irreversible)"
-              className="inline-flex items-center gap-1 text-subtle hover:text-red-600 dark:hover:text-red-400 hover:underline"
+              className="inline-flex items-center gap-1 text-subtle hover:text-danger dark:hover:text-danger hover:underline"
             >
               <Trash2 size={12} /> Delete from Twenty
             </button>
@@ -122,7 +122,7 @@ export function CrmBindingBar({ conversation, canReply }: { conversation: Conver
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
+    <div className="flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-sm text-warning-ink">
       <Link2 size={15} />
       <span className="flex-1">
         <b>Needs CRM binding.</b> They replied, so they belong in Twenty: {s.reason ?? 'not bound yet'}.
@@ -206,9 +206,7 @@ function BindModal({
       </div>
       <div className="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">
         {candidates.isLoading && <div className="p-4 text-center text-sm text-subtle">Searching Twenty…</div>}
-        {candidates.isError && (
-          <div className="p-4 text-center text-sm text-red-600 dark:text-red-400">{(candidates.error as Error).message}</div>
-        )}
+        {candidates.isError && <div className="p-4 text-center text-sm text-danger">{(candidates.error as Error).message}</div>}
         {candidates.data?.length === 0 && (
           <div className="p-4 text-center text-sm text-subtle">Nobody found: try another spelling, or add them as new.</div>
         )}

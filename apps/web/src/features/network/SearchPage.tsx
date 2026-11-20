@@ -156,10 +156,10 @@ export function SearchPage() {
             </Empty>
           )}
 
-          {search.isError && <div className="p-4 text-sm text-red-700 dark:text-red-300">{(search.error as Error).message}</div>}
+          {search.isError && <div className="p-4 text-sm text-danger">{(search.error as Error).message}</div>}
 
           {data?.limited && (
-            <div className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className="border-b border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning-ink border-warning/30 dark:bg-warning-soft text-warning-ink">
               LinkedIn's monthly search limit for this account has been reached. It resets at the start of next month.
             </div>
           )}

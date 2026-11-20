@@ -44,14 +44,14 @@ export function Layout() {
             <NavLink to="/inbox" className={link}>
               <Inbox size={22} /> Inbox
               {unread > 0 && (
-                <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-600 px-1 text-[10px] leading-4 text-white">
+                <span className="absolute right-1 top-1 min-w-4 rounded-full bg-danger px-1 text-[10px] leading-4 text-white">
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
             </NavLink>
             <NavLink to="/accounts" className={link}>
               <Link2 size={22} /> Accounts
-              {attention > 0 && <span className="absolute right-2 top-1 h-2.5 w-2.5 rounded-full bg-red-600" />}
+              {attention > 0 && <span className="absolute right-2 top-1 h-2.5 w-2.5 rounded-full bg-danger" />}
             </NavLink>
             <NavLink to="/connections" className={link}>
               <Contact size={22} /> Network
