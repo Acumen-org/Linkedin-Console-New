@@ -86,7 +86,7 @@ export async function crmSyncTick(): Promise<CrmSyncStatus | null> {
         const text = (m.text as string | null)?.trim() || (files ? `📎 ${files} attachment${files === 1 ? '' : 's'}` : '(no text)');
         const title = inbound ? `LinkedIn: ${prospect.name} replied` : `LinkedIn: message to ${prospect.name}`;
         const by = inbound ? `From ${prospect.name}` : `Sent by ${m.staffName ?? 'the account owner on LinkedIn'}`;
-        const link = config.appUrl ? `\n\nOpen in Alpha Connect: ${config.appUrl}/inbox/${m.conversationId}` : '';
+        const link = config.appUrl ? `\n\nOpen in Alpha Connext: ${config.appUrl}/inbox/${m.conversationId}` : '';
         const body = `${text}\n\n${by} · LinkedIn account ${m.accountLabel} · ${when(m.sentAt)} UTC${link}`;
         const noteId = await addPersonNote(personId as string, title, body);
         await sql`

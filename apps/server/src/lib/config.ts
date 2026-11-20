@@ -41,7 +41,7 @@ const Env = z.object({
   SEND_RAMP_START: z.coerce.number().int().positive().default(20),
   SEND_RAMP_STEP: z.coerce.number().int().positive().default(10),
   SMTP_URL: z.string().default(''),
-  ALERT_FROM: z.string().default('Alpha Connect <alerts@localhost>'),
+  ALERT_FROM: z.string().default('Alpha Connext <alerts@localhost>'),
   APP_URL: z
     .string()
     .default('')

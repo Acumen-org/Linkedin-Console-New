@@ -4,7 +4,7 @@
    semantic tokens below. Default follows the OS; the header toggle overrides and is remembered. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Brand = Alpha Connect navy + gold. Everything resolves through CSS vars so the .dark overrides take effect and a
+/* Brand = Alpha Connext navy + gold. Everything resolves through CSS vars so the .dark overrides take effect and a
    future rebrand is a palette edit, not a find-replace. `brand` is the solid (buttons, white text on it, both modes);
    `accent` is accent TEXT/links/active state and is lighter in dark so it reads on the dark canvas; `gold` is the
    high-end highlight (the mark's ring, the active-nav bar). */
@@ -22,6 +22,21 @@
   --color-subtle: var(--subtle);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  /* Status tones. Each has a signal (dots/spines/icons), an ink (text on the soft tint) and a soft tint. */
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-ink: var(--danger-ink);
+  --color-danger-soft: var(--danger-soft);
+  --color-gold-ink: var(--gold-ink);
+  --color-gold-soft: var(--gold-soft);
+  /* Navy rail, and the switch "on" track (brand navy would vanish on a navy surface in dark). */
+  --color-rail: var(--rail);
+  --color-switch-on: var(--switch-on);
 }
 
 :root {
@@ -39,6 +54,19 @@
   --subtle: #6b7486;
   --border: #e7e3da;
   --border-strong: #d7d1c4;
+  --success: #2e8b62;
+  --success-ink: #1e6a49;
+  --success-soft: #e7f3ec;
+  --warning: #d4841c;
+  --warning-ink: #8a5206;
+  --warning-soft: #fcf0dc;
+  --danger: #c8463c;
+  --danger-ink: #a32e26;
+  --danger-soft: #fbeae7;
+  --gold-ink: #7a5f1c;
+  --gold-soft: #f7f0dc;
+  --rail: #1f3a5f;
+  --switch-on: #1f3a5f;
 }
 
 .dark {
@@ -56,6 +84,19 @@
   --subtle: #7d8a9e;
   --border: #2a384e;
   --border-strong: #3a4a63;
+  --success: #4ab488;
+  --success-ink: #9fe3c0;
+  --success-soft: #15271f;
+  --warning: #e0a04e;
+  --warning-ink: #f2cd94;
+  --warning-soft: #2a2113;
+  --danger: #e07167;
+  --danger-ink: #f4b4ad;
+  --danger-soft: #2b1714;
+  --gold-ink: #e6d3a0;
+  --gold-soft: #2a2414;
+  --rail: #132640;
+  --switch-on: #2e5484;
 }
 
 html,
@@ -70,7 +111,7 @@ body {
 }
 
 @utility btn {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold;
 }
 @utility btn-primary {
   @apply btn bg-brand text-white hover:bg-brand-dark;
@@ -92,4 +133,61 @@ body {
 }
 @utility label {
   @apply mb-1 block text-xs font-semibold text-muted;
+}
+
+/* --- Spine design system: shared control classes. Structure lives in components/ui.tsx; these are the looks. --- */
+
+/* Icon-only button: a 36px square. Always give it a title (see ui.tsx IconButton). */
+@utility btn-icon {
+  @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface text-muted transition hover:bg-surface-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold;
+}
+/* Compact select, e.g. a period picker or a row action. */
+@utility select-sm {
+  @apply rounded-md border border-border-strong bg-surface px-2.5 py-1.5 text-sm text-foreground outline-none focus:border-brand focus:ring-1 focus:ring-brand;
+}
+/* One line of help under a field or section title. */
+@utility hint {
+  @apply mt-1 text-xs text-muted;
+}
+/* Left-edge state marker: gold = selected/active. Add a tone (spine-success, spine-warning, spine-danger) for status. */
+@utility spine {
+  @apply relative pl-3.5 before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-gold before:content-[''];
+}
+@utility spine-success {
+  @apply before:bg-success;
+}
+@utility spine-warning {
+  @apply before:bg-warning;
+}
+@utility spine-danger {
+  @apply before:bg-danger;
+}
+/* Facts grid: a label above its value. */
+@utility fact {
+  @apply flex flex-col gap-0.5;
+}
+
+/* Segmented control: two to five exclusive choices. The chosen item carries aria-pressed, which this reads. */
+.segmented {
+  @apply inline-flex rounded-lg border border-border bg-surface-muted p-0.5 text-sm;
+}
+.segmented > button {
+  @apply rounded-md px-3 py-1 font-medium text-muted transition;
+}
+.segmented > button[aria-pressed="true"] {
+  @apply bg-surface text-accent shadow-sm;
+}
+.segmented > button:focus-visible {
+  @apply outline-none ring-2 ring-gold;
+}
+
+/* Tabs: the chosen tab carries aria-current, marked by a gold underline. */
+.tabs {
+  @apply flex gap-1 border-b border-border;
+}
+.tabs > .tab {
+  @apply -mb-px cursor-pointer border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted transition hover:text-foreground;
+}
+.tabs > .tab[aria-current="page"] {
+  @apply border-gold text-accent;
 }

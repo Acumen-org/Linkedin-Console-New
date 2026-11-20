@@ -61,7 +61,7 @@ export default async function webhookRoutes(app: FastifyInstance) {
     if (!w) throw notFound();
     const result = await deliver(w, {
       event: 'ping',
-      data: { message: 'Test delivery from Alpha Connect' },
+      data: { message: 'Test delivery from Alpha Connext' },
       at: new Date().toISOString(),
     });
     return result;

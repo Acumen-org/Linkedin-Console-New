@@ -43,7 +43,7 @@ export async function alertAccountStatus(accountId: string, status: string) {
     await transport.sendMail({
       from: config.alertFrom,
       to: recipients.map((r) => r.email).join(', '),
-      subject: `Alpha Connect: "${account.label}" ${msg.subject}`,
+      subject: `Alpha Connext: "${account.label}" ${msg.subject}`,
       text: `${msg.body}\n\n${link ? `Fix it here: ${link}\n` : ''}`,
     });
   } catch (e) {
@@ -65,7 +65,7 @@ export async function alertAdmins(subject: string, body: string, path: string) {
     await transport.sendMail({
       from: config.alertFrom,
       to: admins.map((a) => a.email).join(', '),
-      subject: `Alpha Connect: ${subject}`,
+      subject: `Alpha Connext: ${subject}`,
       text: `${body}${link}`,
     });
   } catch (e) {

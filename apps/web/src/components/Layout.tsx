@@ -115,7 +115,7 @@ function AccountAlerts({ accounts }: { accounts: Account[] }) {
   );
   if (!broken.length) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-2 text-sm text-red-800 dark:text-red-300">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-danger/30 bg-danger-soft px-4 py-2 text-sm text-danger-ink">
       {broken.map((a) => (
         <span key={a.id} className="flex items-center gap-2">
           <b>{a.label}</b>{' '}

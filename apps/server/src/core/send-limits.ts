@@ -134,6 +134,6 @@ export async function watchStaffVolume(user: { id: string; role: string; name: s
   for (const [reason, text] of reasons) {
     if (!(await redis.set(`lu:volume:${user.id}:${reason}`, '1', 'EX', 24 * 3600, 'NX'))) continue;
     await audit({ userId: user.id, action: 'user.volume_alert', meta: { reason, last24h: day, lastHour: hour, cap } });
-    await alertAdmins(`Unusual sending: ${user.name}`, `${text}. See Activity in Alpha Connect for what they sent.`, '/activity');
+    await alertAdmins(`Unusual sending: ${user.name}`, `${text}. See Activity in Alpha Connext for what they sent.`, '/activity');
   }
 }

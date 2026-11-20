@@ -1,6 +1,7 @@
 import { LOGIN_ERRORS, type LoginError } from '@linkedin-console/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, type ReactNode, useState } from 'react';
+import { Wordmark } from '../components/ui';
 import { api } from '../lib/api';
 
 function Shell({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
@@ -9,7 +10,7 @@ function Shell({ title, subtitle, children }: { title: string; subtitle: string;
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand font-bold text-white ring-1 ring-gold/70">AC</div>
-          <span className="text-2xl font-semibold text-accent">Alpha Connect</span>
+          <Wordmark className="text-2xl font-semibold text-accent" />
         </div>
         <div className="card p-6 shadow-sm">
           <h1 className="text-2xl font-semibold">{title}</h1>

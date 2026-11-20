@@ -77,11 +77,14 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
   );
 }
 
-export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
+export function PageHeader({ title, purpose, children }: { title: string; purpose?: string; children?: ReactNode }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <h1 className="text-xl font-semibold">{title}</h1>
-      <div className="flex items-center gap-2">{children}</div>
+    <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="text-xl font-semibold">{title}</h1>
+        {purpose && <p className="hint">{purpose}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
 }
@@ -140,5 +143,163 @@ export function LabelChip({ name, color, small }: { name: string; color: string;
       <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
       {name}
     </span>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Spine design system — shared primitives. Status is always a tone, never a
+   raw red/green class; on/off is always a Toggle. See index.css for the looks.
+   --------------------------------------------------------------------------- */
+
+/** A status tone. `neutral` is the quiet, un-coloured default. */
+export type Tone = 'success' | 'warning' | 'danger' | 'gold' | 'neutral';
+
+const TONE_SOFT: Record<Tone, string> = {
+  success: 'bg-success-soft text-success-ink',
+  warning: 'bg-warning-soft text-warning-ink',
+  danger: 'bg-danger-soft text-danger-ink',
+  gold: 'bg-gold-soft text-gold-ink',
+  neutral: 'bg-surface-muted text-muted',
+};
+const TONE_SIGNAL: Record<Tone, string> = {
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+  gold: 'bg-gold',
+  neutral: 'bg-subtle',
+};
+const SPINE: Record<Tone, string> = {
+  success: 'spine spine-success',
+  warning: 'spine spine-warning',
+  danger: 'spine spine-danger',
+  gold: 'spine',
+  neutral: 'spine',
+};
+
+/** The product wordmark: "Alpha Connext" with the x in gold. */
+export function Wordmark({ className = '' }: { className?: string }) {
+  return (
+    <span className={className}>
+      Alpha Conne<span className="text-gold">x</span>t
+    </span>
+  );
+}
+
+/** A real on/off switch — gold thumb when on. Keyboard-operable (role="switch"). */
+export function Toggle({
+  checked,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'border-switch-on bg-switch-on' : 'border-border-strong bg-surface-muted'}`}
+    >
+      <span
+        className={`absolute h-3.5 w-3.5 rounded-full shadow-sm transition-all ${checked ? 'left-[18px] bg-gold' : 'left-0.5 bg-subtle'}`}
+      />
+    </button>
+  );
+}
+
+/** Status pill. Tone sets the colour; it never sets its own red/green. */
+export function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_SOFT[tone]}`}>
+      {tone !== 'neutral' && <span className={`h-1.5 w-1.5 rounded-full ${TONE_SIGNAL[tone]}`} />}
+      {children}
+    </span>
+  );
+}
+
+/** A small status lamp (dot). */
+export function Lamp({ tone = 'neutral', title }: { tone?: Tone; title?: string }) {
+  return <span title={title} className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_SIGNAL[tone]}`} />;
+}
+
+/** One banner, carrying a tone — replaces the ad-hoc banner styles. Gold edge by default. */
+export function Banner({ tone = 'neutral', children, className = '' }: { tone?: Tone; children: ReactNode; className?: string }) {
+  return <div className={`${SPINE[tone]} rounded-lg px-4 py-2.5 text-sm ${TONE_SOFT[tone]} ${className}`}>{children}</div>;
+}
+
+/** A card section: title, an optional one-line purpose, an optional control on the right. */
+export function Section({
+  title,
+  purpose,
+  action,
+  children,
+}: {
+  title: string;
+  purpose?: string;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="font-semibold">{title}</h2>
+          {purpose && <p className="hint">{purpose}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {children && <div className="mt-4">{children}</div>}
+    </div>
+  );
+}
+
+/** A labelled setting row with a control (often a Toggle) on the right. */
+export function SettingRow({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">{title}</div>
+        {hint && <div className="hint">{hint}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+/** A labelled fact: value under a small label. */
+export function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="fact">
+      <span className="text-xs text-muted">{label}</span>
+      <span className="text-sm font-medium text-foreground">{children}</span>
+    </div>
+  );
+}
+
+/** Segmented control for 2–5 exclusive choices. The chosen item carries aria-pressed. */
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div className="segmented">
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

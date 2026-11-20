@@ -1,6 +1,6 @@
 {
-  "name": "Alpha Connect",
-  "short_name": "Alpha Connect",
+  "name": "Alpha Connext",
+  "short_name": "Alpha Connext",
   "description": "Your team's unified LinkedIn inbox",
   "start_url": "/inbox",
   "scope": "/",
