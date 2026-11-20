@@ -29,13 +29,14 @@ export function Layout() {
     window.location.reload();
   };
 
+  // Navy rail with light text; the active item is marked by a gold left-edge bar (the "spine"), content doesn't shift.
   const link = ({ isActive }: { isActive: boolean }) =>
-    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? "text-accent bg-accent/10 after:absolute after:left-0 after:inset-y-1.5 after:w-[3px] after:rounded-r-full after:bg-gold after:content-['']" : 'text-subtle hover:text-foreground hover:bg-surface-muted'}`;
+    `flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] font-medium relative ${isActive ? "text-white bg-white/10 after:absolute after:left-0 after:inset-y-1.5 after:w-[3px] after:rounded-r-full after:bg-gold after:content-['']" : 'text-white/60 hover:text-white hover:bg-white/10'}`;
 
   return (
     <div className="flex h-full">
-      <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-border bg-surface py-3">
-        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-sm font-bold text-white ring-1 ring-gold/70">
+      <nav className="flex w-[76px] shrink-0 flex-col items-center gap-1 border-r border-brand-dark bg-rail py-3">
+        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 text-sm font-bold text-white ring-1 ring-gold/70">
           AC
         </div>
         {!isAuditor(me) && (
@@ -81,7 +82,7 @@ export function Layout() {
         <div className="flex-1" />
         <button
           onClick={toggleTheme}
-          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-subtle hover:text-foreground hover:bg-surface-muted"
+          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-white/60 hover:bg-white/10 hover:text-white"
           title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />} Theme
@@ -91,7 +92,7 @@ export function Layout() {
         </NavLink>
         <button
           onClick={logout}
-          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-subtle hover:bg-surface-muted"
+          className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-[11px] text-white/60 hover:bg-white/10 hover:text-white"
           title="Log out"
         >
           <LogOut size={20} /> Log out
