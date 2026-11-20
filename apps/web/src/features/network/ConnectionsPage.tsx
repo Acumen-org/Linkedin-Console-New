@@ -62,7 +62,7 @@ export function ConnectionsPage() {
 
   return (
     <PageScroll>
-      <PageHeader title="Network">
+      <PageHeader title="Network" purpose="Your accounts' LinkedIn connections, searchable across the team.">
         <select className="input w-56" value={current?.id ?? ''} onChange={(e) => nav(`/connections/${e.target.value}`)}>
           {accounts.data?.map((a) => (
             <option key={a.id} value={a.id}>

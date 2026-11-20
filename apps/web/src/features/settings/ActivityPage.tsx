@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download } from 'lucide-react';
 import { useState } from 'react';
 import { PageScroll } from '../../components/Layout';
-import { Avatar, Empty, PageHeader, Popover } from '../../components/ui';
+import { Avatar, Empty, PageHeader, Popover, Segmented } from '../../components/ui';
 import { api, qs } from '../../lib/api';
 import { fullTime, timeAgo } from '../../lib/format';
 
@@ -224,18 +224,11 @@ export function ActivityPage() {
       <div className="card mb-4 flex flex-wrap items-end gap-3 p-3">
         <div>
           <span className="label">Period</span>
-          <div className="flex gap-1">
-            {PRESETS.map((p) => (
-              <button
-                key={p.days}
-                type="button"
-                onClick={() => setDays(p.days)}
-                className={days === p.days ? 'btn-primary px-3 py-1.5 text-xs' : 'btn-outline px-3 py-1.5 text-xs'}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            value={String(days)}
+            onChange={(v) => setDays(Number(v))}
+            options={PRESETS.map((p) => ({ value: String(p.days), label: p.label }))}
+          />
         </div>
         <label>
           <span className="label">LinkedIn account</span>

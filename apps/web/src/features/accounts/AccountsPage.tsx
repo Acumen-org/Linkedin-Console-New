@@ -39,7 +39,7 @@ export function AccountsPage() {
 
   return (
     <PageScroll>
-      <PageHeader title="LinkedIn accounts">
+      <PageHeader title="LinkedIn accounts" purpose="Connect accounts and manage each one's sending limits, proxy and team access.">
         {isAdmin(me) && !!accounts.data?.length && <ExportChatsMenu accounts={accounts.data} />}
         {isAdmin(me) && (
           <button onClick={() => setAdding(true)} className="btn-primary">

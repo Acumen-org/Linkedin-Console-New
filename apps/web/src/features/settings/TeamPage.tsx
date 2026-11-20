@@ -256,7 +256,7 @@ export function TeamPage() {
 
   return (
     <PageScroll>
-      <PageHeader title="Team">
+      <PageHeader title="Team" purpose="Teammates and their access. The staff list can provision and disable members automatically.">
         <button type="button" onClick={() => setAdding(true)} className="btn-primary">
           <UserPlus size={16} /> Add staff
         </button>

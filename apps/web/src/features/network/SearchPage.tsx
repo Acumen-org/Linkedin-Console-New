@@ -79,7 +79,7 @@ export function SearchPage() {
 
   return (
     <PageScroll>
-      <PageHeader title="Search">
+      <PageHeader title="Search" purpose="Find people on LinkedIn to reach out to. Connecting is always a human click in Live.">
         <select className="input w-56" value={current?.id ?? ''} onChange={(e) => nav(`/search/${e.target.value}`)}>
           {accounts.data?.map((a) => (
             <option key={a.id} value={a.id}>

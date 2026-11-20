@@ -92,7 +92,7 @@ export function AuditPage() {
 
   return (
     <PageScroll>
-      <PageHeader title="Audit log">
+      <PageHeader title="Audit log" purpose="Every recorded action — filter by teammate, account, type or date, and export.">
         <Popover
           width={240}
           trigger={({ toggle }) => (
